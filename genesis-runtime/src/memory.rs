@@ -101,6 +101,20 @@ impl VramState {
         })
     }
 
+    /// Extracted helper to launch the Night Phase Sort & Prune kernel
+    pub fn run_sort_and_prune(&self, prune_threshold: i16) {
+        unsafe {
+            ffi::launch_sort_and_prune(
+                self.padded_n as u32,
+                self.dendrite_targets,
+                self.dendrite_weights,
+                self.dendrite_refractory, // Using timers
+                prune_threshold,
+                std::ptr::null_mut()
+            );
+        }
+    }
+
     /// Downloads a generic slice of data from the GPU.
     fn download_generic<T: Clone + Default>(&self, ptr: *mut c_void, count: usize) -> anyhow::Result<Vec<T>> {
         let size = count * std::mem::size_of::<T>();
@@ -143,6 +157,48 @@ impl VramState {
 
     pub fn download_dendrite_weights(&self) -> anyhow::Result<Vec<i16>> {
         self.download_generic(self.dendrite_weights, self.padded_n * MAX_DENDRITE_SLOTS)
+    }
+
+    pub fn download_dendrite_targets(&self) -> anyhow::Result<Vec<u32>> {
+        self.download_generic(self.dendrite_targets, self.padded_n * MAX_DENDRITE_SLOTS)
+    }
+
+    pub fn upload_dendrite_weights(&self, host_data: &[i16]) -> anyhow::Result<()> {
+        let expected_len = self.padded_n * MAX_DENDRITE_SLOTS;
+        if host_data.len() != expected_len {
+            anyhow::bail!("Invalid length: expected {}, got {}", expected_len, host_data.len());
+        }
+        let size = expected_len * std::mem::size_of::<i16>();
+        let success = unsafe {
+            ffi::gpu_memcpy_host_to_device(
+                self.dendrite_weights,
+                host_data.as_ptr() as *const std::ffi::c_void,
+                size,
+            )
+        };
+        if !success {
+            anyhow::bail!("gpu_memcpy_host_to_device failed for dendrite weights");
+        }
+        Ok(())
+    }
+
+    pub fn upload_dendrite_targets(&self, host_data: &[u32]) -> anyhow::Result<()> {
+        let expected_len = self.padded_n * MAX_DENDRITE_SLOTS;
+        if host_data.len() != expected_len {
+            anyhow::bail!("Invalid length: expected {}, got {}", expected_len, host_data.len());
+        }
+        let size = expected_len * std::mem::size_of::<u32>();
+        let success = unsafe {
+            ffi::gpu_memcpy_host_to_device(
+                self.dendrite_targets,
+                host_data.as_ptr() as *const std::ffi::c_void,
+                size,
+            )
+        };
+        if !success {
+            anyhow::bail!("gpu_memcpy_host_to_device failed for dendrite targets");
+        }
+        Ok(())
     }
 
     pub fn download_dendrite_timers(&self) -> anyhow::Result<Vec<u8>> {

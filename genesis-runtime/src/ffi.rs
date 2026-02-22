@@ -57,4 +57,12 @@ extern "C" {
         outbound_spikes_count: *mut c_void,
         stream: *mut c_void,
     );
+    pub fn launch_sort_and_prune(
+        padded_n: u32,
+        dendrite_targets: *mut c_void,
+        dendrite_weights: *mut c_void,
+        dendrite_timers: *mut c_void,
+        prune_threshold: i16,
+        stream: *mut c_void,
+    );
 }

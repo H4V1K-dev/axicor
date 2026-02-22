@@ -332,3 +332,61 @@ fn test_spike_routing() {
     unsafe { genesis_runtime::ffi::gpu_free(gpu_schedule_buffer); }
 }
 
+#[test]
+fn test_sort_and_prune() {
+    let consts = setup_constants();
+    Runtime::init_constants(&consts);
+
+    let mut builder = MockBakerBuilder::new(1, 1);
+    
+    // Neuron 0 dendrite slots (intentionally unsorted)
+    // We'll set weights: slot 0: -50, slot 1: 200, slot 2: 10, slot 3: -300, slot 4: 0 (empty)
+    builder.set_dendrite(0, 0, 1, 10, -50);
+    builder.set_dendrite(0, 1, 1, 11, 200);   // Strongest positive
+    builder.set_dendrite(0, 2, 1, 12, 10);    // Below threshold (should be pruned)
+    builder.set_dendrite(0, 3, 1, 13, -300);  // Strongest absolute
+    builder.set_dendrite(0, 4, 1, 14, 0);     // Below threshold
+    builder.set_dendrite(0, 5, 1, 15, 20);    // Barely above threshold (say threshold is 15)
+
+    let (state_bytes, axons_bytes) = builder.build();
+    let vram = VramState::load_shard(&state_bytes, &axons_bytes).unwrap();
+    
+    let threshold: i16 = 15;
+    
+    // Launch sort and prune
+    vram.run_sort_and_prune(threshold);
+
+    // Give it a moment to run and sync
+    unsafe { genesis_runtime::ffi::gpu_device_synchronize(); }
+
+    let new_weights = vram.download_dendrite_weights().unwrap();
+    let new_targets = vram.download_dendrite_targets().unwrap();
+
+    let pn = vram.padded_n;
+    let weight = |slot: usize| new_weights[slot * pn];
+    let target = |slot: usize| new_targets[slot * pn];
+
+    // The order by absolute weight descending should be:
+    // 1. -300  (orig slot 3)
+    // 2. 200   (orig slot 1)
+    // 3. -50   (orig slot 0)
+    // 4. 20    (orig slot 5)
+    // Everything else pruned to target 0 and pushed to the back.
+
+    assert_eq!(weight(0), -300, "Slot 0 should be -300");
+    assert_eq!(target(0) & 0xFF, 13, "Slot 0 should map to segment 13");
+
+    assert_eq!(weight(1), 200, "Slot 1 should be 200");
+    assert_eq!(target(1) & 0xFF, 11, "Slot 1 should map to segment 11");
+
+    assert_eq!(weight(2), -50, "Slot 2 should be -50");
+    assert_eq!(target(2) & 0xFF, 10, "Slot 2 should map to segment 10");
+
+    assert_eq!(weight(3), 20, "Slot 3 should be 20");
+    assert_eq!(target(3) & 0xFF, 15, "Slot 3 should map to segment 15");
+
+    // Slot 4 and onwards must have target_packed = 0 due to pruning
+    assert_eq!(target(4), 0, "Slot 4 (orig weight 10) should be pruned");
+    assert_eq!(target(5), 0, "Slot 5 (orig weight 0) should be pruned");
+}
+
