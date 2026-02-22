@@ -203,3 +203,60 @@ fn test_orchestrator_day_phase() {
     assert_eq!(axon_heads[1], 190, "Ghost axon should have been injected at tick 5 and propagated 95 times");
 }
 
+#[test]
+fn test_record_outputs() {
+    use std::ffi::c_void;
+    let consts = setup_constants();
+    Runtime::init_constants(&consts);
+
+    let mut builder = MockBakerBuilder::new(3, 1);
+    
+    // We want neuron 0 and neuron 2 to fire.
+    // Neuron 0: Voltage = 150, Threshold = 100 -> FIRES
+    builder.voltages[0] = 150;
+    
+    // Neuron 1: Voltage = 0, Threshold = 100 -> DOES NOT FIRE
+    builder.voltages[1] = 0;
+    
+    // Neuron 2: Voltage = 150, Threshold = 100 -> FIRES
+    builder.voltages[2] = 150;
+    
+    // Ensure they aren't refractory
+    builder.refractory_timers[0] = 0;
+    builder.refractory_timers[1] = 0;
+    builder.refractory_timers[2] = 0;
+
+    let (state_bytes, axons_bytes) = builder.build();
+    let vram = VramState::load_shard(&state_bytes, &axons_bytes).unwrap();
+    let mut runtime = Runtime::new(vram, 1);
+
+    // We only need 1 tick to test firing
+    let barrier = BspBarrier::new(1);
+    let schedule_size = 1024 * std::mem::size_of::<u32>();
+    let gpu_schedule_buffer = unsafe { genesis_runtime::ffi::gpu_malloc(schedule_size) };
+    let zero: u32 = 0;
+    unsafe {
+        genesis_runtime::ffi::gpu_memcpy_host_to_device(
+            gpu_schedule_buffer,
+            &zero as *const _ as *const c_void, // just zero out the first 4 bytes is enough since count is 0
+            4
+        );
+    }
+
+    DayPhase::run_batch(&mut runtime, &barrier, gpu_schedule_buffer);
+    runtime.synchronize();
+
+    let count = runtime.vram.download_outbound_spikes_count().unwrap();
+    assert_eq!(count, 2, "Expected exactly 2 neurons to fire");
+
+    let spikes = runtime.vram.download_outbound_spikes_buffer(count as usize).unwrap();
+    
+    // Which ones fired? We expect index 0 and 2.
+    // Note: atomicAdd on the GPU doesn't guarantee strict ordering, so they might be [0, 2] or [2, 0]
+    assert!(spikes.contains(&0), "Expected neuron 0 in outbound spikes");
+    assert!(spikes.contains(&2), "Expected neuron 2 in outbound spikes");
+    assert!(!spikes.contains(&1), "Neuron 1 should not have spiked");
+
+    unsafe { genesis_runtime::ffi::gpu_free(gpu_schedule_buffer); }
+}
+

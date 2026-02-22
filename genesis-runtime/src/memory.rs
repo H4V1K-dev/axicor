@@ -22,6 +22,10 @@ pub struct VramState {
     pub dendrite_targets: *mut c_void,
     pub dendrite_weights: *mut c_void,
     pub dendrite_refractory: *mut c_void,
+
+    // Outbound Spikes (Per-Tick, MAX_SPIKES_PER_TICK length)
+    pub outbound_spikes_buffer: *mut c_void,
+    pub outbound_spikes_count: *mut c_void,
 }
 
 impl VramState {
@@ -72,6 +76,14 @@ impl VramState {
         let dendrite_refractory = allocate_and_copy(dc * 1)?;
         let axon_head_index = allocate_and_copy(pa * 4)?;
 
+        // Output buffer for spikes. Max 1024 spikes per tick.
+        let outbound_spikes_buffer = unsafe { ffi::gpu_malloc(1024 * 4) };
+        let outbound_spikes_count = unsafe { ffi::gpu_malloc(4) };
+
+        // Initialize count to 0
+        let zero: u32 = 0;
+        unsafe { ffi::gpu_memcpy_host_to_device(outbound_spikes_count, &zero as *const _ as *const c_void, 4) };
+
         Ok(VramState {
             padded_n: pn,
             total_axons: pa,
@@ -84,6 +96,8 @@ impl VramState {
             dendrite_targets,
             dendrite_weights,
             dendrite_refractory,
+            outbound_spikes_buffer,
+            outbound_spikes_count,
         })
     }
 
@@ -134,6 +148,23 @@ impl VramState {
     pub fn download_dendrite_timers(&self) -> anyhow::Result<Vec<u8>> {
         self.download_generic(self.dendrite_refractory, self.padded_n * MAX_DENDRITE_SLOTS)
     }
+
+    pub fn download_outbound_spikes_count(&self) -> anyhow::Result<u32> {
+        let mut count: u32 = 0;
+        let success = unsafe {
+            ffi::gpu_memcpy_device_to_host(
+                &mut count as *mut _ as *mut c_void,
+                self.outbound_spikes_count,
+                4,
+            )
+        };
+        if !success { anyhow::bail!("Failed to download outbound spikes count") }
+        Ok(count)
+    }
+
+    pub fn download_outbound_spikes_buffer(&self, count: usize) -> anyhow::Result<Vec<u32>> {
+        self.download_generic(self.outbound_spikes_buffer, count)
+    }
 }
 
 impl Drop for VramState {
@@ -151,6 +182,9 @@ impl Drop for VramState {
             ffi::gpu_free(self.dendrite_targets);
             ffi::gpu_free(self.dendrite_weights);
             ffi::gpu_free(self.dendrite_refractory);
+
+            ffi::gpu_free(self.outbound_spikes_buffer);
+            ffi::gpu_free(self.outbound_spikes_count);
         }
     }
 }

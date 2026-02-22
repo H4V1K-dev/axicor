@@ -165,7 +165,8 @@ __global__ void apply_gsop_kernel(uint32_t padded_n, uint8_t *flags,
     return;
 
   uint8_t f = flags[tid];
-  uint8_t variant = (f >> 6) & 0x3;
+  uint8_t type_mask = f >> 4;
+  uint8_t variant = (type_mask >> 2) & 0x3;
   VariantParameters p = const_mem.variants[variant];
   bool is_spiking = (f & 1) != 0;
 

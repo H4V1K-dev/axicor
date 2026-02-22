@@ -50,4 +50,11 @@ extern "C" {
         axon_heads: *mut c_void,
         stream: *mut c_void,
     );
+    pub fn launch_record_outputs(
+        padded_n: u32,
+        flags: *mut c_void,
+        outbound_spikes_buffer: *mut c_void,
+        outbound_spikes_count: *mut c_void,
+        stream: *mut c_void,
+    );
 }

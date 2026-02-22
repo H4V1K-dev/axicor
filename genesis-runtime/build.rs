@@ -15,6 +15,7 @@ fn main() {
         .file("cuda/bindings.cu")
         .file("cuda/physics.cu")
         .file("cuda/apply_spike_batch.cu")
+        .file("cuda/record_outputs.cu")
         .compile("libgenesis_cuda.a");
 
     // Automatically link CUDA runtime

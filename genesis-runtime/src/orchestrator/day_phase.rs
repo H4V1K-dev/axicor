@@ -30,11 +30,50 @@ impl DayPhase {
                 }
             }
 
-            // 2. Propagate Axons
-            runtime.tick(); // Existing logic (Propagate, UpdateNeurons, ApplyGSOP)
+            // 2. Propagate Axons, Update Neurons, Apply GSOP
+            runtime.tick();
 
-            // 3. (Future) RecordOutgoingSpikes
-            // ffi::launch_record_outputs(...)
+            // 3. Record Outgoing Spikes
+            unsafe {
+                // Reset counter to 0 for this tick
+                let zero: u32 = 0;
+                ffi::gpu_memcpy_host_to_device(
+                    runtime.vram.outbound_spikes_count,
+                    &zero as *const _ as *const c_void,
+                    4
+                );
+
+                ffi::launch_record_outputs(
+                    runtime.vram.padded_n as u32,
+                    runtime.vram.flags,
+                    runtime.vram.outbound_spikes_buffer,
+                    runtime.vram.outbound_spikes_count,
+                    std::ptr::null_mut(),
+                );
+                
+                // Read back the count
+                let mut host_count: u32 = 0;
+                ffi::gpu_memcpy_device_to_host(
+                    &mut host_count as *mut _ as *mut c_void,
+                    runtime.vram.outbound_spikes_count,
+                    4
+                );
+
+                // If any spikes occurred, read the dense IDs
+                if host_count > 0 {
+                    let mut host_spikes = vec![0u32; host_count as usize];
+                    ffi::gpu_memcpy_device_to_host(
+                        host_spikes.as_mut_ptr() as *mut c_void,
+                        runtime.vram.outbound_spikes_buffer,
+                        (host_count as usize) * 4
+                    );
+
+                    // TODO: In a real system, these dense IDs are handed over to the network layer
+                    // where they are mapped to Ghost IDs and UDP transmitted.
+                    // For now, we print them (or collect them) if debugging.
+                    // println!("Tick {}: {} neurons spiked!", current_tick, host_count);
+                }
+            }
         }
 
         // Wait for all GPU streams to finish before network barrier

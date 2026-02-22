@@ -70,11 +70,11 @@ impl MockBakerBuilder {
         }
 
         // Layout matching memory.rs allocate_and_copy sequence:
-        // voltage, flags, threshold_offset, refractory_timer, soma_to_axon, targets, weights, refractory(timers), axon_heads
+        // voltage, threshold_offset, refractory_timer, flags, soma_to_axon, targets, weights, refractory(timers), axon_heads
         append_bytes!(self.voltages);
-        append_bytes!(self.flags);
         append_bytes!(self.threshold_offsets);
         append_bytes!(self.refractory_timers);
+        append_bytes!(self.flags);
         append_bytes!(self.soma_to_axons);
         append_bytes!(self.dendrite_targets);
         append_bytes!(self.dendrite_weights);
