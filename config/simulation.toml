@@ -1,0 +1,4 @@
+[simulation]
+sync_batch_ticks = 100
+voxel_size_um = 10
+signal_speed_um_tick = 50

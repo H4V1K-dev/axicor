@@ -4,6 +4,7 @@ pub mod router;
 pub mod slow_path;
 pub mod geometry_client;
 pub mod socket;
+pub mod telemetry;
 
 use bytemuck::{Pod, Zeroable};
 

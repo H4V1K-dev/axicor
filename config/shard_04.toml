@@ -1,0 +1,14 @@
+zone_id = "V1"
+
+[world_offset]
+x = 0
+y = 0
+z = 0
+
+[dimensions]
+w = 100
+d = 100
+h = 100
+
+[neighbors]
+# None for this test

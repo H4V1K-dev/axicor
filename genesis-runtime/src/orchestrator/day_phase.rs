@@ -8,7 +8,14 @@ pub struct DayPhase;
 
 impl DayPhase {
     /// Runs the main GPU compute loop for one full synchronization batch.
-    pub async fn run_batch(runtime: &mut Runtime, barrier: &mut BspBarrier, router: &mut SpikeRouter, gpu_schedule_buffer: *mut c_void, batch_id: u32) -> anyhow::Result<()> {
+    pub async fn run_batch(
+        runtime: &mut Runtime, 
+        barrier: &mut BspBarrier, 
+        router: &mut SpikeRouter, 
+        gpu_schedule_buffer: *mut c_void, 
+        batch_id: u32,
+        telemetry_tx: Option<&tokio::sync::broadcast::Sender<crate::network::telemetry::TelemetryPayload>>
+    ) -> anyhow::Result<()> {
         let schedule = barrier.get_active_schedule();
         let batch_ticks = schedule.sync_batch_ticks;
 
@@ -87,6 +94,14 @@ impl DayPhase {
 
                     // We pass them to the router immediately to translate into Network packets
                     router.route_spikes(&host_spikes, current_tick as u32);
+                    
+                    // Broadcast telemetry if connected
+                    if let Some(tx) = telemetry_tx {
+                        let _ = tx.send(crate::network::telemetry::TelemetryPayload {
+                            tick: (batch_id as u64) * (batch_ticks as u64) + (current_tick as u64),
+                            active_spikes: host_spikes,
+                        });
+                    }
                 }
             }
         }

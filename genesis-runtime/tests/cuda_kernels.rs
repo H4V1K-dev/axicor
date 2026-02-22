@@ -188,7 +188,7 @@ fn test_orchestrator_day_phase() {
 
     // Run the Day Phase with the copied device pointer!
     rt.block_on(async {
-        DayPhase::run_batch(&mut runtime, &mut barrier, &mut router, gpu_schedule_buffer, 0).await.unwrap();
+        DayPhase::run_batch(&mut runtime, &mut barrier, &mut router, gpu_schedule_buffer, 0, None).await.unwrap();
     });
     runtime.synchronize();
 
@@ -253,7 +253,7 @@ fn test_record_outputs() {
     let mut router = genesis_runtime::network::router::SpikeRouter::new();
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        DayPhase::run_batch(&mut runtime, &mut barrier, &mut router, gpu_schedule_buffer, 0).await.unwrap();
+        DayPhase::run_batch(&mut runtime, &mut barrier, &mut router, gpu_schedule_buffer, 0, None).await.unwrap();
     });
     runtime.synchronize();
 
@@ -318,7 +318,7 @@ fn test_spike_routing() {
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        DayPhase::run_batch(&mut runtime, &mut barrier, &mut router, gpu_schedule_buffer, 0).await.unwrap();
+        DayPhase::run_batch(&mut runtime, &mut barrier, &mut router, gpu_schedule_buffer, 0, None).await.unwrap();
     });
     runtime.synchronize();
 
@@ -443,7 +443,7 @@ fn test_inject_inputs() {
     // Tick 1: Inject 10 -> head=0. Propagate -> head=3. Axon 5 head=6.
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        DayPhase::run_batch(&mut runtime, &mut barrier, &mut router, std::ptr::null_mut(), 1).await.unwrap();
+        DayPhase::run_batch(&mut runtime, &mut barrier, &mut router, std::ptr::null_mut(), 1, None).await.unwrap();
     });
     
     runtime.synchronize();

@@ -12,6 +12,7 @@ use std::ffi::c_void;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::time::Instant;
+use genesis_runtime::network::telemetry::TelemetryServer;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -87,6 +88,10 @@ async fn main() -> Result<()> {
 
     // Setup UDP Router (routing table built dynamically based on InstanceConfig neighbors)
     let mut router = SpikeRouter::new();
+    
+    // Setup Telemetry WebSockets Server
+    let telemetry_port = cli.port + 2; // e.g. 8002
+    let telemetry_tx = TelemetryServer::start(telemetry_port).await;
 
     // 4.1 Fast Path: Bind UDP Socket
     let udp_addr = format!("0.0.0.0:{}", cli.port);
@@ -160,6 +165,7 @@ async fn main() -> Result<()> {
             &mut router,
             gpu_schedule_buffer.as_mut_ptr() as *mut c_void,
             current_tick as u32,
+            Some(&telemetry_tx)
         ).await.context("Day Phase execution failed")?;
 
         current_tick += 1;
