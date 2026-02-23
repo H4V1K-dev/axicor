@@ -11,3 +11,4 @@ global_density = 0.05
 voxel_size_um = 25
 signal_speed_um_tick = 50
 sync_batch_ticks = 1000
+num_virtual_axons = 1024

@@ -124,7 +124,16 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
         axons.append(&mut ext_axons);
     }
 
-    println!("[baker] ✓ Total Grown: {} axons ({} local)", axons.len(), local_axons_count);
+    // --- 5.6 Mock Retina (Virtual Axons) ---
+    let num_virtual = sim.simulation.num_virtual_axons.unwrap_or(0);
+    if num_virtual > 0 {
+        println!("[baker] Generating Mock Retina ({} virtual axons)...", num_virtual);
+        let mut retina_axons = bake::axon_growth::grow_mock_retina(num_virtual, &sim);
+        axons.append(&mut retina_axons);
+    }
+
+    println!("[baker] ✓ Total Grown: {} axons ({} local, {} virtual)", 
+        axons.len(), local_axons_count, num_virtual);
 
     // --- 6. Build SoA state ---
     let rest_potential = blueprints

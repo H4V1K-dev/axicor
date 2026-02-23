@@ -102,6 +102,7 @@ pub struct SimulationRuntime {
     pub sync_batch_ticks: u32,
     pub voxel_size_um: u32,
     pub signal_speed_um_tick: u32,
+    pub num_virtual_axons: Option<u32>,
 }
 
 pub fn parse_simulation_config(path: &Path) -> Result<SimulationConfigRoot> {

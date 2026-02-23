@@ -425,3 +425,46 @@ pub fn grow_external_axons(
 
     ext_axons
 }
+
+/// Создаёт 2D-сетку виртуальных аксонов (Mock Retina).
+/// Они располагаются на плоскости Z=0 и смотрят вверх.
+pub fn grow_mock_retina(
+    num_virtual: u32,
+    sim: &SimulationConfig,
+) -> Vec<GrownAxon> {
+    if num_virtual == 0 {
+        return Vec::new();
+    }
+
+    let mut retina = Vec::with_capacity(num_virtual as usize);
+    let world_w_vox = sim.world.width_um / sim.simulation.voxel_size_um;
+    let world_d_vox = sim.world.depth_um / sim.simulation.voxel_size_um;
+
+    // Предположим, что мы распределяем сетчатку квадратом
+    let side = (num_virtual as f32).sqrt().ceil() as u32;
+    let step_x = (world_w_vox as f32 / side as f32).max(1.0);
+    let step_y = (world_d_vox as f32 / side as f32).max(1.0);
+
+    for i in 0..num_virtual {
+        let ix = i % side;
+        let iy = i / side;
+
+        let tip_x = ((ix as f32 * step_x) as u32).min(world_w_vox.saturating_sub(1));
+        let tip_y = ((iy as f32 * step_y) as u32).min(world_d_vox.saturating_sub(1));
+        let tip_z = 0; // Сетчатка лежит на дне (z=0)
+
+        retina.push(GrownAxon {
+            soma_idx: usize::MAX, // Signifies external origin
+            type_idx: 0, // Условно 0 (Excitatory)
+            tip_x,
+            tip_y,
+            tip_z,
+            length_segments: 1,
+            // (Type=0 | Z=0 | Y=tip_y | X=tip_x)
+            segments: vec![(tip_z << 20) | (tip_y << 10) | tip_x],
+        });
+    }
+
+    retina
+}
+

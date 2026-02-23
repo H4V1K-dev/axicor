@@ -42,6 +42,10 @@ struct Cli {
     /// Path to the blueprints configuration (neuron type LUT)
     #[arg(long, default_value = "genesis-runtime/examples/blueprints.toml")]
     blueprints: PathBuf,
+
+    /// Actively injects a sweeping signal into Virtual Axons each sync_batch
+    #[arg(long)]
+    mock_retina: bool,
 }
 
 #[tokio::main]
@@ -81,12 +85,14 @@ async fn main() -> Result<()> {
     let cpu_axons = deserialize_axons(&axons_bytes)
         .unwrap_or_else(|e| { eprintln!("[Node] Warning: could not parse axons for CPU: {}", e); vec![] });
     println!("[Node] CPU geometry: {} neurons, {} axons loaded for Night Phase.",
-        cpu_neurons.len(), cpu_axons.len());;
+        cpu_neurons.len(), cpu_axons.len());
 
-    let vram = VramState::load_shard(&state_bytes, &axons_bytes)
+    let num_virtual = sim_config.simulation.num_virtual_axons.unwrap_or(0);
+    let vram = VramState::load_shard(&state_bytes, &axons_bytes, num_virtual)
         .context("Failed to push shard data to GPU VRAM")?;
 
-    println!("[Node] VRAM Load Complete. {} neurons, {} axons", vram.padded_n, vram.total_axons);
+    println!("[Node] VRAM Load Complete. {} neurons, {} total axons ({} virtual)", 
+             vram.padded_n, vram.total_axons, vram.num_virtual);
 
     // 4. Initialize Network
     // - UDP Fast Path Router
@@ -222,7 +228,22 @@ async fn main() -> Result<()> {
     loop {
         let _loop_start = Instant::now();
 
-        // 6.1 Day Phase: GPU Execution & Network Sync
+        // 6.1 Mock Retina Injection
+        if cli.mock_retina && num_virtual > 0 {
+            let side = (num_virtual as f32).sqrt().ceil() as u32;
+            // Двигаем полосу каждые 2 батча
+            let sweep_x = (current_tick as u32 / 2) % side; 
+            let mut bitmask = vec![0u32; (num_virtual as usize + 31) / 32];
+            for i in 0..num_virtual {
+                let ix = i % side;
+                if ix == sweep_x || ix == (sweep_x + 1) % side { // Линия толщиной 2 вокселя
+                    bitmask[i as usize / 32] |= 1 << (i % 32);
+                }
+            }
+            runtime.vram.upload_input_bitmask(&bitmask).context("Mock Retina upload failed")?;
+        }
+
+        // 6.2 Day Phase: GPU Execution & Network Sync
         // We utilize the GPU async execution cycle.
         genesis_runtime::orchestrator::day_phase::DayPhase::run_batch(
             &mut runtime,

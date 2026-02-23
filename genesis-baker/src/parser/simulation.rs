@@ -33,6 +33,8 @@ pub struct Simulation {
     pub signal_speed_um_tick: u16,
     /// Количество тиков автономного расчета между синхронизациями шардов.
     pub sync_batch_ticks: u32,
+    /// Количество виртуальных аксонов (сетчатка). Опционально.
+    pub num_virtual_axons: Option<u32>,
 }
 
 impl SimulationConfig {
