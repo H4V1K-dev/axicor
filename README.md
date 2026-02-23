@@ -6,9 +6,9 @@
 
 ## Что это
 
-Genesis — это полная спецификация и (в разработке) реализация биологической самонейростимулируемой нейросети с собственным законом пластичности, физикой сигналов и двухфазным циклом жизни.
+Genesis — реализация биологически-вдохновленной нейросети с собственным законом пластичности, целочисленной физикой сигналов и двухфазным циклом жизни (Day/Night). Полность детерминирована: воспроизводимый результат на любом железе.
 
-Цель: Дать технологию в руки всем. Воплощённый AGI в руках каждого — от одного GPU до кластера, каждый энтузиаст или компания должны смочь скачать готовый стек и запустить интеллект в своём роботе. Масштаб зависит только от ваших ресурсов, будет это сопоставимо с пчелиным мозгом или человеческим.
+Цель: воплощённый AGI в руках каждого — от одного GPU до кластера. Масштаб зависит только от ваших ресурсов.
 
 ---
 
@@ -47,19 +47,82 @@ Genesis — это полная спецификация и (в разработ
 
 ## Статус
 
-**Pre-alpha. Спецификация почти финализирована. Код в разработке.**
+**Pre-alpha. Активная разработка.**
 
-Первый коммит содержит только документацию. Реализация начинается с [`genesis-baker`](./genesis-baker/) — компилятора TOML-конфигов в бинарные блобы для GPU.
+| Компонент | Статус | Описание |
+|---|---|---|
+| Спецификация | ✅ Готово | 7 документов, ~3000 строк. Вся архитектура |
+| `genesis-core` | 🔨 В работе | Общие типы, константы, SoA layout |
+| `genesis-baker` | 🔨 В работе | TOML → `.state` / `.axons` / `.positions` |
+| `genesis-runtime` | 🔨 В работе | Orchestrator, Day/Night Phase, BSP, UDP Router, WebSocket telemetry |
+| `genesis-ide` | 🔨 В работе | Bevy-based 3D визуализатор с live telemetry |
 
-Roadmap и записи о прогрессе: [DEVLOG.md](./DEVLOG.md)
+### genesis-baker
+
+Компилятор конфигов. Принимает 4 TOML-файла, выдаёт бинарные блобы готовые к загрузке на GPU:
+
+```
+baker compile \
+  --simulation simulation.toml \
+  --blueprints blueprints.toml \
+  --anatomy     anatomy.toml \
+  --io          io.toml \
+  --output      baked/
+```
+
+Пайплайн: парсинг → валидация инвариантов → размещение нейронов → Cone Tracing (рост аксонов) → Atlas Routing (белое вещество) → подключение дендритов → запись `.state` / `.axons` / `.positions`.
+
+Запись атомарная: `.tmp` → `rename`.
+
+### genesis-runtime
+
+Daemon одного шарда распределённой сети. Запускается как:
+
+```
+genesis-node --config shard_04.toml --port 8000
+```
+
+Реализовано:
+- Загрузка `.state` / `.axons` напрямую в VRAM (zero-copy)
+- UDP Fast Path (BSP-барьер для межшардовой синхронизации)
+- TCP Geometry Server (slow path, структурная пластичность)
+- WebSocket Telemetry Server (порт + 2) — live поток спайков
+- Эфемерный цикл: Day Phase (GPU batch) → Night Phase (CPU plasticity)
+
+### genesis-ide
+
+3D-визуализатор на [Bevy](https://bevyengine.org/). Читает `.positions` из baker, подключается к runtime по WebSocket и показывает активность сети в реальном времени.
+
+Плагины:
+- `LoaderPlugin` — загрузка `.positions`, переход в состояние `Running`
+- `WorldPlugin` — 3D точки-нейроны, цветовая кодировка по типу
+- `CameraPlugin` — орбитальная камера + Fly-режим, управление мышью и клавиатурой
+- `HudPlugin` — оверлей: FPS, кол-во нейронов, аксонов, выбранный нейрон
+- `TelemetryPlugin` — WebSocket-клиент, подсветка активных нейронов по спайкам
+
+---
+
+## Быстрый старт
+
+```bash
+# 1. Скомпилировать конфиги в бинарные блобы
+cargo run -p genesis-baker -- compile --output baked/
+
+# 2. Запустить runtime-ноду
+cargo run -p genesis-runtime -- --config config/shard_00.toml --port 8000
+
+# 3. Открыть визуализатор
+cargo run -p genesis-ide
+```
 
 ---
 
 ## Стек
 
-- **Rust** — движок, Baking Tool, оркестратор
-- **CUDA** — GPU-ядра (Day Phase)
-- **Python** (опционально) — визуализация, инструменты анализа
+- **Rust** — весь движок (baker, runtime, IDE)
+- **CUDA** — GPU-ядра (Day Phase, в разработке via FFI)
+- **Bevy** — 3D visualization (genesis-ide)
+- **Tokio** — async runtime, WebSocket, UDP
 
 ---
 
@@ -67,4 +130,4 @@ Roadmap и записи о прогрессе: [DEVLOG.md](./DEVLOG.md)
 
 GPLv3 + коммерческое лицензирование. Подробности в [LICENSE](./LICENSE).
 
-Открытый код. Каждый сможет взять, запустить, встроить в своего робота.
+Copyright (C) 2026  Oleksandr Arzamazov
