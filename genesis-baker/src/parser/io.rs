@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use std::collections::HashMap;
 
 /// Represents external projection connections coming into this shard (White Matter/Atlas).
 #[derive(Debug, Deserialize)]

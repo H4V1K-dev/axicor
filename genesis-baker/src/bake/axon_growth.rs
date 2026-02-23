@@ -17,6 +17,8 @@ pub struct GrownAxon {
     pub tip_z: u32,
     /// Длина аксона в сегментах (для инициализации axon_head)
     pub length_segments: u32,
+    /// Геометрия кусочно-линейная (PackedPositions: Type|Z|Y|X)
+    pub segments: Vec<u32>,
 }
 
 /// Кэш Z-диапазонов слоёв (вычисляется один раз из anatomy + sim)
@@ -58,6 +60,10 @@ pub fn compute_layer_ranges(anatomy: &Anatomy, sim: &SimulationConfig) -> Vec<La
 /// 5. XY: небольшой дрейф конуса (FOV) относительно оригинальной XY-позиции.
 ///    `tip_x = soma_x + Δx`, где `|Δx| ≤ cone_radius`
 /// 6. Длина аксона = |target_z - soma_z| + 1 (в сегментах-вокселях)
+use crate::bake::cone_tracing::calculate_v_attract;
+use crate::bake::spatial_grid::SpatialGrid;
+use glam::Vec3;
+
 pub fn grow_axons(
     neurons: &[PlacedNeuron],
     layer_ranges: &[LayerZRange],
@@ -69,6 +75,7 @@ pub fn grow_axons(
     let world_d_vox = sim.world.depth_um / sim.simulation.voxel_size_um;
 
     let mut axons = Vec::with_capacity(neurons.len());
+    let spatial_grid = SpatialGrid::new(neurons);
 
     for (soma_idx, neuron) in neurons.iter().enumerate() {
         let soma_z = neuron.z();
@@ -94,10 +101,9 @@ pub fn grow_axons(
             Some(l) => (l.z_start_vox, l.z_end_vox),
             None => {
                 // Верхний слой — аксон тянется вниз к предыдущему
-                let bottom = layer_ranges
+                layer_ranges
                     .first()
-                    .map_or((0u32, 1u32), |l| (l.z_start_vox, l.z_end_vox));
-                bottom
+                    .map_or((0u32, 1u32), |l| (l.z_start_vox, l.z_end_vox))
             }
         };
 
@@ -106,26 +112,106 @@ pub fn grow_axons(
         let tip_z = (target_z_start as f32 + soma_rel_z * target_h) as u32;
         let tip_z = tip_z.clamp(target_z_start, target_z_end).min(255);
 
-        // 5. XY дрейф конуса — cone_radius = axon_growth_step в вокселях
+        // Cone Tracing setup
         let cone_seed = entity_seed(master_seed, soma_idx as u32);
-        let cone_radius = nt.axon_growth_step as f32;
-        let dx = (random_f32(cone_seed) * 2.0 - 1.0) * cone_radius;
-        let dy = (random_f32(cone_seed.wrapping_add(1)) * 2.0 - 1.0) * cone_radius;
+        let segment_length_vox = nt.axon_growth_step as f32;
+        let owner_type_mask = type_idx as u8; // We assume type_idx fits into 4 bits
+        
+        // Approximate specs fields
+        let fov_cos = 0.866; // cos(30 deg) = 60 deg cone
+        let max_search_radius_vox = 100.0 / (sim.simulation.voxel_size_um as f32); // e.g. 100 microns
+        let weight_inertia = 0.6;
+        let weight_sensor = 0.3;
+        let weight_jitter = 0.1;
 
-        let tip_x = ((soma_x as f32 + dx) as i32).clamp(0, world_w_vox as i32 - 1) as u32;
-        let tip_y = ((soma_y as f32 + dy) as i32).clamp(0, world_d_vox as i32 - 1) as u32;
+        // V_global (Goal)
+        let mut target_pos = Vec3::new(soma_x as f32, soma_y as f32, tip_z as f32);
+        
+        let is_growing_up = tip_z >= soma_z;
+        let mut forward_dir = if is_growing_up { Vec3::Z } else { Vec3::NEG_Z };
+        let mut current_pos = Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32);
 
-        // 6. Длина аксона в сегментах
-        let dz = (tip_z as i32 - soma_z as i32).unsigned_abs();
-        let length_segments = dz.max(1);
+        let mut segments = Vec::new();
+        let max_steps = 1000;
+        let mut step = 0;
+
+        while step < max_steps {
+            step += 1;
+            
+            // Check if reached V_global (Z-plane)
+            let finished = if is_growing_up {
+                current_pos.z >= target_pos.z
+            } else {
+                current_pos.z <= target_pos.z
+            };
+
+            if finished {
+                break;
+            }
+
+            // V_global steering vector (always points toward the target plane/xy column)
+            let v_global = (target_pos - current_pos).normalize_or_zero();
+            
+            // Sensing → Weighting
+            let v_attract = calculate_v_attract(
+                current_pos,
+                forward_dir,
+                fov_cos,
+                max_search_radius_vox,
+                &spatial_grid,
+                neurons,
+                owner_type_mask,
+            );
+
+            // Jitter
+            let s = cone_seed.wrapping_add(step as u64);
+            let v_noise = Vec3::new(
+                random_f32(s) * 2.0 - 1.0,
+                random_f32(s.wrapping_add(1)) * 2.0 - 1.0,
+                random_f32(s.wrapping_add(2)) * 2.0 - 1.0,
+            ).normalize_or_zero();
+
+            // Steering
+            forward_dir = (v_global * weight_inertia + v_attract * weight_sensor + v_noise * weight_jitter).normalize_or_zero();
+            
+            // Step & Pack
+            current_pos += forward_dir * segment_length_vox;
+            
+            let x = (current_pos.x.round() as u32).min(world_w_vox.saturating_sub(1)).min(1023); // 10 bits
+            let y = (current_pos.y.round() as u32).min(world_d_vox.saturating_sub(1)).min(1023); // 10 bits
+            let z = (current_pos.z.round() as u32).min(255); // 8 bits
+            let t = (owner_type_mask & 0x0F) as u32; // 4 bits
+
+            let packed = (t << 28) | (z << 20) | (y << 10) | x;
+
+            if let Some(&last) = segments.last() {
+                if last == packed {
+                    // Stagnation
+                    break;
+                }
+            }
+            
+            segments.push(packed);
+        }
+
+        let length_segments = segments.len() as u32;
+        let (final_x, final_y, final_z) = if let Some(last) = segments.last() {
+            let z = (last >> 20) & 0xFF;
+            let y = (last >> 10) & 0x3FF;
+            let x = last & 0x3FF;
+            (x, y, z)
+        } else {
+            (soma_x, soma_y, soma_z)
+        };
 
         axons.push(GrownAxon {
             soma_idx,
             type_idx,
-            tip_x,
-            tip_y,
-            tip_z,
+            tip_x: final_x,
+            tip_y: final_y,
+            tip_z: final_z,
             length_segments,
+            segments,
         });
     }
 
@@ -171,7 +257,7 @@ height_um = 10250
 tick_duration_us = 100
 total_ticks = 10000
 master_seed = "GENESIS"
-global_density = 0.04
+global_density = 0.01
 voxel_size_um = 25
 signal_speed_um_tick = 50
 sync_batch_ticks = 1000
@@ -332,6 +418,7 @@ pub fn grow_external_axons(
                 tip_y,
                 tip_z,
                 length_segments: 1, // Assume they just "entered" the shard at the border
+                segments: vec![(channel.type_mask as u32) << 28 | (tip_z << 20) | (tip_y << 10) | tip_x],
             });
         }
     }

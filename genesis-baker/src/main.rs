@@ -197,15 +197,26 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     Ok(())
 }
 
-/// Сериализует геометрию аксонов в бинарник.
-/// Формат на аксон: [tip_x: u16, tip_y: u16, tip_z: u16, length: u32] = 10 bytes
+/// Формат файла `.axons`:
+/// - Header: `total_axons: u32`
+/// - Array of `total_axons`:
+///   - tip_x: u16, tip_y: u16, tip_z: u16
+///   - length: u32 (N)
+///   - segments: [u32; N] (PackedPositions)
 fn serialize_axons(axons: &[bake::axon_growth::GrownAxon]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(axons.len() * 10);
+    // Оцениваем размер: 4 байта заголовок + для каждого (10 байт заголовок + 4 байта на сегмент)
+    let estimated_size = 4 + axons.iter().map(|ax| 10 + ax.segments.len() * 4).sum::<usize>();
+    let mut out = Vec::with_capacity(estimated_size);
+    out.extend_from_slice(&(axons.len() as u32).to_le_bytes());
     for ax in axons {
         out.extend_from_slice(&(ax.tip_x as u16).to_le_bytes());
         out.extend_from_slice(&(ax.tip_y as u16).to_le_bytes());
         out.extend_from_slice(&(ax.tip_z as u16).to_le_bytes());
-        out.extend_from_slice(&ax.length_segments.to_le_bytes());
+        
+        out.extend_from_slice(&(ax.segments.len() as u32).to_le_bytes());
+        for &seg in &ax.segments {
+            out.extend_from_slice(&seg.to_le_bytes());
+        }
     }
     out
 }

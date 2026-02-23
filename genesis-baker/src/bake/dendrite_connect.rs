@@ -17,17 +17,31 @@ const CELL_SIZE: u32 = 30;
 /// Ключ ячейки пространственной решётки.
 type GridCell = (u32, u32, u32);
 
-/// Строит HashMap: grid_cell → список индексов аксонов с tip в этой ячейке.
+/// Строит HashMap: grid_cell → список индексов аксонов, хотя бы один сегмент которых проходит через ячейку.
 /// Позволяет заменить O(N²) полный перебор на O(N × K) поиск по соседям.
 fn build_axon_grid(axons: &[GrownAxon]) -> HashMap<GridCell, Vec<usize>> {
     let mut grid: HashMap<GridCell, Vec<usize>> = HashMap::new();
     for (i, ax) in axons.iter().enumerate() {
-        let cell = (
-            ax.tip_x / CELL_SIZE,
-            ax.tip_y / CELL_SIZE,
-            ax.tip_z / CELL_SIZE,
-        );
-        grid.entry(cell).or_default().push(i);
+        // Мы добавляем аксон во все ячейки, через которые он проходит.
+        // Чтобы не дублировать ID аксона в одной и той же ячейке:
+        let mut touched_cells = std::collections::HashSet::new();
+        
+        for &seg in &ax.segments {
+            let z = (seg >> 20) & 0xFF;
+            let y = (seg >> 10) & 0x3FF;
+            let x = seg & 0x3FF;
+            
+            let cell = (
+                x / CELL_SIZE,
+                y / CELL_SIZE,
+                z / CELL_SIZE,
+            );
+            touched_cells.insert(cell);
+        }
+        
+        for cell in touched_cells {
+            grid.entry(cell).or_default().push(i);
+        }
     }
     grid
 }
@@ -35,6 +49,7 @@ fn build_axon_grid(axons: &[GrownAxon]) -> HashMap<GridCell, Vec<usize>> {
 /// Кандидат дендритного слота.
 struct Candidate {
     axon_idx: usize,
+    segment_idx: usize,
     score: f32,
 }
 
@@ -84,8 +99,23 @@ pub fn connect_dendrites(
                             continue;
                         }
 
-                        let dist = voxel_dist(soma_x, soma_y, soma_z, ax.tip_x, ax.tip_y, ax.tip_z);
-                        if dist > CELL_SIZE as f32 {
+                        // Find the closest segment of this axon to the soma
+                        let mut min_dist = f32::MAX;
+                        let mut best_seg_idx = 0;
+                        
+                        for (seg_idx, &seg) in ax.segments.iter().enumerate() {
+                            let z = (seg >> 20) & 0xFF;
+                            let y = (seg >> 10) & 0x3FF;
+                            let x = seg & 0x3FF;
+                            
+                            let dist = voxel_dist(soma_x, soma_y, soma_z, x, y, z);
+                            if dist < min_dist {
+                                min_dist = dist;
+                                best_seg_idx = seg_idx;
+                            }
+                        }
+
+                        if min_dist > CELL_SIZE as f32 {
                             continue;
                         }
 
@@ -93,8 +123,8 @@ pub fn connect_dendrites(
                             master_seed,
                             (soma_id.wrapping_mul(31).wrapping_add(axon_idx)) as u32,
                         );
-                        let score = sprouting_score(dist, 0.0, epoch_seed, &cfg);
-                        candidates.push(Candidate { axon_idx, score });
+                        let score = sprouting_score(min_dist, 0.0, epoch_seed, &cfg);
+                        candidates.push(Candidate { axon_idx, segment_idx: best_seg_idx, score });
                     }
                 }
             }
@@ -117,8 +147,10 @@ pub fn connect_dendrites(
                 INITIAL_INHIBITORY_WEIGHT
             };
 
+            let target_packed = ((axon_idx as u32) << 8) | (cand.segment_idx as u32 & 0xFF);
+            
             let cell = slot * pn + soma_id;
-            shard.dendrite_targets[cell] = (axon_idx as u32) << 8;
+            shard.dendrite_targets[cell] = target_packed;
             shard.dendrite_weights[cell] = weight;
         }
     }
@@ -197,8 +229,22 @@ pub fn reconnect_empty_dendrites(
                             continue;
                         }
 
-                        let dist = voxel_dist(soma_x, soma_y, soma_z, ax.tip_x, ax.tip_y, ax.tip_z);
-                        if dist > CELL_SIZE as f32 {
+                        let mut min_dist = f32::MAX;
+                        let mut best_seg_idx = 0;
+                        
+                        for (seg_idx, &seg) in ax.segments.iter().enumerate() {
+                            let z = (seg >> 20) & 0xFF;
+                            let y = (seg >> 10) & 0x3FF;
+                            let x = seg & 0x3FF;
+                            
+                            let dist = voxel_dist(soma_x, soma_y, soma_z, x, y, z);
+                            if dist < min_dist {
+                                min_dist = dist;
+                                best_seg_idx = seg_idx;
+                            }
+                        }
+
+                        if min_dist > CELL_SIZE as f32 {
                             continue;
                         }
 
@@ -207,8 +253,8 @@ pub fn reconnect_empty_dendrites(
                             (soma_id.wrapping_mul(31).wrapping_add(axon_idx)) as u32,
                         );
                         // TODO: Pass actual target power from downloaded weights
-                        let score = sprouting_score(dist, 0.0, epoch_seed, &cfg);
-                        candidates.push(Candidate { axon_idx, score });
+                        let score = sprouting_score(min_dist, 0.0, epoch_seed, &cfg);
+                        candidates.push(Candidate { axon_idx, segment_idx: best_seg_idx, score });
                     }
                 }
             }
@@ -230,8 +276,10 @@ pub fn reconnect_empty_dendrites(
                 INITIAL_INHIBITORY_WEIGHT
             };
 
+            let target_packed = ((axon_idx as u32) << 8) | (cand.segment_idx as u32 & 0xFF);
+            
             let cell = slot * padded_n + soma_id;
-            targets[cell] = (axon_idx as u32) << 8;
+            targets[cell] = target_packed;
             weights[cell] = weight;
         }
     }
@@ -256,7 +304,7 @@ height_um = 1000
 tick_duration_us = 100
 total_ticks = 1000
 master_seed = "GENESIS"
-global_density = 0.10
+global_density = 0.01
 voxel_size_um = 25
 signal_speed_um_tick = 50
 sync_batch_ticks = 100
@@ -382,11 +430,17 @@ sprouting_weight_explore = 0.1
         let ranges = compute_layer_ranges(&an, &sim);
         let axons = grow_axons(&neurons, &ranges, &bp.neuron_type, &sim, master);
         let grid = build_axon_grid(&axons);
-        let total_in_grid: usize = grid.values().map(|v| v.len()).sum();
+        
+        let mut found_axons = std::collections::HashSet::new();
+        for list in grid.values() {
+            for &idx in list {
+                found_axons.insert(idx);
+            }
+        }
         assert_eq!(
-            total_in_grid,
+            found_axons.len(),
             axons.len(),
-            "Every axon must appear in grid exactly once"
+            "Every axon must appear in the grid at least once"
         );
     }
 

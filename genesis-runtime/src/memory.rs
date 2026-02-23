@@ -40,7 +40,10 @@ impl VramState {
     /// Loads the raw binary `.state` and `.axons` blobs from baker and 
     /// zero-copy migrates them into GPU VRAM (SoA layout).
     pub fn load_shard(state_bytes: &[u8], axons_bytes: &[u8]) -> anyhow::Result<Self> {
-        let num_axons = axons_bytes.len() / 10;
+        if axons_bytes.len() < 4 {
+            anyhow::bail!("axons_bytes too small");
+        }
+        let num_axons = u32::from_le_bytes(axons_bytes[0..4].try_into().unwrap()) as usize;
         let pa = padded_n(num_axons);
         
         // Equation from byte_size(): pn * 4 + pn + pn * 4 + pn + pn * 4 + (pn * 128) * (4 + 2 + 1) + pa * 4 

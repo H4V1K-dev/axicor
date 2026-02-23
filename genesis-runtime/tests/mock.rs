@@ -82,8 +82,9 @@ impl MockBakerBuilder {
         // Axon heads at the end
         append_bytes!(self.axon_heads);
 
-        // axons_bytes must have len == num_axons * 10
-        let axons_bytes = vec![0u8; self.num_axons * 10];
+        // axons_bytes must have len == 4 + num_axons * 10
+        let mut axons_bytes = vec![0u8; 4 + self.num_axons * 10];
+        axons_bytes[0..4].copy_from_slice(&(self.num_axons as u32).to_le_bytes());
 
         (state_bytes, axons_bytes)
     }

@@ -17,3 +17,4 @@ serde = { version = "1", features = ["derive"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 wyhash = "0.5"
+glam = "0.29"
