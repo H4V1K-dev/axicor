@@ -32,6 +32,11 @@ pub type PackedTarget = u32;
 /// а не с координатой `(X, Y, Z)`.
 pub type SegmentIndex = u32;
 
+/// Счётчик тиков (§1.4). Квант = `TICK_DURATION_US` мкс = 0.1 мс.
+/// Все таймеры (рефрактерность, decay, Night Phase интервал) задаются в тиках.
+/// Пример: 5 мс рефрактерность = 50 тиков. Используйте `time::ms_to_ticks` для конвертации.
+pub type Tick = u64;
+
 /// Synaptic weight. Sign encodes excitatory (+) or inhibitory (-).
 /// Range: -32768..+32767. Baked in during Night Phase, frozen during Day Phase.
 pub type Weight = i16;
