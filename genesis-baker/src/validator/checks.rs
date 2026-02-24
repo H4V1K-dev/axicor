@@ -17,28 +17,19 @@ pub fn validate_all(
 }
 
 // ---------------------------------------------------------------------------
-// §2.3 — v_seg делимость (01_foundations.md §1.6)
+// §1.6 — v_seg делимость — делегат в genesis_core::physics
 // ---------------------------------------------------------------------------
 
-/// `signal_speed_um_tick` обязан делиться на `segment_length_um` без остатка.
-/// Иначе v_seg (скорость в сегментах/тик) не будет целым числом → недетерминизм.
+/// Проверяет инвариант §1.6 через `genesis_core::physics::compute_derived_physics`.
+/// Физика живёт в core, baker только транслирует конфиг и пробрасывает ошибку.
 pub fn check_v_seg_divisible(sim: &SimulationConfig) -> anyhow::Result<()> {
-    let speed = sim.simulation.signal_speed_um_tick as u32;
-    let voxel = sim.simulation.voxel_size_um;
-
-    // segment_length_um = voxel_size_um (1 сегмент = 1 воксель по умолчанию)
-    if !speed.is_multiple_of(voxel) {
-        bail!(
-            "CRITICAL: signal_speed_um_tick ({}) must be divisible by voxel_size_um ({}).\n\
-             v_seg = signal_speed / voxel_size = {}/{} — не целое число.\n\
-             Нарушает Integer Physics детерминизм (01_foundations.md §1.6).",
-            speed,
-            voxel,
-            speed,
-            voxel
-        );
-    }
-    Ok(())
+    genesis_core::physics::compute_derived_physics(
+        sim.simulation.signal_speed_um_tick as u32,
+        sim.simulation.voxel_size_um,
+        sim.simulation.segment_length_voxels,
+    )
+    .map(|_| ())
+    .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 // ---------------------------------------------------------------------------
