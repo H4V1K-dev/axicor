@@ -156,7 +156,7 @@ async fn main() -> Result<()> {
             rest_potential:       nt.rest_potential,
             leak:                 nt.leak_rate,
             homeostasis_penalty:  nt.homeostasis_penalty,
-            homeostasis_decay:    nt.homeostasis_decay,
+            homeostasis_decay:    nt.homeostasis_decay as i32,
             gsop_potentiation:    nt.gsop_potentiation,
             gsop_depression:      nt.gsop_depression,
             refractory_period:    nt.refractory_period,

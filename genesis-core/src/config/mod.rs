@@ -6,6 +6,14 @@ use serde::Deserialize;
 use std::fs;
 use std::path::Path;
 
+pub mod blueprints;
+pub mod anatomy;
+pub mod io;
+
+pub use blueprints::{BlueprintsConfig, NeuronType};
+pub use anatomy::{AnatomyConfig, LayerConfig};
+pub use io::{IoConfig, InputChannel};
+
 /// Полный распарсенный конфиг `simulation.toml`.
 #[derive(Debug, Deserialize, Clone)]
 pub struct SimulationConfig {

@@ -1,0 +1,29 @@
+# ============================================================
+# GENESIS Zone Template — Blueprints
+# ============================================================
+
+[[neuron_type]]
+name = "Excitatory_Generic"
+threshold = 40000
+rest_potential = 10000
+leak_rate = 1000
+refractory_period = 10
+synapse_refractory_period = 5
+conduction_velocity = 100
+homeostasis_penalty = 2000
+homeostasis_decay = 10
+slot_decay_ltm = 128
+slot_decay_wm = 64
+
+[[neuron_type]]
+name = "Inhibitory_Generic"
+threshold = 30000
+rest_potential = 5000
+leak_rate = 500
+refractory_period = 15
+synapse_refractory_period = 2
+conduction_velocity = 200
+homeostasis_penalty = 1000
+homeostasis_decay = 5
+slot_decay_ltm = 120
+slot_decay_wm = 80

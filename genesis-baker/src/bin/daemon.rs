@@ -58,7 +58,7 @@ fn main() -> Result<()> {
     
     let master_seed = genesis_core::seed::MasterSeed::from_str(&sim.simulation.master_seed);
 
-    let neuron_types = bp.neuron_type.clone();
+    let neuron_types = bp.neuron_types.clone();
     let _segment_length = sim.simulation.segment_length_voxels;
 
     // ── 2. Load shard geometry (neurons + axons) ──

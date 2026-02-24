@@ -50,7 +50,7 @@ pub fn place_neurons(
 
     let mut z_cursor_pct = 0.0f32;
 
-    for layer in &anatomy.layer {
+    for layer in &anatomy.layers {
         let layer_budget = (total_budget as f32 * layer.population_pct) as u64;
         let z_start = (z_cursor_pct * world_h_vox as f32) as u32;
         let z_end = ((z_cursor_pct + layer.height_pct) * world_h_vox as f32) as u32;

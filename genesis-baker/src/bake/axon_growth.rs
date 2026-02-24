@@ -35,8 +35,9 @@ pub fn compute_layer_ranges(anatomy: &Anatomy, sim: &SimulationConfig) -> Vec<La
     let voxel_um = sim.simulation.voxel_size_um;
     let world_h_vox = sim.world.height_um / voxel_um;
     let mut cursor_pct = 0.0f32;
-    let mut ranges = Vec::with_capacity(anatomy.layer.len());
-    for layer in &anatomy.layer {
+    let mut ranges = Vec::with_capacity(anatomy.layers.len());
+    for layer in &anatomy.layers {
+        let h_um = (sim.world.height_um as f32 * layer.height_pct) as u32;
         let z_start = (cursor_pct * world_h_vox as f32) as u32;
         let z_end = ((cursor_pct + layer.height_pct) * world_h_vox as f32) as u32;
         cursor_pct += layer.height_pct;
@@ -256,7 +257,7 @@ pub fn grow_external_axons(
     let world_w_vox = sim.world.width_um / sim.simulation.voxel_size_um;
     let world_d_vox = sim.world.depth_um / sim.simulation.voxel_size_um;
 
-    for (channel_idx, channel) in io_config.input.iter().enumerate() {
+    for (channel_idx, channel) in io_config.inputs.iter().enumerate() {
         // Find the target layer bounds
         let layer_z = layer_ranges.iter().find(|l| l.name == channel.target_layer);
         let (z_start, z_end) = match layer_z {

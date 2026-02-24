@@ -79,8 +79,8 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     };
     println!(
         "[baker] ✓ Parsed: {} neuron types, {} layers",
-        blueprints.neuron_type.len(),
-        anatomy.layer.len()
+        blueprints.neuron_types.len(),
+        anatomy.layers.len()
     );
 
     // --- 2. Validate ---
@@ -96,7 +96,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     // --- 4. Place neurons ---
     println!("[baker] Placing neurons...");
     let type_names: Vec<String> = blueprints
-        .neuron_type
+        .neuron_types
         .iter()
         .map(|n| n.name.clone())
         .collect();
@@ -109,7 +109,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     let mut axons = bake::axon_growth::grow_axons(
         &neurons,
         &layer_ranges,
-        &blueprints.neuron_type,
+        &blueprints.neuron_types,
         &sim,
         master_seed,
     );
@@ -137,7 +137,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
 
     // --- 6. Build SoA state ---
     let rest_potential = blueprints
-        .neuron_type
+        .neuron_types
         .first()
         .map(|n| n.rest_potential)
         .unwrap_or(10_000);
@@ -163,7 +163,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
         &mut shard,
         &neurons,
         &axons,
-        &blueprints.neuron_type,
+        &blueprints.neuron_types,
         master_seed,
     );
     let connected = shard.dendrite_targets.iter().filter(|&&t| t != 0).count();

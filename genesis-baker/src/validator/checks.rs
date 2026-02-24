@@ -9,10 +9,10 @@ pub fn validate_all(
     anatomy: &Anatomy,
 ) -> anyhow::Result<()> {
     check_v_seg_divisible(sim)?;
-    check_layer_height_sum(anatomy)?;
-    check_layer_population_sum(anatomy)?;
+    check_layer_heights(anatomy)?;
+    check_layer_populations(anatomy)?;
     check_sprouting_weights(blueprints)?;
-    check_composition_sums(anatomy)?;
+    check_composition_quotas(anatomy)?;
     Ok(())
 }
 
@@ -38,9 +38,9 @@ pub fn check_v_seg_divisible(sim: &SimulationConfig) -> anyhow::Result<()> {
 
 /// Сумма `height_pct` всех слоёв должна быть ≈ 1.0.
 /// Биологический инвариант: слои покрывают всю высоту зоны.
-pub fn check_layer_height_sum(anatomy: &Anatomy) -> anyhow::Result<()> {
-    let sum: f32 = anatomy.layer.iter().map(|l| l.height_pct).sum();
-    if (sum - 1.0).abs() > 0.01 {
+pub fn check_layer_heights(anatomy: &Anatomy) -> anyhow::Result<()> {
+    let sum: f32 = anatomy.layers.iter().map(|l| l.height_pct).sum();
+    if (sum - 1.0).abs() > 0.001 {
         bail!(
             "anatomy.toml: Σ(layer.height_pct) = {:.4} ≠ 1.0 (±0.01).\n\
              Слои обязаны покрывать всю высоту зоны без перекрытий и пробелов.",
@@ -51,9 +51,9 @@ pub fn check_layer_height_sum(anatomy: &Anatomy) -> anyhow::Result<()> {
 }
 
 /// Сумма `population_pct` всех слоёв должна быть ≈ 1.0.
-pub fn check_layer_population_sum(anatomy: &Anatomy) -> anyhow::Result<()> {
-    let sum: f32 = anatomy.layer.iter().map(|l| l.population_pct).sum();
-    if (sum - 1.0).abs() > 0.01 {
+pub fn check_layer_populations(anatomy: &Anatomy) -> anyhow::Result<()> {
+    let sum: f32 = anatomy.layers.iter().map(|l| l.population_pct).sum();
+    if (sum - 1.0).abs() > 0.001 {
         bail!(
             "anatomy.toml: Σ(layer.population_pct) = {:.4} ≠ 1.0 (±0.01).\n\
              Бюджет нейронов должен быть распределён полностью.",
@@ -64,8 +64,8 @@ pub fn check_layer_population_sum(anatomy: &Anatomy) -> anyhow::Result<()> {
 }
 
 /// Сумма весов composition каждого слоя должна быть ≈ 1.0.
-pub fn check_composition_sums(anatomy: &Anatomy) -> anyhow::Result<()> {
-    for layer in &anatomy.layer {
+pub fn check_composition_quotas(anatomy: &Anatomy) -> anyhow::Result<()> {
+    for layer in &anatomy.layers {
         let sum: f32 = layer.composition.values().sum();
         if (sum - 1.0).abs() > 0.01 {
             bail!(
@@ -86,8 +86,9 @@ pub fn check_composition_sums(anatomy: &Anatomy) -> anyhow::Result<()> {
 /// Сумма sprouting weights каждого типа должна быть ≈ 1.0.
 /// (04_connectivity.md §1.6.1: weight_distance + weight_power + weight_explore)
 pub fn check_sprouting_weights(blueprints: &Blueprints) -> anyhow::Result<()> {
-    for nt in &blueprints.neuron_type {
+    for nt in &blueprints.neuron_types {
         let sum = nt.sprouting_weight_sum();
+        let max_range = nt.axon_growth_step as f32 * 1000.0; // dummy heuristic
         if (sum - 1.0).abs() > 0.02 {
             bail!(
                 "blueprints.toml: NeuronType '{}' sprouting weights sum = {:.4} ≠ 1.0 (±0.02).\n\

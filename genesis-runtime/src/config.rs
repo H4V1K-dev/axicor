@@ -65,46 +65,8 @@ pub fn parse_simulation_config(path: &Path) -> Result<SimulationConfig> {
 
 // ---- Blueprints Configuration (Neuron Types for GPU LUT) ----
 
-#[derive(Debug, Deserialize, Clone)]
-pub struct NeuronTypeConfig {
-    pub name: String,
-    pub threshold: i32,
-    pub rest_potential: i32,
-    pub leak_rate: i32,
-    pub refractory_period: u8,
-    pub synapse_refractory_period: u8,
-    pub homeostasis_penalty: i32,
-    pub homeostasis_decay: i32,
-    pub slot_decay_ltm: u8,
-    pub slot_decay_wm: u8,
-    // GSOP: optional (defaults to 74 / 2 if not specified)
-    #[serde(default = "default_gsop_pot")]
-    pub gsop_potentiation: u16,
-    #[serde(default = "default_gsop_dep")]
-    pub gsop_depression: u16,
-    // Active Tail length per-variant (defaults to 10)
-    #[serde(default = "default_propagation_length")]
-    pub signal_propagation_length: u16,
-    // Pruning threshold for Night Phase Sort & Prune (defaults to 15)
-    #[serde(default = "default_prune_threshold")]
-    pub prune_threshold: u16,
-}
-
-fn default_gsop_pot() -> u16 { 74 }
-fn default_gsop_dep() -> u16 { 2 }
-fn default_propagation_length() -> u16 { 10 }
-fn default_prune_threshold() -> u16 { 15 }
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct BlueprintsConfig {
-    #[serde(rename = "neuron_type")]
-    pub neuron_types: Vec<NeuronTypeConfig>,
-}
+pub use genesis_core::config::blueprints::{BlueprintsConfig, NeuronType as NeuronTypeConfig};
 
 pub fn parse_blueprints_config(path: &Path) -> Result<BlueprintsConfig> {
-    let content = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read blueprints at {:?}", path))?;
-    let config: BlueprintsConfig = toml::from_str(&content)
-        .with_context(|| format!("Failed to parse blueprints TOML from {:?}", path))?;
-    Ok(config)
+    BlueprintsConfig::load(path).map_err(|e| anyhow::anyhow!(e))
 }
