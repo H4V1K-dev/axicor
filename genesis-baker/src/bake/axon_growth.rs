@@ -128,26 +128,41 @@ pub fn grow_axons(
 
         // V_global (Goal) — bias определяет вертикальный vs горизонтальный рост
         let bias = nt.growth_vertical_bias.clamp(0.0, 1.0);
+        let is_horizontal = bias < 0.5;
 
-        // Вертикальная цель: целевой слой по Z (существующая логика)
-        let v_vertical_target = Vec3::new(soma_x as f32, soma_y as f32, tip_z as f32);
-
-        // Горизонтальная цель: случайная точка в XY плоскости своего слоя
-        let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A); // "HORZ"
-        let target_x = random_f32(horiz_seed) * world_w_vox as f32;
-        let target_y = random_f32(horiz_seed.wrapping_mul(6364136223846793005)) * world_d_vox as f32;
-        let v_horizontal_target = Vec3::new(target_x, target_y, soma_z as f32);
-
-        // Смешиваем цели по bias
-        let target_pos = v_vertical_target * bias + v_horizontal_target * (1.0 - bias);
-
-        let is_growing_up = tip_z >= soma_z;
-        let mut forward_dir = (target_pos - Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32)).normalize_or_zero();
-        if forward_dir.length_squared() < 0.01 {
-            forward_dir = if is_growing_up { Vec3::Z } else { Vec3::NEG_Z };
-        }
-        
         let mut current_pos = Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32);
+        let is_growing_up = tip_z >= soma_z;
+
+        let (mut forward_dir, target_pos) = if is_horizontal {
+            // Случайный радиальный вектор в XY
+            let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A); // "HORZ"
+            let angle = random_f32(horiz_seed) * std::f32::consts::TAU; // 0..2π
+            let dir = Vec3::new(angle.cos(), angle.sin(), 0.0);
+            
+            // target_pos не используется для остановки H-нейронов, но используется
+            // для генерации константного v_global на каждом шаге. 
+            // Cоздаем целевую точку далеко в выбранном направлении.
+            let far_target = current_pos + dir * 5000.0;
+            (dir, far_target)
+        } else {
+            // Вертикальная цель: целевой слой по Z 
+            let v_vertical_target = Vec3::new(soma_x as f32, soma_y as f32, tip_z as f32);
+            
+            // Горизонтальная компонента (ограниченно)
+            let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A);
+            let target_x = random_f32(horiz_seed) * world_w_vox as f32;
+            let target_y = random_f32(horiz_seed.wrapping_mul(6364136223846793005)) * world_d_vox as f32;
+            let v_horizontal_target = Vec3::new(target_x, target_y, soma_z as f32);
+
+            let t_pos = v_vertical_target * bias + v_horizontal_target * (1.0 - bias);
+            let dir = (t_pos - current_pos).normalize_or_zero();
+            let final_dir = if dir.length_squared() < 0.01 {
+                if is_growing_up { Vec3::Z } else { Vec3::NEG_Z }
+            } else {
+                dir
+            };
+            (final_dir, t_pos)
+        };
 
         let mut segments = Vec::new();
         let max_steps = sim.simulation.axon_growth_max_steps;
@@ -156,11 +171,18 @@ pub fn grow_axons(
         while step < max_steps {
             step += 1;
             
-            // Check if reached V_global (Z-plane)
-            let finished = if is_growing_up {
-                current_pos.z >= target_pos.z
+            // Check if reached Stop Condition
+            let finished = if is_horizontal {
+                // H: вышел из своего слоя по Z? (заблудился по вертикали)
+                let z = current_pos.z as u32;
+                z < home_z_start || z > home_z_end
             } else {
-                current_pos.z <= target_pos.z
+                // V: достиг целевой Z-plane?
+                if is_growing_up {
+                    current_pos.z >= target_pos.z
+                } else {
+                    current_pos.z <= target_pos.z
+                }
             };
 
             if finished {
