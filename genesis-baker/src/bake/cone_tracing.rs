@@ -18,6 +18,7 @@ pub fn calculate_v_attract(
     neurons: &[PlacedNeuron],
     owner_type_mask: u8,
     owner_soma_idx: usize,
+    type_affinity: f32,
 ) -> Vec3 {
     let mut v_attract = Vec3::ZERO;
     let mut total_weight = 0.0;
@@ -32,11 +33,15 @@ pub fn calculate_v_attract(
 
         let target = &neurons[idx];
         
-        // Basic type filtering (could be extended via io.toml whitelist/blacklist)
-        // For MVP, we just attract to everything except ourselves.
-        // In real spec: filter by Variant ID or Type Mask.
-        if target.type_idx == (owner_type_mask as usize) {
-            // Optional: Skip same type to avoid self-connections
+        // Type Affinity: модулируем вес притяжения по типу
+        let is_same_type = target.type_idx == (owner_type_mask as usize);
+        let affinity_multiplier = if is_same_type {
+            type_affinity
+        } else {
+            1.0 - type_affinity
+        };
+
+        if affinity_multiplier < 0.01 {
             continue;
         }
 
@@ -53,7 +58,7 @@ pub fn calculate_v_attract(
 
         // Check if target is inside the cone
         if forward_dir.dot(dir_norm) >= fov_cos {
-            let weight = ATTRACTION_GRADIENT / (dist_sq + 1e-5);
+            let weight = affinity_multiplier * ATTRACTION_GRADIENT / (dist_sq + 1e-5);
             v_attract += dir_norm * weight;
             total_weight += weight;
         }

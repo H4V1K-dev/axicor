@@ -22,6 +22,9 @@ slot_decay_wm = 96
 sprouting_weight_distance = 0.5
 sprouting_weight_power = 0.4
 sprouting_weight_explore = 0.1
+growth_vertical_bias = 0.7
+type_affinity = 0.8
+is_inhibitory = false
 
 # --- Type 1: Быстрый тормозной (Basket cell) ---
 [[neuron_type]]
@@ -39,6 +42,9 @@ slot_decay_wm = 80
 sprouting_weight_distance = 0.6
 sprouting_weight_power = 0.3
 sprouting_weight_explore = 0.1
+growth_vertical_bias = 0.3
+type_affinity = 0.5
+is_inhibitory = true
 
 # --- Type 2: Стабильный возбуждающий (долговременная память) ---
 [[neuron_type]]
@@ -56,6 +62,9 @@ slot_decay_wm = 110
 sprouting_weight_distance = 0.4
 sprouting_weight_power = 0.5
 sprouting_weight_explore = 0.1
+growth_vertical_bias = 0.8
+type_affinity = 0.9
+is_inhibitory = false
 
 # --- Type 3: Входной реле (фиксированный порог, таламус/L4) ---
 [[neuron_type]]
@@ -73,3 +82,6 @@ slot_decay_wm = 128
 sprouting_weight_distance = 0.7
 sprouting_weight_power = 0.2
 sprouting_weight_explore = 0.1
+growth_vertical_bias = 0.9
+type_affinity = 0.5
+is_inhibitory = false

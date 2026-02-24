@@ -126,11 +126,27 @@ pub fn grow_axons(
         let weight_sensor = nt.steering_weight_sensor;
         let weight_jitter = nt.steering_weight_jitter;
 
-        // V_global (Goal)
-        let target_pos = Vec3::new(soma_x as f32, soma_y as f32, tip_z as f32);
-        
+        // V_global (Goal) — bias определяет вертикальный vs горизонтальный рост
+        let bias = nt.growth_vertical_bias.clamp(0.0, 1.0);
+
+        // Вертикальная цель: целевой слой по Z (существующая логика)
+        let v_vertical_target = Vec3::new(soma_x as f32, soma_y as f32, tip_z as f32);
+
+        // Горизонтальная цель: случайная точка в XY плоскости своего слоя
+        let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A); // "HORZ"
+        let target_x = random_f32(horiz_seed) * world_w_vox as f32;
+        let target_y = random_f32(horiz_seed.wrapping_mul(6364136223846793005)) * world_d_vox as f32;
+        let v_horizontal_target = Vec3::new(target_x, target_y, soma_z as f32);
+
+        // Смешиваем цели по bias
+        let target_pos = v_vertical_target * bias + v_horizontal_target * (1.0 - bias);
+
         let is_growing_up = tip_z >= soma_z;
-        let mut forward_dir = if is_growing_up { Vec3::Z } else { Vec3::NEG_Z };
+        let mut forward_dir = (target_pos - Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32)).normalize_or_zero();
+        if forward_dir.length_squared() < 0.01 {
+            forward_dir = if is_growing_up { Vec3::Z } else { Vec3::NEG_Z };
+        }
+        
         let mut current_pos = Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32);
 
         let mut segments = Vec::new();
@@ -164,6 +180,7 @@ pub fn grow_axons(
                 neurons,
                 owner_type_mask,
                 soma_idx,
+                nt.type_affinity,
             );
 
             // Jitter

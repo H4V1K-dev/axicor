@@ -138,14 +138,14 @@ pub fn connect_dendrites(
         for (slot, cand) in candidates.iter().take(MAX_DENDRITE_SLOTS).enumerate() {
             let axon_idx = cand.axon_idx;
             let target_type = axons[axon_idx].type_idx;
-            let is_excitatory = neuron_types
+            let is_inhibitory = neuron_types
                 .get(target_type)
-                .map(|n| n.name.contains("Excitatory"))
-                .unwrap_or(true);
-            let weight = if is_excitatory {
-                INITIAL_EXCITATORY_WEIGHT
-            } else {
+                .map(|n| n.is_inhibitory)
+                .unwrap_or(false);
+            let weight = if is_inhibitory {
                 INITIAL_INHIBITORY_WEIGHT
+            } else {
+                INITIAL_EXCITATORY_WEIGHT
             };
 
             let target_packed = pack_target(axon_idx as u32, cand.segment_idx as u32);

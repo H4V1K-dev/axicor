@@ -48,6 +48,19 @@ pub struct NeuronType {
     #[serde(default = "default_steering_jitter")]
     pub steering_weight_jitter: f32,
 
+    // --- Направленность роста ---
+    #[serde(default = "default_growth_vertical_bias")]
+    pub growth_vertical_bias: f32,
+
+    #[serde(default = "default_type_affinity")]
+    pub type_affinity: f32,
+
+    // --- Знак синапса ---
+    /// true = тормозной (inhibitory, отрицательный вес синапса)
+    /// false = возбуждающий (excitatory, положительный вес синапса)
+    #[serde(default)]
+    pub is_inhibitory: bool,
+
     // --- Гомеостаз (Adaptive Threshold) ---
     pub homeostasis_penalty: i32,
     pub homeostasis_decay: u16, // u16 (для runtime)
@@ -86,6 +99,8 @@ fn default_steering_radius() -> f32 { 100.0 }
 fn default_steering_inertia() -> f32 { 0.6 }
 fn default_steering_sensor() -> f32 { 0.3 }
 fn default_steering_jitter() -> f32 { 0.1 }
+fn default_growth_vertical_bias() -> f32 { 0.7 }
+fn default_type_affinity() -> f32 { 0.5 }
 fn default_gsop_pot() -> u16 { 74 }
 fn default_gsop_dep() -> u16 { 2 }
 fn default_sprouting_dist() -> f32 { 0.5 }
