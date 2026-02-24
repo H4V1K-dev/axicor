@@ -3,6 +3,29 @@
 ///
 /// Правило: единственная точка входа энтропии — `master_seed`.
 /// Никаких `time(NULL)`, `std::random_device`, `SystemTime::now()`.
+/// Единая точка входа энтропии для симуляции (§2.1).
+/// Строится из строки конфига через `seed_from_str`, хранится как u64.
+/// Все производные seed вычисляются через `entity_seed(self.0, entity_id)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MasterSeed(pub u64);
+
+impl MasterSeed {
+    /// Создаёт MasterSeed из любой строки (ASCII, пробелы, Unicode, Emoji).
+    pub fn from_str(s: &str) -> Self {
+        Self(seed_from_str(s))
+    }
+
+    /// Получить seed для конкретного entity (нейрон, аксон).
+    pub fn entity(&self, entity_id: u32) -> u64 {
+        entity_seed(self.0, entity_id)
+    }
+
+    /// Вернуть сырой u64 (для передачи в GPU Constant Memory).
+    pub fn raw(&self) -> u64 {
+        self.0
+    }
+}
+
 pub const DEFAULT_MASTER_SEED: &str = "GENESIS";
 
 /// Хэшируем строку-сид в u64.
@@ -11,7 +34,6 @@ pub fn seed_from_str(s: &str) -> u64 {
     wyhash::wyhash(s.as_bytes(), 0)
 }
 
-/// Сид для конкретного entity по его уникальному ID (нейрон, аксон, сегмент).
 /// `Local_Seed = Hash(Master_Seed_u64 + Entity_ID)` — §2.2
 ///
 /// Результат не зависит от порядка вызовов: нейрон №5001 всегда одинаков
@@ -39,3 +61,7 @@ pub fn shuffle_indices(len: usize, seed: u64) -> Vec<usize> {
     }
     indices
 }
+
+#[cfg(test)]
+#[path = "test_seed.rs"]
+mod test_seed;

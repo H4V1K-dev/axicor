@@ -180,12 +180,11 @@ async fn main() -> Result<()> {
 
     // 5.1 Initialize Engine Runtime
     let v_seg = (sim_config.simulation.signal_speed_um_tick / sim_config.simulation.voxel_size_um) as u32;
-    // master_seed: use a simple fixed seed for now (TODO: load from simulation.toml)
-    let master_seed = 0x47454E455349530u64; // "GENESIS" as bytes
+    let master_seed = genesis_core::seed::MasterSeed::from_str(&sim_config.simulation.master_seed);
     let mut runtime = Runtime::new(
         vram,
         v_seg,
-        master_seed,
+        master_seed.raw(),
         Some(cli.baked_dir.clone()),
     );
 

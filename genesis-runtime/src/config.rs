@@ -64,6 +64,7 @@ pub struct SimulationConfigRoot {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct SimulationRuntime {
+    pub master_seed: String,
     pub sync_batch_ticks: u32,
     pub voxel_size_um: u32,
     pub signal_speed_um_tick: u32,

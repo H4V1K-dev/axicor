@@ -6,7 +6,7 @@ height_um = 1024
 [simulation]
 tick_duration_us = 100
 total_ticks = 10000
-master_seed = "GENESIS_DAEMON_TEST"
+master_seed = "GENESIS"
 global_density = 0.05
 voxel_size_um = 25
 signal_speed_um_tick = 50

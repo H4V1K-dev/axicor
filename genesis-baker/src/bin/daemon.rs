@@ -55,7 +55,8 @@ fn main() -> Result<()> {
         .with_context(|| format!("Failed to parse {:?}", cli.sim))?;
     let bp = blueprints::parse(&bp_src)
         .with_context(|| format!("Failed to parse {:?}", cli.blueprints))?;
-    let master_seed: u64 = 0x47454E455349530;
+    
+    let master_seed = genesis_core::seed::MasterSeed::from_str(&sim.simulation.master_seed);
 
     let neuron_types = bp.neuron_type.clone();
     let _segment_length = sim.simulation.segment_length_voxels;
@@ -171,7 +172,7 @@ fn main() -> Result<()> {
                     &neurons,
                     &axons,
                     &neuron_types,
-                    master_seed ^ epoch,
+                    master_seed.raw() ^ epoch,
                 );
 
                 // Write updated targets back to SHM
