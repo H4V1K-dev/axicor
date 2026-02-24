@@ -60,3 +60,29 @@ pub fn unpack_position(p: PackedPosition) -> (u32, u32, u32, u32) {
     let type_mask = p >> 28;
     (x, y, z, type_mask)
 }
+
+// ---------------------------------------------------------------------------
+// §1.2 PackedTarget — идентификатор (Axon_ID, Segment_Index)
+// ---------------------------------------------------------------------------
+
+use crate::constants::{TARGET_AXON_SHIFT, TARGET_SEG_MASK};
+use crate::types::PackedTarget;
+
+/// Упаковывает `(axon_id, segment_idx)` в `PackedTarget`.
+/// Layout: [31..10] axon_id (22 бита) | [9..0] segment_idx (10 бит).
+///
+/// Ёмкость шарда: до 4 194 303 аксонов × 1023 сегментов.
+#[inline]
+pub fn pack_target(axon_id: u32, segment_idx: u32) -> PackedTarget {
+    debug_assert!(axon_id < (1 << 22), "axon_id={axon_id} exceeds 22-bit range");
+    debug_assert!(segment_idx <= TARGET_SEG_MASK, "segment_idx={segment_idx} exceeds 10-bit range");
+    (axon_id << TARGET_AXON_SHIFT) | (segment_idx & TARGET_SEG_MASK)
+}
+
+/// Распаковывает `PackedTarget` в `(axon_id, segment_idx)`.
+/// Возвращает `None` если `t == 0` (пустой дендритный слот).
+#[inline]
+pub fn unpack_target(t: PackedTarget) -> Option<(u32, u32)> {
+    if t == 0 { return None; }
+    Some((t >> TARGET_AXON_SHIFT, t & TARGET_SEG_MASK))
+}

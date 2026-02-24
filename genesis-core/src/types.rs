@@ -21,9 +21,16 @@ pub type VoxelCoord = u32;
 /// Bit layout: t << 28 | z << 20 | y << 10 | x
 pub type PackedPosition = u32;
 
-/// Dendrite target: upper 16 bits = axon_id, lower 16 bits = segment offset.
-/// target = 0 means empty slot.
+/// Dendrite target: [31..10] axon_id (22 bits) | [9..0] segment_index (10 bits).
+/// Layout: `axon_id << TARGET_AXON_SHIFT | seg_idx & TARGET_SEG_MASK`
+/// Ёмкость: до 4 194 303 аксонов, до 1023 сегментов на аксон.
+/// 0 = пустой слот (нет соединения). Используйте `coords::pack_target` / `unpack_target`.
 pub type PackedTarget = u32;
+
+/// Индекс сегмента внутри аксона (§1.2). 10 бит → 0..=1023.
+/// Сегмент — атомарная единица пути: дендрит соединяется с `(Axon_ID, SegmentIndex)`,
+/// а не с координатой `(X, Y, Z)`.
+pub type SegmentIndex = u32;
 
 /// Synaptic weight. Sign encodes excitatory (+) or inhibitory (-).
 /// Range: -32768..+32767. Baked in during Night Phase, frozen during Day Phase.

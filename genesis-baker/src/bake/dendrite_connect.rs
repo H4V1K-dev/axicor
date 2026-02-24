@@ -4,7 +4,8 @@ use crate::bake::neuron_placement::PlacedNeuron;
 use crate::bake::seed::entity_seed;
 use crate::bake::sprouting::{sprouting_score, voxel_dist, SproutingWeights};
 use crate::parser::blueprints::NeuronType;
-use genesis_core::constants::{MAX_DENDRITE_SLOTS, TARGET_AXON_SHIFT, TARGET_SEG_MASK};
+use genesis_core::constants::MAX_DENDRITE_SLOTS;
+use genesis_core::coords::{pack_target, unpack_target};
 use std::collections::HashMap;
 
 pub const INITIAL_EXCITATORY_WEIGHT: i16 = 74;
@@ -147,7 +148,7 @@ pub fn connect_dendrites(
                 INITIAL_INHIBITORY_WEIGHT
             };
 
-            let target_packed = ((axon_idx as u32) << TARGET_AXON_SHIFT) | (cand.segment_idx as u32 & TARGET_SEG_MASK);
+            let target_packed = pack_target(axon_idx as u32, cand.segment_idx as u32);
             
             let cell = slot * pn + soma_id;
             shard.dendrite_targets[cell] = target_packed;
@@ -224,7 +225,7 @@ pub fn reconnect_empty_dendrites(
                         for slot in 0..MAX_DENDRITE_SLOTS {
                             let cell = slot * padded_n + soma_id;
                             let target = targets[cell];
-                            if target != 0 && (target >> TARGET_AXON_SHIFT) as usize == axon_idx {
+                            if unpack_target(target).map_or(false, |(id, _)| id as usize == axon_idx) {
                                 already_connected = true;
                                 break;
                             }
@@ -280,7 +281,7 @@ pub fn reconnect_empty_dendrites(
                 INITIAL_INHIBITORY_WEIGHT
             };
 
-            let target_packed = ((axon_idx as u32) << TARGET_AXON_SHIFT) | (cand.segment_idx as u32 & TARGET_SEG_MASK);
+            let target_packed = pack_target(axon_idx as u32, cand.segment_idx as u32);
             
             let cell = slot * padded_n + soma_id;
             targets[cell] = target_packed;
