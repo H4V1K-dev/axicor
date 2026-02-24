@@ -26,7 +26,7 @@ struct alignas(32) VariantParameters {
 };
 
 struct alignas(128) GenesisConstantMemory {
-  VariantParameters variants[4];
+  VariantParameters variants[16];
   uint8_t inertia_lut[16];
   uint8_t _padding[112];
 };
@@ -90,7 +90,7 @@ __global__ void update_neurons_kernel(uint32_t padded_n, int32_t *voltage,
   // 1. Unpack type + load variant parameters (1 clock L1)
   uint8_t f = flags[tid];
   uint8_t type_mask = f >> 4;
-  uint8_t variant = (type_mask >> 2) & 0x3;
+  uint8_t variant = type_mask & 0xF;
   VariantParameters p = const_mem.variants[variant];
 
   // 2. Homeostasis decay — ALWAYS runs, even when soma is refractory (Spec §1.5)
@@ -205,7 +205,7 @@ __global__ void apply_gsop_kernel(uint32_t padded_n, uint8_t *flags,
 
   // 2. Load variant parameters (L1 Cache, 1 clock)
   uint8_t type_mask = f >> 4;
-  uint8_t variant = (type_mask >> 2) & 0x3;
+  uint8_t variant = type_mask & 0xF;
   VariantParameters p = const_mem.variants[variant];
 
   // 3. Columnar Loop: 128 slots (Coalesced Access)

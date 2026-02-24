@@ -32,7 +32,7 @@ pub struct VariantParameters {
 #[repr(C, align(128))]
 #[derive(Clone, Copy)]
 pub struct GenesisConstantMemory {
-    pub variants: [VariantParameters; 4],
+    pub variants: [VariantParameters; 16],
     pub inertia_lut: [u8; 16],
     pub _padding: [u8; 112],
 }
@@ -40,7 +40,7 @@ pub struct GenesisConstantMemory {
 impl Default for GenesisConstantMemory {
     fn default() -> Self {
         Self {
-            variants: [VariantParameters::default(); 4],
+            variants: [VariantParameters::default(); 16],
             inertia_lut: [0; 16],
             _padding: [0; 112],
         }

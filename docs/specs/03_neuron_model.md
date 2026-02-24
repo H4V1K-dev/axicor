@@ -53,51 +53,68 @@ let x = packed & 0x3FF;
 
 ## 2. Композитная Типизация (4-bit Typing)
 
-Тип нейрона определяется **4-битной маской** (тетрада, полубайт). Делится на две группы: **Physical** (как растёт и какой знак) и **Functional** (как учится и как реагирует).
+Тип нейрона определяется **4-битным индексом** (0..15), который используется как прямой индекс в таблице профилей поведения `VARIANT_LUT[16]` в `__constant__` памяти GPU.
 
-### 2.1. Битовая Карта
+### 2.1. Кодирование Типа
 
-| Бит | Имя | 0 | 1 | Зачем |
-|---|---|---|---|---|
-| **0** | Geometry (Geo) | Vertical — растёт по Z (проекционный) | Horizontal — растёт по XY (локальный) | Определяет алгоритм роста и коллизий |
-| **1** | Sign (Sgn) | Excitatory (Glu, `+Charge`) | Inhibitory (GABA, `-Charge`) | При Baking знак бейкается в `i16 synapse_weight` (+/-). В Hot Loop lookup не нужен. |
-| **2–3** | Variant (Var) | `00`..`11` (индекс 0–3) | — | Ссылка на профиль поведения в LUT (constant memory) |
+`type_mask` (4 бита, биты 4-7 в `flags[dense_index]`):
+
+```
+Биты:  [7..4]
+Поле:  Type (0..15)
+```
+
+```rust
+// Распаковка: 1 такт ALU
+let type_mask = flags[dense_index] >> 4;  // Биты 4-7
+let params = const_mem.variants[type_mask];  // Прямой индекс в LUT
+```
+
+Тип нейрона — это **порядковый индекс в конфиге** `blueprints.toml` → `neuron_types[0..15]`.
+
+**Биты 0-3 в `flags`** зарезервированы для других целей (текущее использование: бит 0 = `is_spiking`).
 
 ### 2.2. Принцип LUT (Look-Up Table)
 
-Вместо того чтобы хранить GSOP-константы и параметры мембраны **в каждом нейроне** (расход памяти), используем биты 2–3 как индекс массива в `__constant__` памяти GPU.
+Вместо того чтобы хранить GSOP-константы и параметры мембраны **в каждом нейроне** (расход памяти), используем `type_mask` как индекс массива в `__constant__` памяти GPU.
 
+```cuda-cpp
+// GPU Shader (реальный код)
+uint8_t type_mask = f >> 4;                    // Биты 4-7
+VariantParameters p = const_mem.variants[type_mask];  // Прямой индекс
+int32_t new_threshold = threshold + p.homeostasis_penalty;
 ```
-// GPU Shader (псевдокод)
-let var_id = (type_bits >> 2) & 0x03;        // Извлекаем биты 2-3
-let params = VARIANT_LUT[var_id];            // Прямое чтение из constant memory
-let new_threshold = threshold + params.homeostasis_penalty;
+
+Это **одна инструкция** — constant memory всегда в кеше L1. До **16 уникальных профилей**.
+
+### 2.3. Варианты Поведения (Blueprint-управляемые)
+
+Каждый профиль (0..15) определяется в файле `blueprints.toml`:
+
+```toml
+[[neuron_types]]
+name = "PyramidL5"                  # Имя типа (произвольная строка)
+threshold = 500
+rest_potential = -70
+leak_rate = 2
+homeostasis_penalty = 15
+homeostasis_decay = 1
+gsop_potentiation = 74
+gsop_depression = 2
+# ... ещё 6 параметров
 ```
 
-Это **одна инструкция** — constant memory всегда в кеше L1.
+Порядок типов в `blueprints.toml` → их index в `type_mask`. Нет ограничений на названия или количество параметров в пределах 0..15.
 
-### 2.3. Варианты Поведения (Blueprint Variants)
+### 2.4. Пространство Типов  
 
-Определяются в [02_configuration.md §6](./02_configuration.md):
+До **16 уникальных типов** (0..15), каждый с полным набором параметров GLIF и GSOP:
 
-| Var | Имя | GSOP | Профиль | Применение |
-|---|---|---|---|---|
-| `00` | **Regular** | `+74 / -2` | Средний порог, стандартная адаптация | Типичные пирамиды |
-| `01` | **Fast / Burst** | `+96 / -4` | Быстрая рефрактерность, агрессивная пластичность | Рабочая память, Basket cells |
-| `10` | **Stable** | `+8 / -1` | Высокий порог, медленная адаптация | Долговременное хранение |
-| `11` | **Fixed / Relay** | `+1 / 0` | Жёсткий порог, GSOP заморожен | Реле (таламус), входные слои |
+- **Индекс:** 0 — тип из фрагмента `[[neuron_types]]` в `blueprints.toml`
+- **Параметры:** threshold, rest_potential, leak_rate, homeostasis_penalty, homeostasis_decay, gsop_potentiation, gsop_depression, refractory_period, synapse_refractory_period, slot_decay_ltm, slot_decay_wm, signal_propagation_length
+- **Семантика:** определяется при конфигурации, не жёстко закодирована. Одна конфигурация может иметь типы {ExcitatoryFast, InhibitorySlow}, другая — {Relay, Memory, Burst, Regular}
 
-### 2.4. Итоговое Пространство Типов
-
-16 уникальных комбинаций (4 Geo×Sgn × 4 Var), упакованных в **полбайта**:
-
-| Geo | Sgn | Var | Пример |
-|---|---|---|---|
-| V | E | Regular | Стандартная пирамида L2/3 |
-| V | E | Stable | Пирамида долговременной памяти |
-| H | I | Fast | Быстрый тормозной интернейрон (Basket) |
-| V | E | Fixed | Входной нейрон L4 (реле от таламуса) |
-| H | I | Regular | Стандартный интернейрон L1 |
+При Baking каждому нейрону из `anatomy.toml` назначается `type_idx` (0..15). При загрузке в VRAM `type_idx` кодируется в `flags[dense_index] >> 4`.
 
 
 ---
@@ -117,7 +134,7 @@ let new_threshold = threshold + params.homeostasis_penalty;
 Вместо того чтобы лезть в веса синапсов (дорого), регулируем чувствительность сомы.
 
 - **Переменная:** `threshold_offset` (`i32`), хранится в нейроне.
-- **Константы:** `homeostasis_penalty` и `homeostasis_decay` — **не хранятся** в нейроне. Берутся из LUT по Variant ID (§2.2, constant memory GPU).
+- **Константы:** `homeostasis_penalty` и `homeostasis_decay` — **не хранятся** в нейроне. Берутся из LUT по Type ID (§2.2, constant memory GPU).
 - **Механика (Integer Math):**
   - **Спайк:** `threshold_offset += penalty` (нейрону труднее выстрелить повторно).
   - **Каждый тик:** `threshold_offset = max(0, threshold_offset - decay)` — branchless, без `if`.

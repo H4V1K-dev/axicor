@@ -149,8 +149,8 @@ async fn main() -> Result<()> {
         .with_context(|| format!("Failed to load blueprints: {:?}", cli.blueprints))?;
 
     let mut const_mem = GenesisConstantMemory::default();
-    // Fill up to 4 variants from blueprints (indices 0..3 = Variant bits 2-3)
-    for (i, nt) in blueprints.neuron_types.iter().take(4).enumerate() {
+    // Fill up to 16 variants from blueprints (indices 0..15, direct variant index)
+    for (i, nt) in blueprints.neuron_types.iter().take(16).enumerate() {
         const_mem.variants[i] = VariantParameters {
             threshold:            nt.threshold,
             rest_potential:       nt.rest_potential,
@@ -176,7 +176,7 @@ async fn main() -> Result<()> {
     if !Runtime::init_constants(&const_mem) {
         anyhow::bail!("Failed to upload GenesisConstantMemory to GPU");
     }
-    println!("[Node] Constant memory uploaded ({} neuron types).", blueprints.neuron_types.len().min(4));
+    println!("[Node] Constant memory uploaded ({} neuron types).", blueprints.neuron_types.len().min(16));
 
     // 5.1 Initialize Engine Runtime
     let v_seg = (sim_config.simulation.signal_speed_um_tick / sim_config.simulation.voxel_size_um) as u32;
