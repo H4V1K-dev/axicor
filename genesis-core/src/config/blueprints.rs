@@ -61,6 +61,15 @@ pub struct NeuronType {
     #[serde(default)]
     pub is_inhibitory: bool,
 
+    /// Начальный вес синапса (абсолютное значение). Знак определяется `is_inhibitory`.
+    #[serde(default = "default_initial_weight")]
+    pub initial_synapse_weight: u16,
+
+    /// Список имён типов, от которых этот тип принимает дендритные связи.
+    /// Пустой список = принимает от всех типов (без фильтрации).
+    #[serde(default)]
+    pub dendrite_whitelist: Vec<String>,
+
     // --- Гомеостаз (Adaptive Threshold) ---
     pub homeostasis_penalty: i32,
     pub homeostasis_decay: u16, // u16 (для runtime)
@@ -101,6 +110,7 @@ fn default_steering_sensor() -> f32 { 0.3 }
 fn default_steering_jitter() -> f32 { 0.1 }
 fn default_growth_vertical_bias() -> f32 { 0.7 }
 fn default_type_affinity() -> f32 { 0.5 }
+fn default_initial_weight() -> u16 { 74 }
 fn default_gsop_pot() -> u16 { 74 }
 fn default_gsop_dep() -> u16 { 2 }
 fn default_sprouting_dist() -> f32 { 0.5 }

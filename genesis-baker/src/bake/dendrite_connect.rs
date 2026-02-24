@@ -6,10 +6,7 @@ use crate::bake::sprouting::{sprouting_score, voxel_dist, SproutingWeights};
 use crate::parser::blueprints::NeuronType;
 use genesis_core::constants::MAX_DENDRITE_SLOTS;
 use genesis_core::coords::{pack_target, unpack_target};
-use std::collections::HashMap;
-
-pub const INITIAL_EXCITATORY_WEIGHT: i16 = 74;
-pub const INITIAL_INHIBITORY_WEIGHT: i16 = -74;
+use std::collections::{HashMap, HashSet};
 
 /// Размер ячейки пространственной решётки (в вокселях).
 /// Кандидат может находиться не дальше CELL_SIZE от сомы → ищем только в 3×3×3 ячейках.
@@ -81,6 +78,7 @@ pub fn connect_dendrites(
         let cell_z = soma_z / CELL_SIZE;
 
         let mut candidates: Vec<Candidate> = Vec::new();
+        let mut seen_axons: HashSet<usize> = HashSet::new();
 
         // Проверяем 3×3×3 соседних ячейки
         for dx in 0..=2u32 {
@@ -98,6 +96,22 @@ pub fn connect_dendrites(
                         let ax = &axons[axon_idx];
                         if ax.soma_idx == soma_id {
                             continue;
+                        }
+
+                        // Rule of Uniqueness: одна сома = один коннект к аксону
+                        if seen_axons.contains(&axon_idx) {
+                            continue;
+                        }
+
+                        // Type Whitelist Filter
+                        if !nt.dendrite_whitelist.is_empty() {
+                            let source_type_name = neuron_types
+                                .get(ax.type_idx)
+                                .map(|t| t.name.as_str())
+                                .unwrap_or("");
+                            if !nt.dendrite_whitelist.iter().any(|w| w == source_type_name) {
+                                continue;
+                            }
                         }
 
                         // Find the closest segment of this axon to the soma
@@ -125,6 +139,8 @@ pub fn connect_dendrites(
                             (soma_id.wrapping_mul(31).wrapping_add(axon_idx)) as u32,
                         );
                         let score = sprouting_score(min_dist, 0.0, epoch_seed, &cfg);
+                        
+                        seen_axons.insert(axon_idx);
                         candidates.push(Candidate { axon_idx, segment_idx: best_seg_idx, score });
                     }
                 }
@@ -138,14 +154,19 @@ pub fn connect_dendrites(
         for (slot, cand) in candidates.iter().take(MAX_DENDRITE_SLOTS).enumerate() {
             let axon_idx = cand.axon_idx;
             let target_type = axons[axon_idx].type_idx;
-            let is_inhibitory = neuron_types
-                .get(target_type)
+            
+            let source_nt = neuron_types.get(target_type);
+            let abs_weight = source_nt
+                .map(|n| n.initial_synapse_weight)
+                .unwrap_or(74);
+            let is_inhibitory = source_nt
                 .map(|n| n.is_inhibitory)
                 .unwrap_or(false);
-            let weight = if is_inhibitory {
-                INITIAL_INHIBITORY_WEIGHT
+                
+            let weight: i16 = if is_inhibitory {
+                -(abs_weight as i16)
             } else {
-                INITIAL_EXCITATORY_WEIGHT
+                abs_weight as i16
             };
 
             let target_packed = pack_target(axon_idx as u32, cand.segment_idx as u32);
@@ -271,14 +292,19 @@ pub fn reconnect_empty_dendrites(
         for (cand, &slot) in candidates.iter().zip(empty_slots.iter()) {
             let axon_idx = cand.axon_idx;
             let target_type = axons[axon_idx].type_idx;
-            let is_excitatory = neuron_types
-                .get(target_type)
-                .map(|n| n.name.contains("Excitatory"))
-                .unwrap_or(true);
-            let weight = if is_excitatory {
-                INITIAL_EXCITATORY_WEIGHT
+            
+            let source_nt = neuron_types.get(target_type);
+            let abs_weight = source_nt
+                .map(|n| n.initial_synapse_weight)
+                .unwrap_or(74);
+            let is_inhibitory = source_nt
+                .map(|n| n.is_inhibitory)
+                .unwrap_or(false);
+                
+            let weight: i16 = if is_inhibitory {
+                -(abs_weight as i16)
             } else {
-                INITIAL_INHIBITORY_WEIGHT
+                abs_weight as i16
             };
 
             let target_packed = pack_target(axon_idx as u32, cand.segment_idx as u32);
