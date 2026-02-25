@@ -187,8 +187,6 @@ Ghost Packets **никогда не генерируются**, поведени
 
 ```
 // GPU (псевдокод)
-```
-// GPU (псевдокод)
 let gsop = GSOP_LUT[type_id];
 weight += gsop.potentiation * gsop.multiplier;
 ```
