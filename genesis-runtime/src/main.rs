@@ -164,13 +164,10 @@ async fn main() -> Result<()> {
             slot_decay_ltm:       nt.slot_decay_ltm,
             slot_decay_wm:        nt.slot_decay_wm,
             propagation_length:   nt.signal_propagation_length as u8,
-            _padding:             [0; 3],
+            ltm_slot_count:       nt.ltm_slot_count,
+            inertia_curve:        nt.inertia_curve,
+            _padding:             [0; 14],
         };
-    }
-    // Inertia LUT: linearly decreasing resistance — stronger weights change slower
-    // Rank 0 (weak, abs<2048): inertia=128 (full delta), rank 15 (strong): inertia=8
-    for rank in 0..16usize {
-        const_mem.inertia_lut[rank] = (128u32.saturating_sub(rank as u32 * 8)) as u8;
     }
 
     if !Runtime::init_constants(&const_mem) {

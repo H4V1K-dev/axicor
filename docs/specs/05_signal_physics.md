@@ -103,10 +103,10 @@ __global__ void ApplyGSOP(u8* flags, u32* dendrite_target, i16* dendrite_weights
         u8 d_timer = dendrite_timers[col_idx];
         u32 is_causal = (d_timer == p.synapse_refractory);
 
-        // 5. Inertia Rank: abs(weight) >> 12 → 0..15
+        // 5. Inertia Rank: abs(weight) >> 11 → 16 рангов (по 2048 единиц)
         i16 w = dendrite_weights[col_idx];
         u16 abs_w = (u16)abs(w);
-        u8 inertia = CONST_MEM.inertia_lut[abs_w >> 12];
+        u8 inertia = p.inertia_curve[abs_w >> 11];
 
         // 6. Branchless GSOP Math (Zero Float)
         u16 delta_pot = (p.gsop_potentiation * inertia) >> 7;
@@ -114,7 +114,7 @@ __global__ void ApplyGSOP(u8* flags, u32* dendrite_target, i16* dendrite_weights
         i32 delta = is_causal * delta_pot - (!is_causal) * delta_dep;
 
         // 7. Slot Decay: LTM/WM множители из конфига (Fixed-point: 128 = 1.0×)
-        u8 decay = (slot < 80) ? p.slot_decay_ltm : p.slot_decay_wm;
+        u8 decay = (slot < p.ltm_slot_count) ? p.slot_decay_ltm : p.slot_decay_wm;
         delta = (delta * decay) >> 7;
 
         // 8. Signed Clamp ±32767 (Branchless sign extraction)

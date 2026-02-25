@@ -11,8 +11,8 @@ use std::ffi::c_void;
 use tokio::sync::{mpsc, oneshot};
 use crate::network::slow_path::{GeometryRequest, GeometryResponse};
 
-#[repr(C, align(32))]
-#[derive(Clone, Copy, Default)]
+#[repr(C, align(64))]
+#[derive(Clone, Copy)]
 pub struct VariantParameters {
     pub threshold: i32,
     pub rest_potential: i32,
@@ -26,23 +26,44 @@ pub struct VariantParameters {
     pub slot_decay_ltm: u8,
     pub slot_decay_wm: u8,
     pub propagation_length: u8,
-    pub _padding: [u8; 3],
+    pub ltm_slot_count: u8,
+    pub inertia_curve: [u8; 16],
+    pub _padding: [u8; 14],
+}
+
+impl Default for VariantParameters {
+    fn default() -> Self {
+        Self {
+            threshold: 0,
+            rest_potential: 0,
+            leak: 0,
+            homeostasis_penalty: 0,
+            homeostasis_decay: 0,
+            gsop_potentiation: 0,
+            gsop_depression: 0,
+            refractory_period: 0,
+            synapse_refractory: 0,
+            slot_decay_ltm: 0,
+            slot_decay_wm: 0,
+            propagation_length: 0,
+            ltm_slot_count: 80,
+            inertia_curve: [0; 16],
+            _padding: [0; 14],
+        }
+    }
 }
 
 #[repr(C, align(128))]
 #[derive(Clone, Copy)]
 pub struct GenesisConstantMemory {
     pub variants: [VariantParameters; 16],
-    pub inertia_lut: [u8; 16],
-    pub _padding: [u8; 112],
+    // Total size of GenesisConstantMemory: 64 * 16 = 1024 bytes (well within 64KB constant memory limit)
 }
 
 impl Default for GenesisConstantMemory {
     fn default() -> Self {
         Self {
             variants: [VariantParameters::default(); 16],
-            inertia_lut: [0; 16],
-            _padding: [0; 112],
         }
     }
 }

@@ -28,6 +28,8 @@ fn test_blueprints_parse_full() {
         gsop_potentiation = 80
         gsop_depression = 3
         prune_threshold = 20
+        ltm_slot_count = 100
+        inertia_curve = [200, 190, 180, 170, 160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50]
     "#;
 
     let bp = BlueprintsConfig::parse(toml).unwrap();
@@ -39,6 +41,9 @@ fn test_blueprints_parse_full() {
     assert_eq!(nt.homeostasis_decay, 10);
     assert_eq!(nt.gsop_potentiation, 80);
     assert_eq!(nt.prune_threshold, 20);
+    assert_eq!(nt.ltm_slot_count, 100);
+    assert_eq!(nt.inertia_curve[0], 200);
+    assert_eq!(nt.inertia_curve[15], 50);
     assert!((nt.sprouting_weight_sum() - 1.0).abs() < f32::EPSILON);
 }
 
@@ -68,9 +73,12 @@ fn test_blueprints_parse_minimal_with_defaults() {
     assert_eq!(nt.signal_propagation_length, 10);
     assert_eq!(nt.axon_growth_step, 12);
     assert_eq!(nt.steering_fov_deg, 60.0);
-    assert_eq!(nt.gsop_potentiation, 74);
-    assert_eq!(nt.gsop_depression, 2);
+    assert_eq!(nt.gsop_potentiation, 60);
+    assert_eq!(nt.gsop_depression, 30);
     assert_eq!(nt.prune_threshold, 15);
+    assert_eq!(nt.ltm_slot_count, 80); // default
+    assert_eq!(nt.inertia_curve[0], 128); // default
+    assert_eq!(nt.inertia_curve[15], 8); // default
 }
 
 #[test]

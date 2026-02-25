@@ -78,6 +78,13 @@ pub struct NeuronType {
     pub slot_decay_ltm: u8,
     pub slot_decay_wm: u8,
 
+    #[serde(default = "default_ltm_slot_count")]
+    pub ltm_slot_count: u8,
+
+    // --- Plasticity Inertia (16 рангов) ---
+    #[serde(default = "default_inertia_curve")]
+    pub inertia_curve: [u8; 16],
+
     // --- GSOP ---
     #[serde(default = "default_gsop_pot")]
     pub gsop_potentiation: u16,
@@ -108,19 +115,24 @@ fn default_propagation_length() -> u16 { 10 }
 fn default_axon_growth_step() -> u16 { 12 }
 fn default_steering_fov() -> f32 { 60.0 }
 fn default_steering_radius() -> f32 { 100.0 }
+fn default_steering_weight_distance() -> f32 { 1.0 }
 fn default_steering_inertia() -> f32 { 0.6 }
 fn default_steering_sensor() -> f32 { 0.3 }
 fn default_steering_jitter() -> f32 { 0.1 }
 fn default_growth_vertical_bias() -> f32 { 0.7 }
 fn default_type_affinity() -> f32 { 0.5 }
 fn default_initial_weight() -> u16 { 74 }
-fn default_gsop_pot() -> u16 { 74 }
-fn default_gsop_dep() -> u16 { 2 }
-fn default_sprouting_dist() -> f32 { 0.5 }
+fn default_gsop_pot() -> u16 { 60 }
+fn default_gsop_dep() -> u16 { 30 }
+fn default_sprouting_dist() -> f32 { 0.4 }
 fn default_sprouting_power() -> f32 { 0.4 }
 fn default_sprouting_exp() -> f32 { 0.1 }
-fn default_sprouting_type() -> f32 { 0.2 }
+fn default_sprouting_type() -> f32 { 0.1 }
 fn default_prune_threshold() -> u16 { 15 }
+fn default_ltm_slot_count() -> u8 { 80 }
+fn default_inertia_curve() -> [u8; 16] {
+    [128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8]
+}
 
 impl NeuronType {
     /// Суммарный вес sprouting score (должна быть ≈ 1.0).
