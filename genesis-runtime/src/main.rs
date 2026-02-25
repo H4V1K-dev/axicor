@@ -8,6 +8,7 @@ use genesis_runtime::zone_runtime::ZoneRuntime;
 use genesis_runtime::orchestrator::night_phase::NightPhase;
 use genesis_runtime::network::bsp::BspBarrier;
 use genesis_runtime::network::router::SpikeRouter;
+use genesis_runtime::network::intra_gpu::{IntraGpuChannel, GhostLink};
 
 use genesis_runtime::network::geometry_client::GeometryServer;
 use genesis_runtime::network::socket::NodeSocket;
@@ -160,6 +161,34 @@ async fn main() -> Result<()> {
         anyhow::bail!("No zones configured in brain.toml!");
     }
 
+    // 5. Setup IntraGPU Communications (Ghost Axons)
+    let mut intra_gpu_links = Vec::new();
+
+    for conn in &brain_config.connections {
+        let src_idx = zones.iter().position(|z| z.name == conn.from);
+        let dst_idx = zones.iter().position(|z| z.name == conn.to);
+
+        if let (Some(src_idx), Some(dst_idx)) = (src_idx, dst_idx) {
+            println!("[Node] Establishing connection {} -> {} ({} axons)", conn.from, conn.to, conn.axon_ids.len());
+            for &src_axon_id in &conn.axon_ids {
+                // Allocate a ghost axon slot in the destination zone
+                if let Some(ghost_id) = zones[dst_idx].runtime.vram.allocate_ghost_axon() {
+                    intra_gpu_links.push(GhostLink {
+                        src_zone_idx: src_idx,
+                        src_axon_id,
+                        dst_zone_idx: dst_idx,
+                        dst_ghost_id: ghost_id,
+                    });
+                } else {
+                    eprintln!("[Node] Warning: VRAM ghost axon capacity exceeded in zone {}", conn.to);
+                    break;
+                }
+            }
+        } else {
+            eprintln!("[Node] Warning: Invalid connection {} -> {} (zone not found)", conn.from, conn.to);
+        }
+    }
+
     let mut gpu_schedule_buffer = vec![0u8; sync_batch_ticks * 1024 * 4];
 
     // 6. Enter the Ephemeral Loop
@@ -187,9 +216,12 @@ async fn main() -> Result<()> {
             }
         }
 
+        let mut channel = IntraGpuChannel::new(intra_gpu_links.clone());
+
         // 6.2 Day Phase: GPU Execution & Network Sync for ALL Zones
         genesis_runtime::orchestrator::day_phase::DayPhase::run_batch(
             &mut zones,
+            &mut channel,
             &mut barrier,
             &mut router,
             gpu_schedule_buffer.as_mut_ptr() as *mut c_void,
@@ -201,7 +233,7 @@ async fn main() -> Result<()> {
         let real_ticks_completed = current_tick * sync_batch_ticks as u64;
 
         // 6.3 Night Phase Check (trigger from config, not hardcoded)
-        for zone in &mut zones {
+        for zone in zones.iter_mut() {
             let is_night = NightPhase::check_and_run(&mut zone.runtime, 0, night_interval, real_ticks_completed, zone.prune_threshold);
             if is_night {
                 println!("[Node] Night Phase for Zone '{}' concluded.", zone.name);

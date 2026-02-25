@@ -3,6 +3,9 @@ pub mod config;
 pub mod ipc;
 pub mod memory;
 pub mod network;
+
+#[cfg(feature = "mock-gpu")]
+pub mod mock_ffi;
 pub mod orchestrator;
 pub mod zone_runtime;
 

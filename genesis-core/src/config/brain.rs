@@ -10,6 +10,9 @@ pub struct BrainConfig {
     
     #[serde(rename = "zone", default)]
     pub zones: Vec<ZoneEntry>,
+
+    #[serde(rename = "connection", default)]
+    pub connections: Vec<ConnectionEntry>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -22,6 +25,16 @@ pub struct ZoneEntry {
     pub name: String,
     pub blueprints: PathBuf,
     pub baked_dir: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConnectionEntry {
+    pub from: String,
+    pub to: String,
+    // TODO: В будущем здесь будет путь к файлу коннектома (например `baked/connections/v1_v2.ghosts`),
+    // содержащему миллионы связей. Пока для MVP используем вложенный массив.
+    #[serde(default)]
+    pub axon_ids: Vec<u32>,
 }
 
 /// Parses the `brain.toml` manifest file.
@@ -54,6 +67,11 @@ mod tests {
         name = "V2"
         blueprints = "config/zones/V2/blueprints.toml"
         baked_dir = "baked/V2/"
+
+        [[connection]]
+        from = "V1"
+        to = "V2"
+        axon_ids = [100, 101, 102]
         "#;
 
         let config: BrainConfig = toml::from_str(toml_str).unwrap();
@@ -67,5 +85,10 @@ mod tests {
         assert_eq!(config.zones[1].name, "V2");
         assert_eq!(config.zones[1].blueprints.to_str().unwrap(), "config/zones/V2/blueprints.toml");
         assert_eq!(config.zones[1].baked_dir.to_str().unwrap(), "baked/V2/");
+
+        assert_eq!(config.connections.len(), 1);
+        assert_eq!(config.connections[0].from, "V1");
+        assert_eq!(config.connections[0].to, "V2");
+        assert_eq!(config.connections[0].axon_ids, vec![100, 101, 102]);
     }
 }

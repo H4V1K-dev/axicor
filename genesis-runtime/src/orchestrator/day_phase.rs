@@ -1,6 +1,7 @@
 use crate::Runtime;
 use crate::network::bsp::BspBarrier;
 use crate::network::router::SpikeRouter;
+use crate::network::channel::Channel;
 use crate::ffi;
 use std::ffi::c_void;
 use crate::zone_runtime::ZoneRuntime;
@@ -11,6 +12,7 @@ impl DayPhase {
     /// Runs the main GPU compute loop for one full synchronization batch across all zones.
     pub async fn run_batch(
         zones: &mut [ZoneRuntime],
+        channel: &mut dyn Channel,
         barrier: &mut BspBarrier, 
         router: &mut SpikeRouter, 
         gpu_schedule_buffer: *mut c_void, 
@@ -104,6 +106,9 @@ impl DayPhase {
                     }
                 }
             }
+
+            // Sync Ghost Axons between local zones
+            channel.sync_spikes(zones);
         }
 
         // Wait for all GPU streams to finish before network barrier
