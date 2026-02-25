@@ -25,7 +25,7 @@ impl ZoneRuntime {
                 synapse_refractory:   nt.synapse_refractory_period,
                 slot_decay_ltm:       nt.slot_decay_ltm,
                 slot_decay_wm:        nt.slot_decay_wm,
-                propagation_length:   nt.signal_propagation_length as u8,
+                propagation_length:   nt.signal_propagation_length,
                 ltm_slot_count:       nt.ltm_slot_count,
                 inertia_curve:        nt.inertia_curve,
                 _padding:             [0; 14],

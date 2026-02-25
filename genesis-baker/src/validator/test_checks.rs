@@ -25,7 +25,7 @@ fn make_sim_config(speed: u32, len_voxels: u32) -> SimulationConfig {
     }
 }
 
-fn make_blueprints_with_prop(prop_len: u16) -> Blueprints {
+fn make_blueprints_with_prop(prop_len: u8) -> Blueprints {
     let nt = NeuronType {
         name: "TestNeuron".to_string(),
         growth_vertical_bias: 0.0,
@@ -101,4 +101,27 @@ fn test_validator_rejects_prop_lt_v_seg() {
     let err_msg = res.unwrap_err().to_string();
     assert!(err_msg.contains("нарушает §1.1 Invariant"));
     assert!(err_msg.contains("signal_propagation_length (3) < v_seg (4)"));
+}
+
+#[test]
+fn test_validator_accepts_refr_gt_prop() {
+    let mut blueprints = make_blueprints_with_prop(5); // prop = 5
+    // По дефолту в `make_blueprints_with_prop` refractory = 5 <= prop, нужно менять:
+    blueprints.neuron_types[0].refractory_period = 10;
+
+    let res = check_single_spike_in_flight(&blueprints);
+    assert!(res.is_ok(), "Validator should accept refractory_period > signal_propagation_length");
+}
+
+#[test]
+fn test_validator_rejects_refr_le_prop() {
+    let mut blueprints = make_blueprints_with_prop(5); // prop = 5
+    blueprints.neuron_types[0].refractory_period = 5;
+
+    let res = check_single_spike_in_flight(&blueprints);
+    assert!(res.is_err(), "Validator MUST reject refractory_period <= signal_propagation_length");
+    
+    let err_msg = res.unwrap_err().to_string();
+    assert!(err_msg.contains("нарушает §1.6 Invariant"));
+    assert!(err_msg.contains("refractory_period (5) <= signal_propagation_length (5)"));
 }

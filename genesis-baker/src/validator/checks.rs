@@ -14,6 +14,7 @@ pub fn validate_all(
     check_sprouting_weights(blueprints)?;
     check_composition_quotas(anatomy)?;
     check_propagation_covers_v_seg(sim, blueprints)?;
+    check_single_spike_in_flight(blueprints)?;
     Ok(())
 }
 
@@ -51,6 +52,24 @@ pub fn check_propagation_covers_v_seg(sim: &SimulationConfig, blueprints: &Bluep
                 nt.name,
                 nt.signal_propagation_length,
                 v_seg
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Проверяет инвариант §1.6 — refractory_period > propagation_length.
+pub fn check_single_spike_in_flight(blueprints: &Blueprints) -> anyhow::Result<()> {
+    for nt in &blueprints.neuron_types {
+        if nt.refractory_period <= nt.signal_propagation_length {
+            bail!(
+                "blueprints.toml: NeuronType '{}' нарушает §1.6 Invariant.\n\
+                 refractory_period ({}) <= signal_propagation_length ({}).\n\
+                 Это приведет к наложению сигналов (более 1 спайка в полёте). \
+                 refractory_period должен быть строго больше длины хвоста возбуждения.",
+                nt.name,
+                nt.refractory_period,
+                nt.signal_propagation_length
             );
         }
     }

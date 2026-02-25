@@ -199,12 +199,12 @@ __global__ void UpdateNeurons(
         if (target == 0) break;  // Early exit: O(K) вместо O(128), K = кол-во живых слотов
 
         // 5c. Active Tail Overlap Check (u32 overflow легализован)
-        u32 axon_id = target >> 16;
-        u32 seg_idx = target & 0xFFFF;
+        u32 axon_id = target >> 10;
+        u32 seg_idx = target & 0x3FF;
         u32 head    = axon_heads[axon_id];
         u32 dist    = head - seg_idx;
 
-        if (dist <= PROPAGATION_LENGTH) {
+        if (dist <= p.propagation_length) {
             // 5d. Voltage accumulation (i16→i32, знак запечён)
             i16 w = dendrite_weights[col_idx];
             v += (i32)w;

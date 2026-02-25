@@ -27,7 +27,7 @@ pub struct NeuronType {
     pub conduction_velocity: u16,
     
     #[serde(default = "default_propagation_length")]
-    pub signal_propagation_length: u16,
+    pub signal_propagation_length: u8,
 
     // --- Рост аксона (Steering) ---
     #[serde(default = "default_axon_growth_step")]
@@ -111,7 +111,7 @@ pub struct NeuronType {
 }
 
 // Дефолтные значения для опциональных полей
-fn default_propagation_length() -> u16 { 10 }
+fn default_propagation_length() -> u8 { 10 }
 fn default_axon_growth_step() -> u16 { 12 }
 fn default_steering_fov() -> f32 { 60.0 }
 fn default_steering_radius() -> f32 { 100.0 }
