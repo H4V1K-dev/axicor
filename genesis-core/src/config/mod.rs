@@ -10,6 +10,7 @@ pub mod blueprints;
 pub mod anatomy;
 pub mod io;
 pub mod instance;
+pub mod brain;
 
 pub use blueprints::{BlueprintsConfig, NeuronType};
 pub use anatomy::{AnatomyConfig, LayerConfig};

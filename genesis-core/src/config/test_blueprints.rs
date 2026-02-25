@@ -25,6 +25,7 @@ fn test_blueprints_parse_full() {
         sprouting_weight_distance = 0.5
         sprouting_weight_power = 0.4
         sprouting_weight_explore = 0.1
+        sprouting_weight_type = 0.0
         gsop_potentiation = 80
         gsop_depression = 3
         prune_threshold = 20
@@ -122,7 +123,7 @@ fn test_blueprints_whitelist_and_initial_weight() {
     assert_eq!(e.dendrite_whitelist, vec!["Inhibitory", "Relay"]);
     assert_eq!(e.initial_synapse_weight, 90);
     assert!(!e.is_inhibitory);
-    assert_eq!(e.sprouting_weight_type, 0.2); // default
+    assert_eq!(e.sprouting_weight_type, 0.1); // default
 
     let i = &bp.neuron_types[1];
     assert!(i.dendrite_whitelist.is_empty()); // default = []

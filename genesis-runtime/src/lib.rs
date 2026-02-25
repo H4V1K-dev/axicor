@@ -4,6 +4,7 @@ pub mod ipc;
 pub mod memory;
 pub mod network;
 pub mod orchestrator;
+pub mod zone_runtime;
 
 use memory::VramState;
 use std::ptr;

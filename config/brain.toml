@@ -1,0 +1,12 @@
+[simulation]
+config = "config/simulation.toml"
+
+[[zone]]
+name = "V1"
+blueprints = "config/zones/V1/blueprints.toml"
+baked_dir = "baked/V1/"
+
+[[zone]]
+name = "V2"
+blueprints = "config/zones/V2/blueprints.toml"
+baked_dir = "baked/V2/"

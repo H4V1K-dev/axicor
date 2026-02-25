@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use genesis_runtime::config::{parse_shard_config, parse_simulation_config, parse_blueprints_config};
+use genesis_core::config::brain::parse_brain_config;
 use genesis_runtime::memory::VramState;
-use genesis_runtime::{GenesisConstantMemory, VariantParameters, Runtime};
+use genesis_runtime::Runtime;
+use genesis_runtime::zone_runtime::ZoneRuntime;
 use genesis_runtime::orchestrator::night_phase::NightPhase;
 use genesis_runtime::network::bsp::BspBarrier;
 use genesis_runtime::network::router::SpikeRouter;
@@ -22,25 +24,13 @@ use genesis_runtime::network::telemetry::TelemetryServer;
     version
 )]
 struct Cli {
-    /// Path to the shard configuration (e.g. shard_04.toml)
-    #[arg(short, long)]
-    config: PathBuf,
+    /// Path to the brain manifest (e.g. brain.toml)
+    #[arg(short, long, default_value = "config/brain.toml")]
+    brain: PathBuf,
 
     /// Local port to bind the Node to (TCP = port+1, UDP = port)
     #[arg(short, long, default_value = "8000")]
     port: u16,
-
-    /// Path to the global simulation configuration (e.g. simulation.toml)
-    #[arg(short, long, default_value = "config/simulation.toml")]
-    simulation: PathBuf,
-
-    /// Directory containing baked binary blocks (.state, .axons)
-    #[arg(short = 'b', long, default_value = "baked/")]
-    baked_dir: PathBuf,
-
-    /// Path to blueprints config (для загрузки характеристик нейронов)
-    #[arg(long, default_value = "config/zones/V1/blueprints.toml")]
-    pub blueprints: std::path::PathBuf,
 
     /// Actively injects a sweeping signal into Virtual Axons each sync_batch
     #[arg(long)]
@@ -58,187 +48,148 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     println!("[Node] Starting Genesis Distributed Daemon...");
 
-    // 2. Load Instance Config
-    let config = parse_shard_config(&cli.config)
-        .with_context(|| format!("Failed to load config: {:?}", cli.config))?;
+    // 2. Load Brain Config
+    let brain_config = parse_brain_config(&cli.brain)
+        .map_err(|e| anyhow::anyhow!("Failed to load brain config: {:?}, err: {}", cli.brain, e))?;
     
-    let sim_config = parse_simulation_config(&cli.simulation)
-        .with_context(|| format!("Failed to load simulation config: {:?}", cli.simulation))?;
-
-    println!("[Node] Target Zone: {}", config.zone_id);
-    println!(
-        "[Node] World Offset: [{}, {}, {}]",
-        config.world_offset.x, config.world_offset.y, config.world_offset.z
-    );
-
-    // 3. Load Baked Geometry (Zero-Copy to VRAM)
-    // We expect baker to produce shard_{zone_id}.state or similar. 
-    // Here we'll just look for a generic shard.state / shard.axons for the MVP.
-    let state_path = cli.baked_dir.join("shard.state");
-    let axons_path = cli.baked_dir.join("shard.axons");
-
-    println!("[Node] Loading VRAM payload from {:?}...", cli.baked_dir);
-    let state_bytes = std::fs::read(&state_path).context("Missing shard.state")?;
-    let axons_bytes = std::fs::read(&axons_path).context("Missing shard.axons")?;
+    let sim_config = parse_simulation_config(&brain_config.simulation.config)
+        .with_context(|| format!("Failed to load simulation config: {:?}", brain_config.simulation.config))?;
 
     let num_virtual = sim_config.simulation.num_virtual_axons.unwrap_or(0);
-    let vram = VramState::load_shard(&state_bytes, &axons_bytes, num_virtual)
-        .context("Failed to push shard data to GPU VRAM")?;
+    let sync_batch_ticks = sim_config.simulation.sync_batch_ticks as usize;
 
-    println!("[Node] VRAM Load Complete. {} neurons, {} total axons ({} virtual)", 
-             vram.padded_n, vram.total_axons, vram.num_virtual);
+    println!("[Node] Brain Manifest Loaded. {} zones configured.", brain_config.zones.len());
 
-    // 4. Initialize Network
-    // - UDP Fast Path Router
-    // - TCP Geometry Server Server (Slow Path)
-    
-    // Setup Geometry Server on TCP (port + 1)
+    // 3. Initialize Shared Network Components
     let tcp_port = cli.port + 1;
     let geo_addr = format!("0.0.0.0:{}", tcp_port).parse().unwrap();
     let geo_server = GeometryServer::bind(geo_addr).await
         .context("Failed to bind TCP Geometry Server")?;
     println!("[Node] Bound TCP Geometry Server on {}", geo_addr);
-    
-    // The orchestrator will listen to these requests and handle them during Night Phase
     let _geo_receiver = geo_server.spawn();
 
-    // Setup UDP Router (routing table built dynamically based on InstanceConfig neighbors)
     let mut router = SpikeRouter::new();
-    
-    // Setup Telemetry WebSockets Server
     let telemetry_port = cli.port + 2; // e.g. 8002
     let telemetry_tx = TelemetryServer::start(telemetry_port).await;
 
-    // 4.1 Fast Path: Bind UDP Socket
     let udp_addr = format!("0.0.0.0:{}", cli.port);
     let socket = NodeSocket::bind(&udp_addr).await
         .context("Failed to bind UDP NodeSocket")?;
     println!("[Node] Bound UDP Fast Path on {}", udp_addr);
 
-    // Setup BSP Barrier configured to the simulation rules
-    let sync_batch_ticks = sim_config.simulation.sync_batch_ticks as usize;
     let mut barrier = BspBarrier::new(sync_batch_ticks);
     barrier.socket = Some(socket);
-    
-    // Parse InstanceConfig to establish peer mappings
-    // (Assuming simple logical Shard IDs for now: X_Plus = 1, X_Minus = 2, Y_Plus = 3, Y_Minus = 4)
-    let default_neighbors = [
-        (1, &config.neighbors.x_plus),
-        (2, &config.neighbors.x_minus),
-        (3, &config.neighbors.y_plus),
-        (4, &config.neighbors.y_minus),
-    ];
 
-    for (logical_id, neighbor_opt) in default_neighbors {
-        if let Some(target_str) = neighbor_opt {
-            if target_str != "Self" && !target_str.is_empty() {
-                if let Ok(addr) = target_str.parse::<std::net::SocketAddr>() {
-                    barrier.peer_addresses.insert(logical_id, addr);
-                    println!("[Node] Discovered Peer Shard {}: {}", logical_id, addr);
-                } else {
-                    eprintln!("[Node] Warning: Could not parse neighbor address: {}", target_str);
+    // 4. Load Zones
+    let mut zones: Vec<ZoneRuntime> = Vec::new();
+    for zone_entry in &brain_config.zones {
+        println!("[Node] Loading Zone: {}", zone_entry.name);
+        
+        // 4.1 Parse Configs
+        let blueprints = parse_blueprints_config(&zone_entry.blueprints)
+            .with_context(|| format!("Failed to load blueprints for zone {}", zone_entry.name))?;
+            
+        let shard_toml_path = zone_entry.baked_dir.join("shard.toml");
+        let shard_config = if shard_toml_path.exists() {
+            parse_shard_config(&shard_toml_path).unwrap_or_else(|_| panic!("Failed to parse shard config {:?}", shard_toml_path))
+        } else {
+            println!("[Node] Warning: No shard.toml found at {:?}, using fallback.", shard_toml_path);
+            genesis_core::config::instance::InstanceConfig {
+                zone_id: "0".to_string(),
+                world_offset: genesis_core::config::instance::Coordinate { x: 0, y: 0, z: 0 },
+                dimensions: genesis_core::config::instance::Dimensions { w: 1000, d: 1000, h: 1000 },
+                neighbors: genesis_core::config::instance::Neighbors { x_plus: None, x_minus: None, y_plus: None, y_minus: None },
+            }
+        };
+
+        let default_neighbors = [
+            (1, &shard_config.neighbors.x_plus),
+            (2, &shard_config.neighbors.x_minus),
+            (3, &shard_config.neighbors.y_plus),
+            (4, &shard_config.neighbors.y_minus),
+        ];
+
+        for (logical_id, neighbor_opt) in default_neighbors {
+            if let Some(target_string) = neighbor_opt {
+                let target_str = target_string.as_str();
+                if target_str != "Self" && !target_str.is_empty() {
+                    if let Ok(addr) = target_str.parse::<std::net::SocketAddr>() {
+                        barrier.peer_addresses.insert(logical_id, addr);
+                    }
                 }
             }
         }
+
+        // 4.2 Load VRAM
+        let state_path = zone_entry.baked_dir.join("shard.state");
+        let axons_path = zone_entry.baked_dir.join("shard.axons");
+        let state_bytes = std::fs::read(&state_path).context(format!("Missing {:?} (did you run baker?)", state_path))?;
+        let axons_bytes = std::fs::read(&axons_path).context(format!("Missing {:?}", axons_path))?;
+
+        let vram = VramState::load_shard(&state_bytes, &axons_bytes, num_virtual)
+            .context("Failed to push shard data to GPU VRAM")?;
+
+        println!("       VRAM Load Complete. {} neurons, {} total axons", vram.padded_n, vram.total_axons);
+
+        // 4.3 Setup ZoneRuntime
+        let const_mem = ZoneRuntime::build_constant_memory(&blueprints);
+        let prune_threshold = blueprints.neuron_types.first().map(|n| n.prune_threshold as i16).unwrap_or(15);
+        let v_seg = (sim_config.simulation.signal_speed_um_tick / sim_config.simulation.voxel_size_um) as u32;
+        let master_seed = genesis_core::seed::MasterSeed::from_str(&sim_config.simulation.master_seed);
+
+        let mut runtime = Runtime::new(vram, v_seg, master_seed.raw(), Some(zone_entry.baked_dir.clone()));
+
+        if let Some(ref socket_path) = cli.baker_socket {
+            let zone_u16 = shard_config.zone_id.parse::<u16>().unwrap_or(0);
+            if let Ok(client) = genesis_runtime::ipc::BakerClient::connect(zone_u16, socket_path) {
+                println!("       Baker daemon connected.");
+                runtime.baker_client = Some(client);
+            }
+        }
+
+        zones.push(ZoneRuntime {
+            name: zone_entry.name.clone(),
+            runtime,
+            const_mem,
+            config: shard_config,
+            prune_threshold,
+        });
+    }
+
+    if zones.is_empty() {
+        anyhow::bail!("No zones configured in brain.toml!");
     }
 
     let mut gpu_schedule_buffer = vec![0u8; sync_batch_ticks * 1024 * 4];
 
-    // 5. Load Blueprints and Upload Constant Memory to GPU
-    let blueprints = parse_blueprints_config(&cli.blueprints)
-        .with_context(|| format!("Failed to load blueprints: {:?}", cli.blueprints))?;
-
-    let mut const_mem = GenesisConstantMemory::default();
-    // Fill up to 16 variants from blueprints (indices 0..15, direct variant index)
-    for (i, nt) in blueprints.neuron_types.iter().take(16).enumerate() {
-        const_mem.variants[i] = VariantParameters {
-            threshold:            nt.threshold,
-            rest_potential:       nt.rest_potential,
-            leak:                 nt.leak_rate,
-            homeostasis_penalty:  nt.homeostasis_penalty,
-            homeostasis_decay:    nt.homeostasis_decay as i32,
-            gsop_potentiation:    nt.gsop_potentiation,
-            gsop_depression:      nt.gsop_depression,
-            refractory_period:    nt.refractory_period,
-            synapse_refractory:   nt.synapse_refractory_period,
-            slot_decay_ltm:       nt.slot_decay_ltm,
-            slot_decay_wm:        nt.slot_decay_wm,
-            propagation_length:   nt.signal_propagation_length as u8,
-            ltm_slot_count:       nt.ltm_slot_count,
-            inertia_curve:        nt.inertia_curve,
-            _padding:             [0; 14],
-        };
-    }
-
-    if !Runtime::init_constants(&const_mem) {
-        anyhow::bail!("Failed to upload GenesisConstantMemory to GPU");
-    }
-    println!("[Node] Constant memory uploaded ({} neuron types).", blueprints.neuron_types.len().min(16));
-
-    // 5.1 Initialize Engine Runtime
-    let v_seg = (sim_config.simulation.signal_speed_um_tick / sim_config.simulation.voxel_size_um) as u32;
-    let master_seed = genesis_core::seed::MasterSeed::from_str(&sim_config.simulation.master_seed);
-    let mut runtime = Runtime::new(
-        vram,
-        v_seg,
-        master_seed.raw(),
-        Some(cli.baked_dir.clone()),
-    );
-
-    // 5.2 Connect to baker daemon (optional)
-    if let Some(ref socket_path) = cli.baker_socket {
-        let zone_u16 = config.zone_id.parse::<u16>().unwrap_or_else(|_| {
-            eprintln!("[Node] Warning: zone_id '{}' is not numeric, using 0 for SHM name", config.zone_id);
-            0
-        });
-        match genesis_runtime::ipc::BakerClient::connect(zone_u16, socket_path) {
-            Ok(client) => {
-                println!("[Node] Baker daemon connected via {:?}", socket_path);
-                runtime.baker_client = Some(client);
-            }
-            Err(e) => {
-                eprintln!("[Node] Warning: cannot connect to baker daemon: {e}. Sprouting disabled.");
-            }
-        }
-    } else {
-        println!("[Node] No --baker-socket provided. Night Phase Sprouting disabled.");
-    }
-
     // 6. Enter the Ephemeral Loop
     let mut current_tick = 0u64;
     let night_interval = sim_config.simulation.night_interval_ticks;
-    let prune_threshold: i16 = blueprints.neuron_types.first()
-        .map(|nt| nt.prune_threshold as i16)
-        .unwrap_or(15);
-    println!("[Node] Night Phase: interval={} ticks, prune_threshold={}",
-        if night_interval == 0 { "DISABLED".to_string() } else { night_interval.to_string() },
-        prune_threshold);
-
     
-    println!("[Node] Engine Online. Starting Ephemeral Loop.");
+    println!("[Node] Engine Online. Loaded {} zones. Starting Ephemeral Loop.", zones.len());
 
     loop {
         let _loop_start = Instant::now();
 
-        // 6.1 Mock Retina Injection
+        // 6.1 Mock Retina Injection (only for the first zone with virtual axons)
         if cli.mock_retina && num_virtual > 0 {
-            let side = (num_virtual as f32).sqrt().ceil() as u32;
-            // Двигаем полосу каждые 2 батча
-            let sweep_x = (current_tick as u32 / 2) % side; 
-            let mut bitmask = vec![0u32; (num_virtual as usize + 31) / 32];
-            for i in 0..num_virtual {
-                let ix = i % side;
-                if ix == sweep_x || ix == (sweep_x + 1) % side { // Линия толщиной 2 вокселя
-                    bitmask[i as usize / 32] |= 1 << (i % 32);
+            if let Some(zone) = zones.first_mut() {
+                let side = (num_virtual as f32).sqrt().ceil() as u32;
+                let sweep_x = (current_tick as u32 / 2) % side; 
+                let mut bitmask = vec![0u32; (num_virtual as usize + 31) / 32];
+                for i in 0..num_virtual {
+                    let ix = i % side;
+                    if ix == sweep_x || ix == (sweep_x + 1) % side { 
+                        bitmask[i as usize / 32] |= 1 << (i % 32);
+                    }
                 }
+                let _ = zone.runtime.vram.upload_input_bitmask(&bitmask);
             }
-            runtime.vram.upload_input_bitmask(&bitmask).context("Mock Retina upload failed")?;
         }
 
-        // 6.2 Day Phase: GPU Execution & Network Sync
-        // We utilize the GPU async execution cycle.
+        // 6.2 Day Phase: GPU Execution & Network Sync for ALL Zones
         genesis_runtime::orchestrator::day_phase::DayPhase::run_batch(
-            &mut runtime,
+            &mut zones,
             &mut barrier,
             &mut router,
             gpu_schedule_buffer.as_mut_ptr() as *mut c_void,
@@ -249,20 +200,20 @@ async fn main() -> Result<()> {
         current_tick += 1;
         let real_ticks_completed = current_tick * sync_batch_ticks as u64;
 
-        // 6.2 Night Phase Check (trigger from config, not hardcoded)
-        let is_night = NightPhase::check_and_run(&mut runtime, 0, night_interval, real_ticks_completed, prune_threshold);
-        if is_night {
-            // Re-sync local states if needed
-            println!("[Node] Night Phase concluded at tick {}.", real_ticks_completed);
+        // 6.3 Night Phase Check (trigger from config, not hardcoded)
+        for zone in &mut zones {
+            let is_night = NightPhase::check_and_run(&mut zone.runtime, 0, night_interval, real_ticks_completed, zone.prune_threshold);
+            if is_night {
+                println!("[Node] Night Phase for Zone '{}' concluded.", zone.name);
+            }
         }
 
         // Throttle to simulated real time (e.g. 10ms network barrier limits display speed)
-        // Here we just print per batch completed.
         if current_tick % 10 == 0 {
             let elapsed = _loop_start.elapsed().as_millis();
             println!("[Node] Processed Batch {}. Simulated {} Ticks. Wall Clock: {} ms", 
                      current_tick, 
-                     current_tick * sync_batch_ticks as u64,
+                     real_ticks_completed,
                      elapsed);
         }
     }

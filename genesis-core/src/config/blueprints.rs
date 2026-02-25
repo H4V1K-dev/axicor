@@ -115,7 +115,6 @@ fn default_propagation_length() -> u16 { 10 }
 fn default_axon_growth_step() -> u16 { 12 }
 fn default_steering_fov() -> f32 { 60.0 }
 fn default_steering_radius() -> f32 { 100.0 }
-fn default_steering_weight_distance() -> f32 { 1.0 }
 fn default_steering_inertia() -> f32 { 0.6 }
 fn default_steering_sensor() -> f32 { 0.3 }
 fn default_steering_jitter() -> f32 { 0.1 }
@@ -137,7 +136,7 @@ fn default_inertia_curve() -> [u8; 16] {
 impl NeuronType {
     /// Суммарный вес sprouting score (должна быть ≈ 1.0).
     pub fn sprouting_weight_sum(&self) -> f32 {
-        self.sprouting_weight_distance + self.sprouting_weight_power + self.sprouting_weight_explore
+        self.sprouting_weight_distance + self.sprouting_weight_power + self.sprouting_weight_explore + self.sprouting_weight_type
     }
 }
 

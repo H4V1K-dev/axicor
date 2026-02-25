@@ -1,8 +1,5 @@
-use serde::Deserialize;
 use std::path::Path;
-use anyhow::{Context, Result};
-use std::fs;
-
+use anyhow::Result;
 pub use genesis_core::config::instance::{InstanceConfig, Coordinate, Dimensions, Neighbors};
 
 /// Parses an Instance Config (e.g. `shard_04.toml`) from disk.
