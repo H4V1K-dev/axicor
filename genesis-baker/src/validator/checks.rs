@@ -13,6 +13,7 @@ pub fn validate_all(
     check_layer_populations(anatomy)?;
     check_sprouting_weights(blueprints)?;
     check_composition_quotas(anatomy)?;
+    check_propagation_covers_v_seg(sim, blueprints)?;
     Ok(())
 }
 
@@ -30,6 +31,30 @@ pub fn check_v_seg_divisible(sim: &SimulationConfig) -> anyhow::Result<()> {
     )
     .map(|_| ())
     .map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+/// Проверяет инвариант §1.1 — propagation_length >= v_seg.
+pub fn check_propagation_covers_v_seg(sim: &SimulationConfig, blueprints: &Blueprints) -> anyhow::Result<()> {
+    let physics = genesis_core::physics::compute_derived_physics(
+        sim.simulation.signal_speed_um_tick as u32,
+        sim.simulation.voxel_size_um,
+        sim.simulation.segment_length_voxels,
+    ).map_err(|e| anyhow::anyhow!("{e}"))?;
+    
+    let v_seg = physics.v_seg;
+    for nt in &blueprints.neuron_types {
+        if (nt.signal_propagation_length as u32) < v_seg {
+            bail!(
+                "blueprints.toml: NeuronType '{}' нарушает §1.1 Invariant.\n\
+                 signal_propagation_length ({}) < v_seg ({})!\n\
+                 Это приведёт к 'пропускам' сегментов при движении аксона (мертвые синапсы).",
+                nt.name,
+                nt.signal_propagation_length,
+                v_seg
+            );
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -101,4 +126,6 @@ pub fn check_sprouting_weights(blueprints: &Blueprints) -> anyhow::Result<()> {
     Ok(())
 }
 
-
+#[cfg(test)]
+#[path = "test_checks.rs"]
+mod test_checks;

@@ -41,3 +41,7 @@ pub fn initial_axon_head(length_segments: u32) -> AxonHead {
 #[cfg(test)]
 #[path = "test_signal.rs"]
 mod test_signal;
+
+#[cfg(test)]
+#[path = "test_train_model.rs"]
+mod test_train_model;

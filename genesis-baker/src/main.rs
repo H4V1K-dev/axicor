@@ -163,7 +163,12 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
         bake::layout::ShardStateSoA::new_blank(neurons.len(), axons.len(), rest_potential);
 
     // --- 7. Init axon heads (not zero, not SENTINEL) ---
-    let v_seg = sim.simulation.signal_speed_um_tick as u32 / sim.simulation.voxel_size_um;
+    let physics = genesis_core::physics::compute_derived_physics(
+        sim.simulation.signal_speed_um_tick as u32,
+        sim.simulation.voxel_size_um,
+        sim.simulation.segment_length_voxels,
+    ).expect("v_seg validation failed. Run baker validation first.");
+    let v_seg = physics.v_seg;
     for (i, ax) in axons.iter().enumerate() {
         if i < shard.axon_heads.len() {
             shard.axon_heads[i] = bake::axon_growth::init_axon_head(ax.length_segments, v_seg);
