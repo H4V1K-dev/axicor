@@ -87,7 +87,11 @@ fn build_benchmark_zone(name: &str, num_neurons: usize) -> ZoneRuntime {
         num_mapped_somas,
         readout_batch_ticks: 1000,
         mapped_soma_ids: _mapped_soma_ids,
-        output_history: _output_history,
+        output_history: std::ptr::null_mut(), 
+        telemetry_spikes: std::ptr::null_mut(),
+        telemetry_count: std::ptr::null_mut(),
+        input_matrices: Vec::new(),
+        input_stride: 1,
     };
 
     let runtime = Runtime::new(vram, 256, 42, None);

@@ -1,0 +1,22 @@
+[[neuron_type]]
+name = "CartPole_Excitatory"
+threshold = 42000
+rest_potential = 10000
+leak_rate = 1200
+refractory_period = 15
+synapse_refractory_period = 15
+conduction_velocity = 200
+signal_propagation_length = 15
+axon_growth_step = 12
+steering_fov_deg = 60.0
+steering_radius_um = 100.0
+steering_weight_inertia = 0.6
+steering_weight_sensor = 0.3
+steering_weight_jitter = 0.1
+homeostasis_penalty = 5000
+homeostasis_decay = 10
+slot_decay_ltm = 160
+slot_decay_wm = 96
+sprouting_weight_distance = 0.5
+sprouting_weight_power = 0.4
+sprouting_weight_explore = 0.1

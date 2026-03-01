@@ -5,18 +5,18 @@
 //! Main loop: waits for `night_start` on Unix socket, runs Sprouting,
 //! writes updated targets to SHM, replies `night_done`.
 
-use anyhow::{Context, Result};
-use clap::Parser;
-use genesis_baker::bake::axon_growth::GrownAxon;
 use genesis_baker::bake::dendrite_connect::reconnect_empty_dendrites;
+use genesis_core::ipc::{shm_name, shm_size, ShmHeader, ShmState};
 use genesis_baker::bake::neuron_placement::PlacedNeuron;
+use genesis_baker::bake::axon_growth::GrownAxon;
+use std::io::{BufRead, BufReader, Write};
 use genesis_baker::parser::blueprints;
 use genesis_baker::parser::simulation;
-use genesis_core::ipc::{shm_name, shm_size, ShmHeader, ShmState};
-use std::ffi::CString;
-use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
+use anyhow::{Context, Result};
 use std::path::PathBuf;
+use std::ffi::CString;
+use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(name = "genesis-baker-daemon", about = "Night Phase Sprouting daemon")]
@@ -54,12 +54,10 @@ fn main() -> Result<()> {
 
     let sim = simulation::parse(&sim_src)
         .with_context(|| format!("Failed to parse {:?}", cli.sim))?;
-    let bp = blueprints::parse(&bp_src)
-        .with_context(|| format!("Failed to parse {:?}", cli.blueprints))?;
+    let (const_mem, _name_map) = blueprints::parse_blueprints(&bp_src);
     
     let master_seed = genesis_core::seed::MasterSeed::from_str(&sim.simulation.master_seed);
 
-    let neuron_types = bp.neuron_types.clone();
     let _segment_length = sim.simulation.segment_length_voxels;
 
     // ── 2. Load shard geometry (neurons + axons) ──
@@ -75,8 +73,8 @@ fn main() -> Result<()> {
     let axons   = load_axons(&axons_bytes)?;
 
     println!(
-        "[baker-daemon] Loaded {} neurons, {} axons. {} neuron types.",
-        neurons.len(), axons.len(), neuron_types.len()
+        "[baker-daemon] Loaded {} neurons, {} axons.",
+        neurons.len(), axons.len(),
     );
 
     // ── 3. Bind Unix socket ──
@@ -175,7 +173,7 @@ fn main() -> Result<()> {
                     padded_n,
                     &neurons,
                     &axons,
-                    &neuron_types,
+                    &const_mem,
                     master_seed.raw() ^ epoch,
                 );
 

@@ -154,6 +154,64 @@ impl BlueprintsConfig {
     }
 }
 
+/// Параметры физики и пластичности для одного типа нейрона (Variant).
+/// Выровнено ровно до 64 байт для идеального кэширования в L1 Constant Memory GPU.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct VariantParameters {
+    // ==========================================
+    // 1. Potentials & Homeostasis (4-byte alignment)
+    // ==========================================
+    pub threshold: i32,                 // 0..4
+    pub rest_potential: i32,            // 4..8
+    pub leak_rate: i32,                 // 8..12
+    pub homeostasis_penalty: i32,       // 12..16
+
+    // ==========================================
+    // 2. Plasticity & Geometry (2-byte alignment)
+    // ==========================================
+    pub gsop_potentiation: i16,         // 16..18
+    pub gsop_depression: i16,           // 18..20
+    pub homeostasis_decay: u16,         // 20..22
+    pub signal_propagation_length: u16, // 22..24
+    pub conduction_velocity: u16,       // 24..26
+    pub slot_decay_ltm: u16,            // 26..28
+    pub slot_decay_wm: u16,             // 28..30
+
+    // ==========================================
+    // 3. Timers (1-byte alignment)
+    // ==========================================
+    pub refractory_period: u8,          // 30..31
+    pub synapse_refractory_period: u8,  // 31..32
+
+    // ==========================================
+    // 4. LUT Curves & Padding
+    // ==========================================
+    /// Нелинейное сопротивление изменениям веса (16 рангов)
+    pub inertia_curve: [u8; 16],        // 32..48
+
+    /// Добиваем до 64 байт. Зарезервировано под параметры аксонов V2.
+    /// Явный паддинг предотвращает UB при передаче в CUDA.
+    pub _reserved: [u8; 16],            // 48..64
+}
+
+// Заменяет твой старый код, если он там был.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct GenesisConstantMemory {
+    pub variants: [VariantParameters; 16],
+}
+
+// Гаранты детерминизма. Компилятор упадёт здесь, если кто-то сломает выравнивание.
+const _: () = assert!(
+    std::mem::size_of::<VariantParameters>() == 64,
+    "VariantParameters MUST be exactly 64 bytes for optimal Constant Memory caching"
+);
+const _: () = assert!(
+    std::mem::size_of::<GenesisConstantMemory>() == 1024,
+    "GenesisConstantMemory MUST be exactly 1024 bytes"
+);
+
 #[cfg(test)]
 #[path = "test_blueprints.rs"]
 mod test_blueprints;

@@ -38,7 +38,11 @@ mod tests {
             readout_batch_ticks: 0,
             mapped_soma_ids: std::ptr::null_mut(),
             output_history: std::ptr::null_mut(),
+            telemetry_spikes: std::ptr::null_mut(),
+            telemetry_count: std::ptr::null_mut(),
             soma_to_axon: std::ptr::null_mut(),
+            input_matrices: Vec::new(),
+            input_stride: 1,
 
             // Axon specific
             total_axons: num_axons,

@@ -19,6 +19,8 @@ toml = "1.0.3"
 axum = { version = "0.7.5", features = ["ws"] }
 tokio-tungstenite = "0.28.0"
 futures-util = "0.3.32"
+ratatui = "0.26"
+crossterm = "0.27"
 
 [build-dependencies]
 cc = "1.0"

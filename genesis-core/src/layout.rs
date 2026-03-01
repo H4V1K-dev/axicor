@@ -13,6 +13,64 @@ pub fn padded_n(neuron_count: usize) -> usize {
     }
 }
 
+/// Выравнивает количество элементов до числа, кратного 32 (Warp Size).
+/// Это хард-требование спецификации (§4.3) для предотвращения Warp Divergence
+/// и Out-of-Bounds чтения последним варпом в CUDA-ядрах.
+#[inline(always)]
+pub fn align_to_warp(n: usize) -> usize {
+    (n + 31) & !31
+}
+
+/// Строгий SoA (Structure of Arrays) layout для памяти GPU.
+/// Никаких абстракций и Vec<T>, только сырые указатели на плоские массивы.
+/// Передается в CUDA ядра по FFI как `const SoA_State*`.
+#[repr(C)]
+pub struct VramState {
+    // =====================================================================
+    // 1. Динамическое состояние сом (Размер каждого = padded_n)
+    // =====================================================================
+    pub voltage: *mut i32,
+    
+    /// Бит 0: is_spiking (пишется GPU)
+    /// Биты 4-7: type_idx для доступа к Constant Memory LUT (read-only)
+    pub flags: *mut u8,             
+    
+    pub threshold_offset: *mut i32, // Soft-limit гомеостаза
+    pub refractory_timer: *mut u8,  // Hard-limit гомеостаза
+
+    pub soma_to_axon: *mut u32,
+
+    // =====================================================================
+    // 2. Транспонированная матрица дендритов (Columnar Layout)
+    // Доступ поколонно: Slot_0[N], Slot_1[N]... Гарантирует 100% Coalesced Access.
+    // Размер каждого = MAX_DENDRITE_SLOTS * padded_n
+    // =====================================================================
+    pub dendrite_targets: *mut u32,
+    pub dendrite_weights: *mut i16,
+    pub dendrite_timers: *mut u8,
+
+    // =====================================================================
+    // 3. Аксоны (Local + Ghost + Virtual)
+    // Размер = total_axons (выровнен до 32)
+    // =====================================================================
+    pub axon_heads: *mut u32,
+
+    // =====================================================================
+    // 4. I/O Матрицы (Интерфейс с ExternalIoServer)
+    // =====================================================================
+    /// Битовая маска сенсорных входов [BATCH_TICKS * WORDS_PER_TICK]
+    pub input_bitmask: *mut u32,    
+    
+    /// Накопитель мышечных сокращений [BATCH_TICKS * NUM_CHANNELS]
+    pub output_history: *mut u8, 
+
+    // =====================================================================
+    // 5. Телеметрия (IDE Visualizer)
+    // =====================================================================
+    pub telemetry_spikes: *mut u32,
+    pub telemetry_count: *mut u32,
+}
+
 pub const STATE_MAGIC: u32 = 0x47534E53; // "GSNS"
 pub const AXONS_MAGIC: u32 = 0x47534158; // "GSAX"
 pub const STATE_VERSION: u16 = 1;

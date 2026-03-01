@@ -1,12 +1,20 @@
-/// Sentinel value for inactive axons.
-/// dist = AXON_SENTINEL - seg_idx = huge → is_active = false (u32 underflow legalized).
-pub const AXON_SENTINEL: u32 = 0x80000000;
-
-/// Maximum dendrite slots per neuron (LTM: 0..79, WM: 80..127).
-pub const MAX_DENDRITE_SLOTS: usize = 128;
+/// Maximum spikes per tick in the spike schedule ring buffer.
+pub const MAX_SPIKES_PER_TICK: usize = 1024;
 
 /// LTM / WM boundary slot index.
 pub const WM_SLOT_START: usize = 80;
+
+/// Hard Constraint: Ровно 128 дендритов на сому. 
+/// Гарантирует выравнивание памяти (Columnar Layout) и 100% утилизацию кэш-линий L1.
+pub const MAX_DENDRITE_SLOTS: usize = 128;
+
+/// Sentinel-значение для неактивных аксонов. 
+/// При сдвиге (0x80000000 - seg_idx) даёт отрицательное число, отключая Active Tail.
+pub const AXON_SENTINEL: u32 = 0x80000000;
+
+/// Триггер для Maintenance Pipeline: сброс переполненных аксонов (каждые ~50 часов симуляции)
+pub const SENTINEL_REFRESH_TICKS: u64 = 1_800_000_000; 
+pub const SENTINEL_DANGER_THRESHOLD: u32 = 0x7000_0000; 
 
 /// target_packed bit layout: [31..10] Axon_ID (22 bits) | [9..0] Segment_Index (10 bits)
 pub const TARGET_AXON_SHIFT: u32 = 10;
@@ -45,3 +53,16 @@ const _: () = assert!(
     SIGNAL_SPEED_UM_TICK % SEGMENT_LENGTH_UM == 0,
     "Spec 01 §1.6 violation: signal_speed_um_tick must be divisible by segment_length_um (v_seg must be integer)"
 );
+
+// ==========================================
+// Магические числа бинарных форматов (Little-Endian)
+// ==========================================
+
+/// Заголовок файла Input Mapping (.gxi)
+pub const GXI_MAGIC: u32 = 0x47584900; // "GXI\0"
+
+/// Заголовок файла Output Mapping (.gxo)
+pub const GXO_MAGIC: u32 = 0x47584F00; // "GXO\0"
+
+/// Заголовок UDP-телеметрии (IDE WebSocket & Fast Path)
+pub const TELEMETRY_MAGIC: u32 = 0x474E5353; // "GNSS"

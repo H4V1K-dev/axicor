@@ -1,19 +1,12 @@
 [package]
 name = "genesis-ide"
-description = "Genesis Brain IDE — Bevy-based live 3D visualizer"
-version.workspace = true
-edition.workspace = true
-authors.workspace = true
-license.workspace = true
-
-[[bin]]
-name = "genesis-ide"
-path = "src/main.rs"
+version = "0.1.0"
+edition = "2021"
 
 [dependencies]
-bevy = { version = "0.15", features = ["dynamic_linking"] }
-tokio = { version = "1", features = ["full"] }
-tokio-tungstenite = "0.28"
+bevy = "0.13"
+tokio = { version = "1.37", features = ["rt", "net", "macros"] }
+tokio-tungstenite = "0.21"
 futures-util = "0.3"
-bytemuck = { version = "1", features = ["derive"] }
-anyhow = "1"
+bytes = "1.5"
+crossbeam-channel = "0.5"

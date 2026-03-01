@@ -1,0 +1,6 @@
+[[output]]
+name = "cartpole_motors"
+source_zone = "MotorCortex"
+target_type = "ALL"
+width = 2
+height = 1

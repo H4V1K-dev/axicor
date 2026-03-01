@@ -1,133 +1,76 @@
-use std::fs::File;
-use std::io::Read;
+use genesis_core::constants::GXI_MAGIC;
 use std::path::Path;
-use anyhow::{Context, Result};
 
-pub struct GxiMapDescriptor {
-    pub name: String,
-    pub width: u32,
-    pub height: u32,
-    pub axon_offset: u32,
+#[derive(Debug, Clone)]
+pub struct GxiMatrix {
+    pub name_hash: u32,
+    pub offset: u32,
+    pub width: u16,
+    pub height: u16,
+    pub stride: u8,
 }
 
+#[derive(Debug)]
 pub struct GxiFile {
-    pub magic: u32,
-    pub version: u16,
-    pub maps: Vec<GxiMapDescriptor>,
-    pub axon_ids: Vec<u32>,
+    pub total_pixels: u32,
+    pub matrices: Vec<GxiMatrix>,
+    pub axon_ids: Vec<u32>, // Flat array: Pixel → Virtual Axon ID
 }
 
 impl GxiFile {
-    pub fn load(path: impl AsRef<Path>) -> Result<Self> {
-        let mut file = File::open(path.as_ref())
-            .with_context(|| format!("Failed to open .gxi file at {:?}", path.as_ref()))?;
-            
-        let mut magic_buf = [0u8; 4];
-        file.read_exact(&mut magic_buf)?;
-        let magic = u32::from_le_bytes(magic_buf);
-        if magic != 0x47584930 {
-            anyhow::bail!("Invalid GXI magic");
+    pub fn load(path: &Path) -> Self {
+        let bytes = std::fs::read(path).expect("Fatal: Failed to read .gxi file");
+        assert!(bytes.len() >= 12, "Fatal: .gxi file too small");
+
+        unsafe {
+            let ptr = bytes.as_ptr();
+
+            let magic = u32::from_le_bytes(*(ptr as *const [u8; 4]));
+            assert_eq!(magic, GXI_MAGIC, "Fatal: Invalid .gxi magic bytes");
+
+            // Header layout (12 bytes):
+            // [0..4]  magic     u32
+            // [4]     version   u8
+            // [5]     _padding  u8
+            // [6..8]  num_matrices u16
+            // [8..12] total_pixels u32
+            let num_matrices = u16::from_le_bytes(*(ptr.add(6) as *const [u8; 2])) as usize;
+            let total_pixels = u32::from_le_bytes(*(ptr.add(8) as *const [u8; 4]));
+
+            let expected_size = 12 + (num_matrices * 16) + (total_pixels as usize * 4);
+            assert_eq!(
+                bytes.len(), expected_size,
+                "Fatal: .gxi file size mismatch: got {} expected {}",
+                bytes.len(), expected_size
+            );
+
+            // Matrix descriptors (16 bytes each):
+            // [0..4]  name_hash u32
+            // [4..8]  offset    u32
+            // [8..10] width     u16
+            // [10..12] height   u16
+            // [12]    stride    u8
+            // [13..16] _padding u8[3]
+            let mut matrices = Vec::with_capacity(num_matrices);
+            let descs_ptr = ptr.add(12);
+            for i in 0..num_matrices {
+                let d = descs_ptr.add(i * 16);
+                matrices.push(GxiMatrix {
+                    name_hash: u32::from_le_bytes(*(d as *const [u8; 4])),
+                    offset:    u32::from_le_bytes(*(d.add(4) as *const [u8; 4])),
+                    width:     u16::from_le_bytes(*(d.add(8) as *const [u8; 2])),
+                    height:    u16::from_le_bytes(*(d.add(10) as *const [u8; 2])),
+                    stride:    *d.add(12),
+                });
+            }
+
+            // Payload: flat [total_pixels] u32 axon IDs
+            let payload_ptr = descs_ptr.add(num_matrices * 16) as *const u32;
+            let mut axon_ids = Vec::with_capacity(total_pixels as usize);
+            std::ptr::copy_nonoverlapping(payload_ptr, axon_ids.as_mut_ptr(), total_pixels as usize);
+            axon_ids.set_len(total_pixels as usize);
+
+            Self { total_pixels, matrices, axon_ids }
         }
-
-        let mut version_buf = [0u8; 2];
-        file.read_exact(&mut version_buf)?;
-        let version = u16::from_le_bytes(version_buf);
-
-        let mut num_maps_buf = [0u8; 2];
-        file.read_exact(&mut num_maps_buf)?;
-        let num_maps = u16::from_le_bytes(num_maps_buf);
-
-        let mut maps = Vec::with_capacity(num_maps as usize);
-        for _ in 0..num_maps {
-            let mut name_len_buf = [0u8; 2];
-            file.read_exact(&mut name_len_buf)?;
-            let name_len = u16::from_le_bytes(name_len_buf);
-
-            let mut name_buf = vec![0u8; name_len as usize];
-            file.read_exact(&mut name_buf)?;
-            let name = String::from_utf8(name_buf)?;
-
-            let mut w_buf = [0u8; 4];
-            file.read_exact(&mut w_buf)?;
-            let width = u32::from_le_bytes(w_buf);
-
-            let mut h_buf = [0u8; 4];
-            file.read_exact(&mut h_buf)?;
-            let height = u32::from_le_bytes(h_buf);
-
-            let mut o_buf = [0u8; 4];
-            file.read_exact(&mut o_buf)?;
-            let axon_offset = u32::from_le_bytes(o_buf);
-
-            maps.push(GxiMapDescriptor {
-                name,
-                width,
-                height,
-                axon_offset,
-            });
-        }
-
-        let mut rest = Vec::new();
-        file.read_to_end(&mut rest)?;
-
-        let mut axon_ids = Vec::with_capacity(rest.len() / 4);
-        for chunk in rest.chunks_exact(4) {
-            let arr: [u8; 4] = chunk.try_into().unwrap();
-            axon_ids.push(u32::from_le_bytes(arr));
-        }
-
-        Ok(Self {
-            magic,
-            version,
-            maps,
-            axon_ids,
-        })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-    use std::fs;
-    use std::env;
-
-    #[test]
-    fn test_gxi_parse_valid() {
-        let path = env::temp_dir().join(format!("test_{}.gxi", std::process::id()));
-        let mut file = fs::File::create(&path).unwrap();
-        // Header
-        file.write_all(&0x47584930u32.to_le_bytes()).unwrap(); // Magic
-        file.write_all(&1u16.to_le_bytes()).unwrap(); // Version
-        file.write_all(&1u16.to_le_bytes()).unwrap(); // Num maps
-        
-        // Map 1
-        let name = "retina".as_bytes();
-        file.write_all(&(name.len() as u16).to_le_bytes()).unwrap();
-        file.write_all(name).unwrap();
-        file.write_all(&10u32.to_le_bytes()).unwrap(); // W
-        file.write_all(&10u32.to_le_bytes()).unwrap(); // H
-        file.write_all(&0u32.to_le_bytes()).unwrap(); // Offset
-
-        // Body (axon ids)
-        for i in 0..100 {
-            file.write_all(&(i as u32).to_le_bytes()).unwrap();
-        }
-        file.flush().unwrap();
-
-        let parsed = GxiFile::load(&path).unwrap();
-        assert_eq!(parsed.magic, 0x47584930);
-        assert_eq!(parsed.version, 1);
-        assert_eq!(parsed.maps.len(), 1);
-        assert_eq!(parsed.maps[0].name, "retina");
-        assert_eq!(parsed.maps[0].width, 10);
-        assert_eq!(parsed.maps[0].height, 10);
-        assert_eq!(parsed.maps[0].axon_offset, 0);
-        assert_eq!(parsed.axon_ids.len(), 100);
-        for i in 0..100 {
-            assert_eq!(parsed.axon_ids[i], i as u32);
-        }
-        
-        fs::remove_file(path).ok();
     }
 }

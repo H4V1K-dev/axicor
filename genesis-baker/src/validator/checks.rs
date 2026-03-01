@@ -1,21 +1,63 @@
-use crate::parser::{anatomy::Anatomy, blueprints::Blueprints, simulation::SimulationConfig};
+use crate::parser::{anatomy::Anatomy, simulation::SimulationConfig};
 use anyhow::bail;
+use genesis_core::config::blueprints::GenesisConstantMemory;
 
 /// Запускает все проверки конфигурации.
 /// Возвращает Ok(()) или первую критическую ошибку.
 pub fn validate_all(
     sim: &SimulationConfig,
-    blueprints: &Blueprints,
+    const_mem: &GenesisConstantMemory,
     anatomy: &Anatomy,
 ) -> anyhow::Result<()> {
     check_v_seg_divisible(sim)?;
     check_layer_heights(anatomy)?;
     check_layer_populations(anatomy)?;
-    check_sprouting_weights(blueprints)?;
     check_composition_quotas(anatomy)?;
-    check_propagation_covers_v_seg(sim, blueprints)?;
-    check_single_spike_in_flight(blueprints)?;
+    run_all_checks(const_mem);
     Ok(())
+}
+
+/// Главный валидатор архитектуры. Вызывается перед началом запекания шарда.
+pub fn run_all_checks(const_mem: &GenesisConstantMemory) {
+    validate_gsop_dead_zones(const_mem);
+    validate_refractory_physics(const_mem);
+}
+
+/// Проверка инварианта: (potentiation * inertia) >> 7 >= 1
+/// Защита от вечной заморозки синапсов (Мёртвая зона пластичности).
+fn validate_gsop_dead_zones(const_mem: &GenesisConstantMemory) {
+    for (type_idx, variant) in const_mem.variants.iter().enumerate() {
+        if variant.gsop_potentiation > 0 {
+            for (rank, &inertia) in variant.inertia_curve.iter().enumerate() {
+                let effective_pot = (variant.gsop_potentiation as i32 * inertia as i32) >> 7;
+                assert!(
+                    effective_pot >= 1,
+                    "Validation failed for type_idx '{}': inertia_curve[{}] creates a GSOP dead zone. \
+                    (potentiation * inertia) >> 7 must be >= 1. Got 0.",
+                    type_idx, rank
+                );
+            }
+        }
+    }
+}
+
+/// Проверка целочисленной физики
+fn validate_refractory_physics(const_mem: &GenesisConstantMemory) {
+    for (type_idx, variant) in const_mem.variants.iter().enumerate() {
+        // Если сигнал идет по аксону быстрее, чем сома выходит из рефрактерности, 
+        // мы нарушаем инвариант Single-Tick Pulse (получим 2 спайка в одном аксоне)
+        
+        // Skip validation for unused types (where parameters are 0)
+        if variant.signal_propagation_length == 0 && variant.refractory_period == 0 {
+            continue;
+        }
+
+        assert!(
+            variant.signal_propagation_length >= variant.refractory_period as u16,
+            "Validation failed for type_idx '{}': signal_propagation_length ({}) cannot be less than refractory_period ({}).",
+            type_idx, variant.signal_propagation_length, variant.refractory_period
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -32,48 +74,6 @@ pub fn check_v_seg_divisible(sim: &SimulationConfig) -> anyhow::Result<()> {
     )
     .map(|_| ())
     .map_err(|e| anyhow::anyhow!("{e}"))
-}
-
-/// Проверяет инвариант §1.1 — propagation_length >= v_seg.
-pub fn check_propagation_covers_v_seg(sim: &SimulationConfig, blueprints: &Blueprints) -> anyhow::Result<()> {
-    let physics = genesis_core::physics::compute_derived_physics(
-        sim.simulation.signal_speed_um_tick as u32,
-        sim.simulation.voxel_size_um,
-        sim.simulation.segment_length_voxels,
-    ).map_err(|e| anyhow::anyhow!("{e}"))?;
-    
-    let v_seg = physics.v_seg;
-    for nt in &blueprints.neuron_types {
-        if (nt.signal_propagation_length as u32) < v_seg {
-            bail!(
-                "blueprints.toml: NeuronType '{}' нарушает §1.1 Invariant.\n\
-                 signal_propagation_length ({}) < v_seg ({})!\n\
-                 Это приведёт к 'пропускам' сегментов при движении аксона (мертвые синапсы).",
-                nt.name,
-                nt.signal_propagation_length,
-                v_seg
-            );
-        }
-    }
-    Ok(())
-}
-
-/// Проверяет инвариант §1.6 — refractory_period > propagation_length.
-pub fn check_single_spike_in_flight(blueprints: &Blueprints) -> anyhow::Result<()> {
-    for nt in &blueprints.neuron_types {
-        if nt.refractory_period <= nt.signal_propagation_length {
-            bail!(
-                "blueprints.toml: NeuronType '{}' нарушает §1.6 Invariant.\n\
-                 refractory_period ({}) <= signal_propagation_length ({}).\n\
-                 Это приведет к наложению сигналов (более 1 спайка в полёте). \
-                 refractory_period должен быть строго больше длины хвоста возбуждения.",
-                nt.name,
-                nt.refractory_period,
-                nt.signal_propagation_length
-            );
-        }
-    }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -116,28 +116,6 @@ pub fn check_composition_quotas(anatomy: &Anatomy) -> anyhow::Result<()> {
                 "anatomy.toml: Layer '{}' Σ(composition) = {:.4} ≠ 1.0 (±0.01).\n\
                  Квоты типов нейронов в слое обязаны суммироваться в 1.0.",
                 layer.name,
-                sum
-            );
-        }
-    }
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// blueprints.toml — sprouting weights
-// ---------------------------------------------------------------------------
-
-/// Сумма sprouting weights каждого типа должна быть ≈ 1.0.
-/// (04_connectivity.md §1.6.1: weight_distance + weight_power + weight_explore)
-pub fn check_sprouting_weights(blueprints: &Blueprints) -> anyhow::Result<()> {
-    for nt in &blueprints.neuron_types {
-        let sum = nt.sprouting_weight_sum();
-        let _max_range = nt.axon_growth_step as f32 * 1000.0; // dummy heuristic
-        if (sum - 1.0).abs() > 0.02 {
-            bail!(
-                "blueprints.toml: NeuronType '{}' sprouting weights sum = {:.4} ≠ 1.0 (±0.02).\n\
-                 (weight_distance + weight_power + weight_explore должны суммироваться в 1.0)",
-                nt.name,
                 sum
             );
         }

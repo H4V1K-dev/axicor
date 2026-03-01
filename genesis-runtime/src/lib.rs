@@ -1,10 +1,11 @@
-pub mod ffi;
-pub mod config;
-pub mod ipc;
-pub mod memory;
 pub mod network;
-pub mod input;
+pub mod memory;
+pub mod config;
 pub mod output;
+pub mod input;
+pub mod ipc;
+pub mod ffi;
+pub mod tui;
 
 #[cfg(feature = "mock-gpu")]
 pub mod mock_ffi;
@@ -106,48 +107,16 @@ impl Runtime {
     }
 
     pub fn init_constants(constants: &GenesisConstantMemory) -> bool {
-        unsafe { ffi::upload_constant_memory(constants as *const _ as *const c_void) }
+        unsafe { ffi::gpu_load_constants(constants as *const _ as *const c_void); true }
     }
 
-    /// Executed on the GPU every engine tick (Day Phase).
-    pub fn tick(&mut self) {
-        unsafe {
-            // 1. Propagate Axons
-            ffi::launch_propagate_axons(
-                self.vram.total_axons as u32,
-                self.vram.axon_head_index,
-                self.v_seg,
-                ptr::null_mut(),
-            );
 
-            // 2. Update Neurons (GLIF + Dendrite Integration)
-            ffi::launch_update_neurons(
-                self.vram.padded_n as u32,
-                self.vram.voltage,
-                self.vram.threshold_offset,
-                self.vram.refractory_timer,
-                self.vram.flags,
-                self.vram.soma_to_axon,
-                self.vram.dendrite_targets,
-                self.vram.dendrite_weights,
-                self.vram.dendrite_refractory,
-                self.vram.axon_head_index,
-                ptr::null_mut(),
-            );
-
-            // 3. Apply GSOP (Timer-as-Contact-Flag from UpdateNeurons)
-            ffi::launch_apply_gsop(
-                self.vram.padded_n as u32,
-                self.vram.flags,
-                self.vram.dendrite_targets,
-                self.vram.dendrite_weights,
-                self.vram.dendrite_refractory,
-                ptr::null_mut(),
-            );
-        }
-    }
 
     pub fn synchronize(&self) {
         unsafe { ffi::gpu_device_synchronize() };
     }
 }
+
+
+#[cfg(test)]
+mod test_day_phase;

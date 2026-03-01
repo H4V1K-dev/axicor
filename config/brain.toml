@@ -2,11 +2,34 @@
 config = "config/simulation.toml"
 
 [[zone]]
-name = "V1"
-blueprints = "config/zones/V1/blueprints.toml"
-baked_dir = "baked/V1/"
+name = "SensoryCortex"
+blueprints = "config/zones/CartPoleBrain/blueprints.toml"
+anatomy = "config/zones/CartPoleBrain/SensoryCortex/anatomy.toml"
+io = "config/zones/CartPoleBrain/SensoryCortex/io.toml"
+baked_dir = "baked/SensoryCortex"
 
 [[zone]]
-name = "V2"
-blueprints = "config/zones/V2/blueprints.toml"
-baked_dir = "baked/V2/"
+name = "HiddenCortex"
+blueprints = "config/zones/CartPoleBrain/blueprints.toml"
+anatomy = "config/zones/CartPoleBrain/HiddenCortex/anatomy.toml"
+io = "config/zones/CartPoleBrain/HiddenCortex/io.toml"
+baked_dir = "baked/HiddenCortex"
+
+[[zone]]
+name = "MotorCortex"
+blueprints = "config/zones/CartPoleBrain/blueprints.toml"
+anatomy = "config/zones/CartPoleBrain/MotorCortex/anatomy.toml"
+io = "config/zones/CartPoleBrain/MotorCortex/io.toml"
+baked_dir = "baked/MotorCortex"
+
+[[connection]]
+from = "SensoryCortex"
+to = "HiddenCortex"
+target_type = "All"
+growth_steps = 0 # Статический проброс аксонов
+
+[[connection]]
+from = "HiddenCortex"
+to = "MotorCortex"
+target_type = "All"
+growth_steps = 0

@@ -42,5 +42,23 @@ pub enum GeometryRequest {
 pub enum GeometryResponse {
     Ack(AckNewAxon),
     Ok,
-    Error(String),
+}
+
+#[repr(C, packed)]
+pub struct GrowHeader {
+    pub magic: u32, // 0x47524F57
+    pub count: u32,
+}
+
+#[repr(C, packed)]
+pub struct AxonHandoverEvent {
+    pub local_axon_id: u32,
+    pub entry_x: u16,
+    pub entry_y: u16,
+    pub vector_x: i8,
+    pub vector_y: i8,
+    pub vector_z: i8,
+    pub type_mask: u8,
+    pub remaining_length: u16,
+    pub _padding: u16,
 }

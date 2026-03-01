@@ -1,0 +1,41 @@
+[[layer]]
+name = "L1"
+height_pct = 0.16
+population_pct = 0.16
+[layer.composition]
+"CartPole_Excitatory" = 1.0
+
+[[layer]]
+name = "L2"
+height_pct = 0.16
+population_pct = 0.16
+[layer.composition]
+"CartPole_Excitatory" = 1.0
+
+[[layer]]
+name = "L3"
+height_pct = 0.16
+population_pct = 0.16
+[layer.composition]
+"CartPole_Excitatory" = 1.0
+
+[[layer]]
+name = "L4"
+height_pct = 0.16
+population_pct = 0.16
+[layer.composition]
+"CartPole_Excitatory" = 1.0
+
+[[layer]]
+name = "L5"
+height_pct = 0.16
+population_pct = 0.16
+[layer.composition]
+"CartPole_Excitatory" = 1.0
+
+[[layer]]
+name = "L6"
+height_pct = 0.20
+population_pct = 0.20
+[layer.composition]
+"CartPole_Excitatory" = 1.0

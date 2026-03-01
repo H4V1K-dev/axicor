@@ -1,132 +1,102 @@
 use bevy::prelude::*;
-use std::sync::{mpsc, Arc, Mutex};
-use tokio::runtime::Runtime as TokioRuntime;
+use crossbeam_channel::{unbounded, Receiver, Sender};
+use futures_util::StreamExt;
+use std::thread;
+use tokio_tungstenite::connect_async;
 
-use crate::{world::SpikeFrame, AppState};
+// Контракт с genesis-runtime (байт-в-байт)
+const MAGIC_GNSS: u32 = 0x474E5353;
+const HEADER_SIZE: usize = 16;
+
+/// Событие ECS, которое будет триггерить свечение (glow) в 3D
+#[derive(Event, Clone)]
+pub struct SpikeFrame {
+    pub tick: u64,
+    pub spikes: Vec<u32>, // Flat array of local IDs
+}
+
+// Ресурс для хранения канала связи
+#[derive(Resource)]
+struct TelemetryReceiver(Receiver<SpikeFrame>);
 
 pub struct TelemetryPlugin;
 
 impl Plugin for TelemetryPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::Running), start_telemetry_task)
-            .add_systems(
-                Update,
-                drain_telemetry.run_if(in_state(AppState::Running)),
-            );
+        app.add_event::<SpikeFrame>()
+           .add_systems(Startup, start_network_thread)
+           .add_systems(Update, drain_telemetry_channel);
     }
 }
 
-/// Cross-thread channel to receive spike frames from the WS task.
-/// Wrapped in Mutex so it's Sync (required by Bevy Resource).
-#[derive(Resource)]
-pub struct TelemetryChannel {
-    pub rx: Arc<Mutex<mpsc::Receiver<SpikeFrame>>>,
-}
+/// Поднимаем выделенный поток ОС для Tokio, чтобы не душить рендер Bevy
+fn start_network_thread(mut commands: Commands) {
+    let (tx, rx) = unbounded::<SpikeFrame>();
+    commands.insert_resource(TelemetryReceiver(rx));
 
-/// Separate sender resource so systems can clone the tx without Res field access issues.
-#[derive(Resource, Clone)]
-pub struct TelemetrySender(pub mpsc::SyncSender<SpikeFrame>);
+    thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
 
-/// TelemetryFrameHeader layout (matches genesis-runtime/src/network/telemetry.rs):
-/// magic: u32 (GNSS), tick: u64, spikes_count: u32 → 16 bytes total, #[repr(C)] LE.
-const HEADER_SIZE: usize = 16;
-const MAGIC_GNSS: u32 = u32::from_le_bytes(*b"GNSS");
-
-pub fn setup_telemetry_resources(app: &mut App) {
-    let (tx, rx) = mpsc::sync_channel::<SpikeFrame>(64);
-    app.insert_resource(TelemetryChannel {
-        rx: Arc::new(Mutex::new(rx)),
-    });
-    app.insert_resource(TelemetrySender(tx));
-}
-
-fn start_telemetry_task(sender: Res<TelemetrySender>) {
-    let tx = sender.0.clone();
-
-    // Spawn a dedicated OS thread with its own tokio runtime so we don't
-    // block Bevy's world while waiting on WS frames.
-    std::thread::spawn(move || {
-        let rt = TokioRuntime::new().expect("tokio runtime");
         rt.block_on(async move {
-            ws_loop(tx).await;
+            let url = "ws://127.0.0.1:8002/ws";
+            println!("IDE: Connecting to Telemetry Stream at {}...", url);
+            
+            match connect_async(url).await {
+                Ok((ws_stream, _)) => {
+                    println!("IDE: Connected to Genesis Runtime!");
+                    let (_, mut read) = ws_stream.split();
+
+                    while let Some(msg) = read.next().await {
+                        if let Ok(tokio_tungstenite::tungstenite::Message::Binary(bin)) = msg {
+                            parse_and_send(&bin, &tx);
+                        }
+                    }
+                }
+                Err(e) => eprintln!("IDE: Failed to connect telemetry: {}", e),
+            }
         });
     });
 }
 
-const WS_URL: &str = "ws://127.0.0.1:8002/ws";
+/// Хардкорный парсинг бинарника без сериализаторов
+fn parse_and_send(data: &[u8], tx: &Sender<SpikeFrame>) {
+    if data.len() < HEADER_SIZE { return; }
 
-async fn ws_loop(tx: mpsc::SyncSender<SpikeFrame>) {
-    use futures_util::StreamExt;
-    use tokio_tungstenite::{connect_async, tungstenite::Message};
+    // Little-Endian распаковка
+    let magic = u32::from_le_bytes(data[0..4].try_into().unwrap());
+    if magic != MAGIC_GNSS { return; }
 
-    loop {
-        println!("[telemetry] Connecting to {}...", WS_URL);
-        match connect_async(WS_URL).await {
-            Ok((mut ws, _)) => {
-                println!("[telemetry] Connected.");
-                loop {
-                    match ws.next().await {
-                        Some(Ok(Message::Binary(data))) => {
-                            if let Some(frame) = parse_frame(&data) {
-                                // If receiver is full, drop oldest — never block.
-                                let _ = tx.try_send(frame);
-                            }
-                        }
-                        Some(Ok(_)) => {} // text/ping — ignore
-                        Some(Err(e)) => {
-                            eprintln!("[telemetry] WS error: {e}");
-                            break;
-                        }
-                        None => {
-                            println!("[telemetry] WS closed.");
-                            break;
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("[telemetry] Connection failed: {e}. Retrying in 2s...");
-            }
-        }
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let tick = u64::from_le_bytes(data[4..12].try_into().unwrap());
+    let spikes_count = u32::from_le_bytes(data[12..16].try_into().unwrap()) as usize;
+
+    let expected_len = HEADER_SIZE + spikes_count * 4;
+    if data.len() < expected_len { return; }
+
+    // Cast raw bytes to u32 vector (Zero-cost каст на CPU)
+    let payload_bytes = &data[HEADER_SIZE..expected_len];
+    let mut spikes = vec![0u32; spikes_count];
+    
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            payload_bytes.as_ptr(),
+            spikes.as_mut_ptr() as *mut u8,
+            payload_bytes.len(),
+        );
     }
+
+    let _ = tx.send(SpikeFrame { tick, spikes });
 }
 
-/// Parse binary frame from TelemetryFrameHeader + u32[] payload.
-fn parse_frame(data: &[u8]) -> Option<SpikeFrame> {
-    if data.len() < HEADER_SIZE {
-        return None;
-    }
-
-    let magic = u32::from_le_bytes(data[0..4].try_into().ok()?);
-    if magic != MAGIC_GNSS {
-        eprintln!("[telemetry] Bad magic: {:#010x}", magic);
-        return None;
-    }
-
-    let tick = u64::from_le_bytes(data[4..12].try_into().ok()?);
-    let spikes_count = u32::from_le_bytes(data[12..16].try_into().ok()?) as usize;
-
-    let payload = &data[HEADER_SIZE..];
-    if payload.len() < spikes_count * 4 {
-        return None;
-    }
-
-    let spike_ids: Vec<u32> = payload[..spikes_count * 4]
-        .chunks_exact(4)
-        .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
-        .collect();
-
-    Some(SpikeFrame { tick, spike_ids })
-}
-
-/// Drain the channel and emit Bevy events each frame.
-fn drain_telemetry(
-    channel: Res<TelemetryChannel>,
-    mut ev_writer: EventWriter<SpikeFrame>,
+/// Перекачиваем данные из канала в ECS Event-шину
+fn drain_telemetry_channel(
+    receiver: Res<TelemetryReceiver>,
+    mut events: EventWriter<SpikeFrame>,
 ) {
-    let Ok(rx) = channel.rx.try_lock() else { return };
-    while let Ok(frame) = rx.try_recv() {
-        ev_writer.send(frame);
+    // Выгребаем всё, что пришло по сети за время отрисовки кадра
+    for frame in receiver.0.try_iter() {
+        events.send(frame);
     }
 }

@@ -59,12 +59,38 @@ impl GeometryServer {
         Ok(self.listener.local_addr()?)
     }
 
-    /// Spawns the server loop in a Tokio task and returns a receiver for incoming geometry requests.
-    /// The orchestrator drains this receiver during the Night Phase.
-    pub fn spawn(self) -> mpsc::Receiver<(GeometryRequest, oneshot::Sender<GeometryResponse>)> {
-        // We use a reasonably small buffer since geometry requests are only processed during the Night Phase.
-        let (tx, rx) = mpsc::channel(100);
+    /// Spawns the server loop in a Tokio task which continuously serves GEOM frames to connected IDEs.
+    pub fn spawn(self) {
+        // Generate a dense grid of Mock PackedPositions (1024 neurons)
+        // PackedPosition: Type(4b) | Z(8b) | Y(10b) | X(10b)
+        let num_neurons = 1024;
+        let mut positions = Vec::with_capacity(num_neurons);
+        let grid_size = 10;
         
+        for i in 0..num_neurons {
+            let x = (i % grid_size) as u32 * 2;
+            let y = ((i / grid_size) % grid_size) as u32 * 2;
+            let z = (i / (grid_size * grid_size)) as u32 * 2;
+            // Type is 0..3 cyclically
+            let t = (i % 4) as u32; 
+            
+            let packed = (x & 0x3FF) | ((y & 0x3FF) << 10) | ((z & 0xFF) << 20) | ((t & 0xF) << 28);
+            positions.push(packed);
+        }
+
+        let payload_size = num_neurons * 4;
+        let mut buf = Vec::with_capacity(12 + payload_size);
+        buf.extend_from_slice(&0x47454F4Du32.to_le_bytes()); // "GEOM"
+        buf.extend_from_slice(&1u32.to_le_bytes()); // version
+        buf.extend_from_slice(&(num_neurons as u32).to_le_bytes()); // num_neurons
+        
+        let pos_bytes = unsafe {
+            std::slice::from_raw_parts(positions.as_ptr() as *const u8, payload_size)
+        };
+        buf.extend_from_slice(pos_bytes);
+
+        let shared_payload = std::sync::Arc::new(buf);
+
         tokio::spawn(async move {
             loop {
                 let (mut stream, _) = match self.listener.accept().await {
@@ -72,46 +98,11 @@ impl GeometryServer {
                     Err(_) => continue,
                 };
                 
-                let tx_clone = tx.clone();
+                let data = shared_payload.clone();
                 tokio::spawn(async move {
-                    let mut len_buf = [0u8; 4];
-                    if stream.read_exact(&mut len_buf).await.is_err() { return; }
-                    let req_len = u32::from_le_bytes(len_buf) as usize;
-                    
-                    // Simple protection against insanely large payloads
-                    if req_len > 1024 * 1024 { return; }
-                    
-                    let mut req_buf = vec![0u8; req_len];
-                    if stream.read_exact(&mut req_buf).await.is_err() { return; }
-                    
-                    let req: GeometryRequest = match bincode::deserialize(&req_buf) {
-                        Ok(r) => r,
-                        Err(_) => return,
-                    };
-                    
-                    let (resp_tx, resp_rx) = oneshot::channel();
-                    
-                    // Route to the Orchestrator
-                    if tx_clone.send((req, resp_tx)).await.is_err() {
-                        return; // Receiver dropped, server shutting down
-                    }
-                    
-                    // Wait for Orchestrator to fulfill request
-                    let resp = match resp_rx.await {
-                        Ok(r) => r,
-                        Err(_) => return, // Orchestrator dropped the response channel
-                    };
-                    
-                    // Return result to sender
-                    if let Ok(encoded_resp) = bincode::serialize(&resp) {
-                        let resp_len = encoded_resp.len() as u32;
-                        let _ = stream.write_all(&resp_len.to_le_bytes()).await;
-                        let _ = stream.write_all(&encoded_resp).await;
-                    }
+                    let _ = stream.write_all(&data).await;
                 });
             }
         });
-        
-        rx
     }
 }

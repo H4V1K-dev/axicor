@@ -1,29 +1,31 @@
+pub mod geometry_client;
 pub mod ring_buffer;
-pub mod bsp;
-pub mod router;
-pub mod channel;
 pub mod intra_gpu;
 pub mod slow_path;
-pub mod geometry_client;
-pub mod socket;
 pub mod telemetry;
+pub mod external;
+pub mod channel;
+pub mod router;
+pub mod socket;
+pub mod ghosts;
+pub mod bsp;
+pub mod inter_node;
 
 use bytemuck::{Pod, Zeroable};
 
 #[cfg(test)]
 mod test_intra_gpu;
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct SpikeBatchHeader {
-    pub batch_id: u32,
-    pub spikes_count: u32,
+    pub zone_hash: u32,
+    pub count: u32,
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct SpikeEvent {
-    pub receiver_ghost_id: u32,
-    pub tick_offset: u8,
-    pub _pad: [u8; 3], // align to 64 bits (8 bytes)
+    pub ghost_id: u32,
+    pub tick_offset: u32,
 }

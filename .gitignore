@@ -8,9 +8,13 @@ Cargo.lock
 *.fatbin
 
 # Baked blobs (бинарные — не в VCS)
+baked/
 *.state
 *.axons
 *.positions
+*.gxi
+*.gxo
+*.ghosts
 checkpoint_*.bin
 checkpoint_*.bin.tmp
 
@@ -27,3 +31,13 @@ Thumbs.db
 # Логи и дампы
 *.log
 *.dump
+
+# Папки
+SUMMARIZER/
+SUMARIZER/
+tests/tmp/
+.agents/
+.agent/
+_agents/
+_agent/
+brain/

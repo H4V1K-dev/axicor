@@ -1,75 +1,48 @@
 use crate::zone_runtime::ZoneRuntime;
 use crate::network::channel::Channel;
 use crate::ffi;
-use std::ffi::c_void;
+use std::ptr;
 
-/// Represents a single projecting Ghost Axon connection between two zones.
-#[derive(Clone, Debug)]
-pub struct GhostLink {
-    /// Index in the `Vec<ZoneRuntime>` of the zone that *originates* the axon.
-    pub src_zone_idx: usize,
-    /// The local Axon ID within the originating zone's VRAM buffer.
-    pub src_axon_id: u32,
-    
-    /// Index in the `Vec<ZoneRuntime>` of the zone that *receives* the signal via a Ghost Axon slot.
-    pub dst_zone_idx: usize,
-    /// The Ghost Axon slot ID within the receiving zone's VRAM buffer (`axon_heads[]`).
-    pub dst_ghost_id: u32,
-}
-
-/// The Zero-Copy IntraGPU Channel.
-/// 
-/// Since both the source and destination zones reside in the same device VRAM,
-/// spikes are synchronized by simply copying the 4-byte `head` state directly
-/// from the source `axon_heads` array into the destination `axon_heads` array.
-/// 
-/// GPU kernels NEVER execute out-of-bounds cross-zone memory accesses.
-/// Instead, the CPU orchestrates these Memcpys between the isolated arrays.
+/// Канал синхронизации между зонами на одном GPU.
+/// Индексы хранятся в VRAM, чтобы CPU вообще не участвовал в передаче спайков.
 pub struct IntraGpuChannel {
-    pub links: Vec<GhostLink>,
+    pub src_indices_d: *mut u32, // Указатель VRAM
+    pub dst_indices_d: *mut u32, // Указатель VRAM
+    pub count: u32,
 }
 
 impl IntraGpuChannel {
-    pub fn new(links: Vec<GhostLink>) -> Self {
-        Self { links }
-    }
-}
+    /// Инициализация канала на базе маппинга (сгенерированного в .ghosts файле Baker'ом)
+    pub unsafe fn new(src_indices_host: &[u32], dst_indices_host: &[u32]) -> Self {
+        assert_eq!(src_indices_host.len(), dst_indices_host.len());
+        let count = src_indices_host.len() as u32;
+        let bytes = (count as usize) * 4;
 
-impl Channel for IntraGpuChannel {
-    fn sync_spikes(&mut self, zones: &mut [ZoneRuntime]) {
-        if self.links.is_empty() {
-            return;
-        }
-        
-        // MVP: Individual D2H -> H2D memcpys. 
-        // TODO: In the future, this should be optimized into a single Batched D2D pointer copy
-        // via a custom CUDA kernel or batched API if thousands of links exist.
-        for link in &self.links {
-            let src_zone = &zones[link.src_zone_idx];
-            let dst_zone = &zones[link.dst_zone_idx];
-            
-            let mut head_val: u32 = 0;
-            
-            unsafe {
-                // 1. Read source head
-                ffi::gpu_memcpy_device_to_host(
-                    &mut head_val as *mut _ as *mut c_void,
-                    src_zone.runtime.vram.axon_head_index.add((link.src_axon_id as usize) * 4) as *const c_void,
-                    4
-                );
+        let src_d = ffi::gpu_malloc(bytes) as *mut u32;
+        let dst_d = ffi::gpu_malloc(bytes) as *mut u32;
 
-                // 2. Write to destination ghost slot
-                ffi::gpu_memcpy_host_to_device(
-                    dst_zone.runtime.vram.axon_head_index.add((link.dst_ghost_id as usize) * 4) as *mut c_void,
-                    &head_val as *const _ as *const c_void,
-                    4
-                );
-            }
+        let stream = ptr::null_mut();
+        ffi::gpu_memcpy_host_to_device_async(src_d as *mut _, src_indices_host.as_ptr() as *const _, bytes, stream);
+        ffi::gpu_memcpy_host_to_device_async(dst_d as *mut _, dst_indices_host.as_ptr() as *const _, bytes, stream);
+        ffi::gpu_stream_synchronize(stream);
+
+        Self {
+            src_indices_d: src_d,
+            dst_indices_d: dst_d,
+            count,
         }
     }
 
-    fn sync_geometry(&mut self, _zones: &mut [ZoneRuntime]) {
-        // Night phase structural updates (sprouting/pruning).
-        // For now, connections are static from brain.toml MVP.
+    /// Вызывается во время BSP Барьера (Strict BSP)
+    pub unsafe fn sync_ghosts(&self, src_heads: *const u32, dst_heads: *mut u32, stream: ffi::CudaStream) {
+        if self.count == 0 { return; }
+        ffi::launch_ghost_sync(
+            src_heads, 
+            dst_heads, 
+            self.src_indices_d, 
+            self.dst_indices_d, 
+            self.count, 
+            stream
+        );
     }
 }

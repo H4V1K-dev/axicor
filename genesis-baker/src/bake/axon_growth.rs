@@ -1,8 +1,8 @@
 use crate::bake::neuron_placement::PlacedNeuron;
 use crate::bake::seed::{entity_seed, random_f32};
 use crate::parser::anatomy::Anatomy;
-use crate::parser::blueprints::NeuronType;
 use crate::parser::simulation::SimulationConfig;
+use genesis_core::config::blueprints::GenesisConstantMemory;
 
 /// Выращенный аксон готовый к записи в ShardStateSoA.
 #[derive(Debug, Clone)]
@@ -122,7 +122,7 @@ use glam::Vec3;
 pub fn grow_axons(
     neurons: &[PlacedNeuron],
     layer_ranges: &[LayerZRange],
-    neuron_types: &[NeuronType],
+    const_mem: &GenesisConstantMemory,
     sim: &SimulationConfig,
     shard_bounds: &ShardBounds,
     master_seed: u64,
@@ -140,13 +140,12 @@ pub fn grow_axons(
         let soma_x = neuron.x();
         let soma_y = neuron.y();
         let type_idx = neuron.type_idx;
-        let nt = &neuron_types[type_idx.min(neuron_types.len() - 1)];
 
         let (axon, ghost) = grow_single_axon(
             soma_x, soma_y, soma_z,
             soma_idx,
-            type_idx,
-            nt,
+            type_idx as u8,
+            const_mem,
             sim,
             world_w_vox, world_d_vox, world_h_vox,
             layer_ranges,
@@ -169,8 +168,8 @@ pub fn grow_axons(
 pub fn grow_single_axon(
     soma_x: u32, soma_y: u32, soma_z: u32,
     soma_idx: usize,
-    type_idx: usize,
-    nt: &NeuronType,
+    type_idx: u8,
+    const_mem: &GenesisConstantMemory,
     sim: &SimulationConfig,
     world_w_vox: u32, world_d_vox: u32, world_h_vox: u32,
     layer_ranges: &[LayerZRange],
@@ -180,6 +179,11 @@ pub fn grow_single_axon(
     master_seed: u64,
 ) -> (GrownAxon, Option<GhostPacket>) {
     use crate::bake::cone_tracing::calculate_v_attract;
+
+    // Чтение параметров роста за O(1) из плоского массива:
+    let variant = &const_mem.variants[type_idx as usize];
+    let _max_length = variant.signal_propagation_length;
+    let _velocity = variant.conduction_velocity;
 
     // 1. Найдём слой сомы (Index_home)
     let home_layer = layer_ranges.iter().find(|l| soma_z >= l.z_start_vox && soma_z < l.z_end_vox);
@@ -212,17 +216,18 @@ pub fn grow_single_axon(
     // Global segment length from config (fixed for all types)
     let segment_length_vox = sim.simulation.segment_length_voxels as f32;
     let cone_seed = entity_seed(master_seed, soma_idx as u32);
-    let owner_type_mask = type_idx as u8; // We assume type_idx fits into 4 bits
+    let owner_type_mask = type_idx; // 4-bit mask
     
-    // Approximate specs fields replaced with actual config
-    let fov_cos = (nt.steering_fov_deg / 2.0).to_radians().cos(); 
-    let max_search_radius_vox = nt.steering_radius_um / (sim.simulation.voxel_size_um as f32);
-    let weight_inertia = nt.steering_weight_inertia;
-    let weight_sensor = nt.steering_weight_sensor;
-    let weight_jitter = nt.steering_weight_jitter;
+    // TODO: Steering params — вынести в VariantParameters или отдельный CPU-конфиг
+    let fov_cos = (45.0_f32 / 2.0).to_radians().cos();
+    let max_search_radius_vox = 100.0 / (sim.simulation.voxel_size_um as f32);
+    let weight_inertia = 0.6_f32;
+    let weight_sensor = 0.3_f32;
+    let weight_jitter = 0.1_f32;
 
     // V_global (Goal) — bias определяет вертикальный vs горизонтальный рост
-    let bias = nt.growth_vertical_bias.clamp(0.0, 1.0);
+    let bias = 0.8_f32; // TODO: вынести в CPU-конфиг
+    let type_idx_usize = type_idx as usize;
     let is_horizontal = bias < 0.5;
 
     let mut current_pos = Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32);
@@ -298,7 +303,7 @@ pub fn grow_single_axon(
             neurons,
             owner_type_mask,
             soma_idx,
-            nt.type_affinity,
+            0.5, // TODO: type_affinity → вынести в CPU-конфиг
         );
 
         // Jitter
@@ -325,7 +330,7 @@ pub fn grow_single_axon(
             ghost_packet = Some(GhostPacket {
                 origin_shard_id: 0, // текущий шард ID (0 в монорежиме)
                 soma_idx,
-                type_idx,
+                type_idx: type_idx_usize,
                 entry_x: x.min(world_w_vox.saturating_sub(1)).min(1023),
                 entry_y: y.min(world_d_vox.saturating_sub(1)).min(1023),
                 entry_z: z.min(world_h_vox.saturating_sub(1)).min(255),
@@ -359,7 +364,7 @@ pub fn grow_single_axon(
 
     let axon = GrownAxon {
         soma_idx,
-        type_idx,
+        type_idx: type_idx_usize,
         tip_x: final_x,
         tip_y: final_y,
         tip_z: final_z,
@@ -391,7 +396,7 @@ pub fn init_axon_head(length_segments: u32, v_seg: u32) -> u32 {
 pub fn inject_ghost_axons(
     ghost_packets: &[GhostPacket],
     neurons: &[PlacedNeuron],
-    neuron_types: &[NeuronType],
+    const_mem: &GenesisConstantMemory,
     sim: &SimulationConfig,
     shard_bounds: &ShardBounds,
     master_seed: u64,
@@ -406,9 +411,10 @@ pub fn inject_ghost_axons(
     let mut outgoing: Vec<GhostPacket> = Vec::new();
 
     for packet in ghost_packets {
-        let nt = &neuron_types[packet.type_idx.min(neuron_types.len() - 1)];
-        let fov_cos = (nt.steering_fov_deg / 2.0).to_radians().cos();
-        let max_search_radius_vox = nt.steering_radius_um / (sim.simulation.voxel_size_um as f32);
+        let _variant = &const_mem.variants[packet.type_idx.min(15)];
+        // TODO: Steering params — вынести в VariantParameters или CPU-конфиг
+        let fov_cos = (45.0_f32 / 2.0).to_radians().cos();
+        let max_search_radius_vox = 100.0 / (sim.simulation.voxel_size_um as f32);
         let owner_type_mask = packet.type_idx as u8;
 
         let mut current_pos = Vec3::new(
@@ -434,7 +440,7 @@ pub fn inject_ghost_axons(
                 neurons,
                 owner_type_mask,
                 usize::MAX, // Ghost не имеет сомы — self-check никогда не сработает
-                nt.type_affinity,
+                0.5, // TODO: type_affinity → вынести в CPU-конфиг
             );
 
             let s = ghost_seed.wrapping_add(step as u64);
@@ -446,9 +452,9 @@ pub fn inject_ghost_axons(
 
             // Нет v_global — аксон летит свободно: только инерция + притяжение + шум
             forward_dir = (
-                forward_dir * nt.steering_weight_inertia
-                + v_attract * nt.steering_weight_sensor
-                + v_noise * nt.steering_weight_jitter
+                forward_dir * 0.6
+                + v_attract * 0.3
+                + v_noise * 0.1
             ).normalize_or_zero();
 
             current_pos += forward_dir * segment_length_vox;
@@ -573,7 +579,17 @@ mod tests {
     #[test]
     fn test_inject_empty_packets() {
         let neurons: Vec<PlacedNeuron> = vec![];
-        let neuron_types: Vec<NeuronType> = vec![];
+        use genesis_core::config::blueprints::{GenesisConstantMemory, VariantParameters};
+        let empty_const_mem = GenesisConstantMemory {
+            variants: [VariantParameters {
+                threshold: 0, rest_potential: 0, leak_rate: 0, homeostasis_penalty: 0,
+                gsop_potentiation: 0, gsop_depression: 0, homeostasis_decay: 0,
+                signal_propagation_length: 0, conduction_velocity: 0,
+                slot_decay_ltm: 0, slot_decay_wm: 0,
+                refractory_period: 0, synapse_refractory_period: 0,
+                inertia_curve: [0; 16], _reserved: [0; 16],
+            }; 16],
+        };
         let toml = r#"
             [world]
             width_um = 100
@@ -594,7 +610,7 @@ mod tests {
         let (grown, outgoing) = inject_ghost_axons(
             &[],
             &neurons,
-            &neuron_types,
+            &empty_const_mem,
             &sim,
             &mock_bounds(),
             0,

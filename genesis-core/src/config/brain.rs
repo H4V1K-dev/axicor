@@ -24,6 +24,8 @@ pub struct SimulationConfigRef {
 pub struct ZoneEntry {
     pub name: String,
     pub blueprints: PathBuf,
+    pub anatomy: PathBuf,
+    pub io: PathBuf,
     pub baked_dir: PathBuf,
 }
 
@@ -35,6 +37,8 @@ pub struct ConnectionEntry {
     // содержащему миллионы связей. Пока для MVP используем вложенный массив.
     #[serde(default)]
     pub axon_ids: Vec<u32>,
+    pub width: Option<u16>,
+    pub height: Option<u16>,
 }
 
 /// Parses the `brain.toml` manifest file.
@@ -61,11 +65,15 @@ mod tests {
         [[zone]]
         name = "V1"
         blueprints = "config/zones/V1/blueprints.toml"
+        anatomy = "config/zones/V1/anatomy.toml"
+        io = "config/zones/V1/io.toml"
         baked_dir = "baked/V1/"
 
         [[zone]]
         name = "V2"
         blueprints = "config/zones/V2/blueprints.toml"
+        anatomy = "config/zones/V2/anatomy.toml"
+        io = "config/zones/V2/io.toml"
         baked_dir = "baked/V2/"
 
         [[connection]]
@@ -80,10 +88,14 @@ mod tests {
         
         assert_eq!(config.zones[0].name, "V1");
         assert_eq!(config.zones[0].blueprints.to_str().unwrap(), "config/zones/V1/blueprints.toml");
+        assert_eq!(config.zones[0].anatomy.to_str().unwrap(), "config/zones/V1/anatomy.toml");
+        assert_eq!(config.zones[0].io.to_str().unwrap(), "config/zones/V1/io.toml");
         assert_eq!(config.zones[0].baked_dir.to_str().unwrap(), "baked/V1/");
 
         assert_eq!(config.zones[1].name, "V2");
         assert_eq!(config.zones[1].blueprints.to_str().unwrap(), "config/zones/V2/blueprints.toml");
+        assert_eq!(config.zones[1].anatomy.to_str().unwrap(), "config/zones/V2/anatomy.toml");
+        assert_eq!(config.zones[1].io.to_str().unwrap(), "config/zones/V2/io.toml");
         assert_eq!(config.zones[1].baked_dir.to_str().unwrap(), "baked/V2/");
 
         assert_eq!(config.connections.len(), 1);

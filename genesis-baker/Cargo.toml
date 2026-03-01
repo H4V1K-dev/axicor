@@ -15,7 +15,7 @@ name = "genesis-baker-daemon"
 path = "src/bin/daemon.rs"
 
 [dependencies]
-genesis-core = { workspace = true }
+genesis-core = { path = "../genesis-core" }
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
 anyhow = "1"

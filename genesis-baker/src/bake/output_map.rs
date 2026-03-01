@@ -1,137 +1,113 @@
-use genesis_core::config::{SimulationConfig, BlueprintsConfig, IoConfig};
-use crate::bake::neuron_placement::PlacedNeuron;
-use genesis_core::coords::unpack_position;
+// genesis-baker/src/bake/output_map.rs
+use genesis_core::constants::GXO_MAGIC;
+use genesis_core::types::PackedPosition;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::Path;
 
-const GXO_MAGIC: u32 = 0x47584F30; // "GXO0"
-const GXO_VERSION: u16 = 1;
-
-pub struct BakedOutputMap {
-    pub gxo_binary: Vec<u8>,
-    pub num_mapped_somas: u32,
+/// DTO для генерации матрицы
+pub struct OutputMatrixDef {
+    pub name_hash: u32,
+    pub width: u16,
+    pub height: u16,
+    pub stride: u8,
 }
 
-pub fn bake_output_maps(
-    io_config: &IoConfig,
-    zone_name: &str,
-    placed_neurons: &[PlacedNeuron],
-    blueprints: &BlueprintsConfig,
-    sim: &SimulationConfig,
-) -> BakedOutputMap {
-    let outputs: Vec<_> = io_config.outputs.iter()
-        .filter(|o| o.source_zone == zone_name)
-        .collect();
-
-    if outputs.is_empty() {
-        return BakedOutputMap {
-            gxo_binary: vec![],
-            num_mapped_somas: 0,
-        };
+/// Запекает .gxo файл используя Z-Sort алгоритм для выбора сом-кандидатов.
+pub fn bake_outputs(
+    out_dir: &Path,
+    matrices: &[OutputMatrixDef],
+    zone_width_um: f32,
+    zone_depth_um: f32,
+    neurons_packed_pos: &[u32], // Массив PackedPosition, где индекс = Dense_ID сомы
+) {
+    let mut total_pixels = 0;
+    for m in matrices {
+        total_pixels += (m.width as u32) * (m.height as u32);
     }
 
-    let world_w_vox = sim.world.width_um / sim.simulation.voxel_size_um;
-    let world_d_vox = sim.world.depth_um / sim.simulation.voxel_size_um;
+    let mut payload_soma_ids = vec![0u32; total_pixels as usize];
+    let mut current_offset = 0;
 
-    // Total tiles to compute proportional height
-    let total_area_tiles: u32 = outputs.iter().map(|o| o.width * o.height).sum();
-    let mut current_y_vox = 0.0;
+    for matrix in matrices {
+        let pixels = (matrix.width as u32) * (matrix.height as u32);
+        
+        // Z-Sort: Для каждого пикселя ищем сому с минимальным Z
+        for py in 0..matrix.height {
+            for px in 0..matrix.width {
+                // Вычисляем физические границы пикселя (региона) в микрометрах (без умножения)
+                let x_min = (px as f32 / matrix.width as f32) * zone_width_um;
+                let x_max = ((px + 1) as f32 / matrix.width as f32) * zone_width_um;
+                let y_min = (py as f32 / matrix.height as f32) * zone_depth_um;
+                let y_max = ((py + 1) as f32 / matrix.height as f32) * zone_depth_um;
 
-    // We will build the GXO format piece by piece
-    // Header
-    let mut gxo_bytes = Vec::new();
-    gxo_bytes.extend_from_slice(&GXO_MAGIC.to_le_bytes());
-    gxo_bytes.extend_from_slice(&GXO_VERSION.to_le_bytes());
-    gxo_bytes.extend_from_slice(&(outputs.len() as u16).to_le_bytes());
-    // Placeholders for total_somas and readout_batch_ticks
-    let total_somas_offset = gxo_bytes.len();
-    gxo_bytes.extend_from_slice(&0u32.to_le_bytes()); // total_somas
-    
-    let default_batch_ticks = sim.simulation.sync_batch_ticks as u32;
-    let batch_ticks = io_config.readout_batch_ticks.unwrap_or(default_batch_ticks);
-    gxo_bytes.extend_from_slice(&batch_ticks.to_le_bytes());
+                let mut best_soma_id = u32::MAX;
+                let mut min_z = u32::MAX;
 
-    let mut map_headers = Vec::new();
-    let mut pixel_indices = Vec::new(); // (soma_offset, soma_count)
-    let mut all_somas = Vec::new();
+                for (dense_id, &packed) in neurons_packed_pos.iter().enumerate() {
+                    // Распаковка 10-бит X, 10-бит Y, 8-бит Z
+                    let vx = (packed & 0x3FF) as f32; 
+                    let vy = ((packed >> 10) & 0x3FF) as f32; 
+                    let vz = (packed >> 20) & 0xFF;
 
-    for map in &outputs {
-        // Strip allocation
-        let fraction = (map.width * map.height) as f32 / total_area_tiles as f32;
-        let strip_d_vox = world_d_vox as f32 * fraction;
-        let strip_y_start = current_y_vox;
-        current_y_vox += strip_d_vox;
-
-        let mut name_bytes = [0u8; 32];
-        let name_slice = map.name.as_bytes();
-        let copy_len = name_slice.len().min(32);
-        name_bytes[..copy_len].copy_from_slice(&name_slice[..copy_len]);
-
-        let map_somas_start = all_somas.len() as u32;
-
-        let tile_w_vox = world_w_vox as f32 / map.width as f32;
-        let tile_d_vox = strip_d_vox / map.height as f32;
-
-        for row in 0..map.height {
-            for col in 0..map.width {
-                let rx = (col as f32 * tile_w_vox) as u32;
-                let ry = strip_y_start as u32 + (row as f32 * tile_d_vox) as u32;
-                let rx_end = ((col + 1) as f32 * tile_w_vox) as u32;
-                let ry_end = strip_y_start as u32 + ((row + 1) as f32 * tile_d_vox) as u32;
-
-                let pixel_somas_start = all_somas.len() as u32;
-                let mut pixel_somas_count = 0u16;
-
-                // Find all somas in this tile
-                for (idx, neuron) in placed_neurons.iter().enumerate() {
-                    let (nx, ny, _nz, ntype) = unpack_position(neuron.position);
-                    if nx >= rx && nx < rx_end && ny >= ry && ny < ry_end {
-                        let is_match = map.target_type == "ALL" || 
-                            blueprints.neuron_types.get(ntype as usize)
-                            .map_or(false, |nt| nt.name == map.target_type);
-                        
-                        if is_match {
-                            all_somas.push(idx as u32);
-                            pixel_somas_count += 1;
+                    if vx >= x_min && vx < x_max && vy >= y_min && vy < y_max {
+                        if vz < min_z {
+                            min_z = vz;
+                            best_soma_id = dense_id as u32;
                         }
                     }
                 }
 
-                pixel_indices.push((pixel_somas_start, pixel_somas_count));
+                if best_soma_id == u32::MAX {
+                    eprintln!("Warning: Z-Sort failed. Empty pixel at ({}, {}) in output matrix hash {}. Density too low!", px, py, matrix.name_hash);
+                    // Fallback to soma 0 so it doesn't crash if sparsely generated
+                    best_soma_id = 0; 
+                }
+
+                let pixel_idx = (py as u32 * matrix.width as u32) + px as u32;
+                payload_soma_ids[(current_offset + pixel_idx) as usize] = best_soma_id;
             }
         }
+        current_offset += pixels;
+    }
 
-        let map_somas_count = all_somas.len() as u32 - map_somas_start;
+    write_gxo_binary(out_dir, matrices, total_pixels, &payload_soma_ids);
+}
 
-        let mut header = Vec::new();
-        header.extend_from_slice(&name_bytes);
-        header.extend_from_slice(&(map.width as u16).to_le_bytes());
-        header.extend_from_slice(&(map.height as u16).to_le_bytes());
-        header.extend_from_slice(&map_somas_start.to_le_bytes());
-        header.extend_from_slice(&map_somas_count.to_le_bytes());
+/// Хардкорная запись байт-в-байт без serde
+fn write_gxo_binary(
+    out_dir: &Path, 
+    matrices: &[OutputMatrixDef], 
+    total_pixels: u32, 
+    payload: &[u32]
+) {
+    let path = out_dir.join("shard.gxo");
+    let mut file = BufWriter::new(File::create(path).expect("Failed to create .gxo file"));
+
+    // Header (12 bytes)
+    file.write_all(&GXO_MAGIC.to_le_bytes()).unwrap();
+    file.write_all(&[1u8, 0u8]).unwrap(); // Version 1, Padding 1
+    file.write_all(&(matrices.len() as u16).to_le_bytes()).unwrap();
+    file.write_all(&total_pixels.to_le_bytes()).unwrap();
+
+    // Descriptors (16 bytes each)
+    let mut current_offset: u32 = 0;
+    for m in matrices {
+        file.write_all(&m.name_hash.to_le_bytes()).unwrap();
+        file.write_all(&current_offset.to_le_bytes()).unwrap();
+        file.write_all(&m.width.to_le_bytes()).unwrap();
+        file.write_all(&m.height.to_le_bytes()).unwrap();
+        file.write_all(&[m.stride, 0, 0, 0]).unwrap(); // Stride + 3 bytes padding
         
-        map_headers.push(header);
+        current_offset += (m.width as u32) * (m.height as u32);
     }
 
-    let total_somas = all_somas.len() as u32;
-
-    // Update total_somas in header
-    gxo_bytes[total_somas_offset..total_somas_offset+4].copy_from_slice(&total_somas.to_le_bytes());
-
-    // Assemble final GXO buffer
-    for hdr in map_headers {
-        gxo_bytes.extend(hdr);
-    }
-
-    for (offset, count) in pixel_indices {
-        gxo_bytes.extend_from_slice(&offset.to_le_bytes());
-        gxo_bytes.extend_from_slice(&count.to_le_bytes());
-    }
-
-    for soma_id in all_somas {
-        gxo_bytes.extend_from_slice(&soma_id.to_le_bytes());
-    }
-
-    BakedOutputMap {
-        gxo_binary: gxo_bytes,
-        num_mapped_somas: total_somas,
-    }
+    // Payload
+    let payload_bytes = unsafe {
+        std::slice::from_raw_parts(
+            payload.as_ptr() as *const u8,
+            payload.len() * 4
+        )
+    };
+    file.write_all(payload_bytes).unwrap();
 }

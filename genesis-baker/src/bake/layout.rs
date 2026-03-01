@@ -1,128 +1,103 @@
-use genesis_core::{
-    constants::{AXON_SENTINEL, MAX_DENDRITE_SLOTS},
-    layout::padded_n,
-};
+use genesis_core::constants::{MAX_DENDRITE_SLOTS, AXON_SENTINEL};
+use genesis_core::layout::align_to_warp;
+use std::io::{BufWriter, Write};
+use std::path::Path;
+use std::fs::File;
 
-/// Бинарное представление SoA-состояния шарда.
-/// Байт-в-байт совпадает с VRAM layout для `cudaMemcpy`.
-/// (02_configuration.md §2.4 ShardStateSoA)
-pub struct ShardStateSoA {
-    /// Количество нейронов (выровнено до кратного 32 — padded_n).
+/// Промежуточная SoA-структура на CPU перед дампом на диск.
+/// Гарантирует правильный padding для CUDA варпов.
+pub struct ShardSoA {
     pub padded_n: usize,
-    /// Количество аксонов (local + ghost + virtual, выровнено до 32).
     pub total_axons: usize,
 
-    // --- Soma arrays [padded_n] ---
-    /// Мембранный потенциал (i32, microVolts). Начальное = rest_potential.
+    // Динамическое состояние сом
     pub voltage: Vec<i32>,
-    /// Флаги нейрона: [7:6]=variant_id, [5]=is_spiking, [3:0]=type_mask.
     pub flags: Vec<u8>,
-    /// Адаптивный порог = base_threshold + threshold_offset (i32).
     pub threshold_offset: Vec<i32>,
-    /// Счётчик рефрактерности (u8, тики).
-    pub refractory_counter: Vec<u8>,
-    /// Маппинг soma_id → local axon_id.
-    pub soma_to_axon: Vec<u32>,
+    pub refractory_timer: Vec<u8>,
 
-    // --- Dendrite arrays — Columnar Layout [MAX_SLOTS × padded_n] ---
-    // Обращение: data[slot * padded_n + neuron_id]
-    /// Packed target: upper 24b = axon_id, lower 8b = segment offset. 0 = empty.
+    // Транспонированная матрица дендритов (Columnar Layout)
     pub dendrite_targets: Vec<u32>,
-    /// Synaptic weights i16. Sign = excitatory(+) / inhibitory(-).
     pub dendrite_weights: Vec<i16>,
-    /// Synapse refractory counters (u8, тики).
     pub dendrite_timers: Vec<u8>,
 
-    // --- Axon arrays [total_axons] ---
-    /// Текущая позиция головы аксона. AXON_SENTINEL = неактивен.
+    // Аксоны
     pub axon_heads: Vec<u32>,
+
+    // Маппинг: soma_idx → axon_idx
+    pub soma_to_axon: Vec<u32>,
 }
 
-impl ShardStateSoA {
-    /// Создаёт пустой (инициализированный в покой) шард.
-    ///
-    /// - `neuron_count` — реальное (не выровненное) число нейронов
-    /// - `axon_count`   — реальное число аксонов
-    /// - `rest_potential` — начальный voltage для всех нейронов
-    pub fn new_blank(neuron_count: usize, axon_count: usize, rest_potential: i32) -> Self {
-        let pn = padded_n(neuron_count);
-        let pa = padded_n(axon_count);
-        let dendrite_cells = MAX_DENDRITE_SLOTS * pn;
+impl ShardSoA {
+    /// Аллоцирует массивы нужного размера, заполняя их нулями или сентинелами.
+    /// Автоматически применяет align_to_warp для N и Axons.
+    pub fn new(raw_neuron_count: usize, raw_axon_count: usize) -> Self {
+        let padded_n = align_to_warp(raw_neuron_count);
+        let total_axons = align_to_warp(raw_axon_count);
 
         Self {
-            padded_n: pn,
-            total_axons: pa,
+            padded_n,
+            total_axons,
+            voltage: vec![0; padded_n],
+            flags: vec![0; padded_n],
+            threshold_offset: vec![0; padded_n],
+            refractory_timer: vec![0; padded_n],
 
-            voltage: vec![rest_potential; pn],
-            flags: vec![0u8; pn],
-            threshold_offset: vec![0i32; pn],
-            refractory_counter: vec![0u8; pn],
-            soma_to_axon: vec![u32::MAX; pn], // u32::MAX = нет аксона
+            dendrite_targets: vec![0; MAX_DENDRITE_SLOTS * padded_n],
+            dendrite_weights: vec![0; MAX_DENDRITE_SLOTS * padded_n],
+            dendrite_timers: vec![0; MAX_DENDRITE_SLOTS * padded_n],
 
-            // Dendrite columnar — всё пусто (target=0, weight=0, timer=0)
-            dendrite_targets: vec![0u32; dendrite_cells],
-            dendrite_weights: vec![0i16; dendrite_cells],
-            dendrite_timers: vec![0u8; dendrite_cells],
+            // Хард-инвариант: пустые аксоны ОБЯЗАНЫ быть 0x80000000
+            axon_heads: vec![AXON_SENTINEL; total_axons],
 
-            // Все аксоны — SENTINEL (неактивны, сеть не выстрелит в тик 0)
-            axon_heads: vec![AXON_SENTINEL; pa],
+            soma_to_axon: vec![u32::MAX; padded_n],
         }
     }
 
-    /// Общий размер данных в байтах (для проверки перед cudaMemcpy).
-    pub fn byte_size(&self) -> usize {
-        let pn = self.padded_n;
-        let pa = self.total_axons;
-        let dc = MAX_DENDRITE_SLOTS * pn;
+    /// Дамп SoA-структур в бинарные файлы. Zero-cost для загрузки в рантайме.
+    pub fn dump_to_disk(&self, out_dir: &Path) {
+        let state_path = out_dir.join("shard.state");
+        let axons_path = out_dir.join("shard.axons");
 
-        pn * 4  // voltage i32
-        + pn    // flags u8
-        + pn * 4  // threshold_offset i32
-        + pn    // refractory_counter u8
-        + pn * 4  // soma_to_axon u32
-        + dc * 4  // dendrite_targets u32
-        + dc * 2  // dendrite_weights i16
-        + dc    // dendrite_timers u8
-        + pa * 4 // axon_heads u32
-    }
-
-    /// Сериализует SoA в плоский байтовый вектор — готов к записи в `.state`.
-    /// Порядок массивов: voltage → flags → threshold_offset → refractory_counter
-    ///                   → soma_to_axon → dendrite_targets → dendrite_weights
-    ///                   → dendrite_timers → axon_heads
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let header = genesis_core::layout::StateFileHeader::new(
-            self.padded_n as u32,
-            self.total_axons as u32,
+        // 1. Дамп состояния сом и дендритов (.state)
+        let mut state_file = BufWriter::new(File::create(state_path).expect("Failed to create .state file"));
+        
+        let state_header = genesis_core::layout::StateFileHeader::new(
+            self.padded_n as u32, 
+            self.total_axons as u32
         );
-        let header_bytes = header.as_bytes();
-        let mut out = Vec::with_capacity(self.byte_size() + header_bytes.len());
+        state_file.write_all(state_header.as_bytes()).unwrap();
 
-        out.extend_from_slice(header_bytes);
+        // Пишем сырые байты без сериализации.
+        // Порядок ОБЯЗАН совпадать с математикой смещений в memory.rs!
+        write_raw_slice(&mut state_file, &self.voltage);
+        write_raw_slice(&mut state_file, &self.flags);
+        write_raw_slice(&mut state_file, &self.threshold_offset);
+        write_raw_slice(&mut state_file, &self.refractory_timer);
+        write_raw_slice(&mut state_file, &self.soma_to_axon); // Missing previously!
 
-        for &v in &self.voltage {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        out.extend_from_slice(&self.flags);
-        for &v in &self.threshold_offset {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        out.extend_from_slice(&self.refractory_counter);
-        for &v in &self.soma_to_axon {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        for &v in &self.dendrite_targets {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        for &v in &self.dendrite_weights {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-        out.extend_from_slice(&self.dendrite_timers);
-        for &v in &self.axon_heads {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
+        write_raw_slice(&mut state_file, &self.dendrite_targets);
+        write_raw_slice(&mut state_file, &self.dendrite_weights);
+        write_raw_slice(&mut state_file, &self.dendrite_timers);
+        
+        // memory.rs also expects axon_heads at the very end of state_bytes!
+        write_raw_slice(&mut state_file, &self.axon_heads);
 
-        out
+        // 2. Дамп аксонов (.axons)
+        // Even if serialize_axons isn't used here, we MUST write the header so `VramState::load_shard` doesn't panic.
+        let mut axons_file = BufWriter::new(File::create(axons_path).expect("Failed to create .axons file"));
+        let header = genesis_core::layout::AxonsFileHeader::new(self.total_axons as u32);
+        axons_file.write_all(header.as_bytes()).unwrap();
     }
 }
 
+/// Helper для записи сырых слайсов в файл (убийца serde)
+fn write_raw_slice<T>(writer: &mut BufWriter<File>, data: &[T]) {
+    let byte_slice = unsafe {
+        std::slice::from_raw_parts(
+            data.as_ptr() as *const u8,
+            data.len() * std::mem::size_of::<T>(),
+        )
+    };
+    writer.write_all(byte_slice).expect("Failed to write raw layout bytes");
+}

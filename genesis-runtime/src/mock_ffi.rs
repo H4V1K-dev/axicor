@@ -17,6 +17,16 @@ pub extern "C" fn gpu_free(dev_ptr: *mut c_void) {
 }
 
 #[no_mangle]
+pub extern "C" fn gpu_host_alloc(size: usize) -> *mut c_void {
+    unsafe { libc::malloc(size) as *mut c_void }
+}
+
+#[no_mangle]
+pub extern "C" fn gpu_host_free(dev_ptr: *mut c_void) {
+    unsafe { libc::free(dev_ptr) }
+}
+
+#[no_mangle]
 pub extern "C" fn gpu_memcpy_host_to_device(
     dst_dev: *mut c_void,
     src_host: *const c_void,
@@ -46,6 +56,22 @@ pub extern "C" fn gpu_memcpy_device_to_host(
 pub extern "C" fn gpu_device_synchronize() {}
 
 #[no_mangle]
+pub extern "C" fn gpu_stream_synchronize(_stream: *mut c_void) {}
+
+#[no_mangle]
+pub extern "C" fn gpu_memcpy_peer_async(
+    dst: *mut c_void,
+    _dst_dev: i32,
+    src: *const c_void,
+    _src_dev: i32,
+    size: usize,
+    _stream: *mut c_void,
+) -> bool {
+    unsafe { ptr::copy_nonoverlapping(src as *const u8, dst as *mut u8, size); }
+    true
+}
+
+#[no_mangle]
 pub extern "C" fn upload_constant_memory(_host_ptr: *const c_void) -> bool {
     true
 }
@@ -61,3 +87,4 @@ pub extern "C" fn upload_constant_memory(_host_ptr: *const c_void) -> bool {
 #[no_mangle] pub extern "C" fn launch_record_readout(_1: *const c_void, _2: *const c_void, _3: *mut c_void, _4: u32, _5: u32, _6: *mut c_void) {}
 #[no_mangle] pub extern "C" fn launch_sort_and_prune(_1: u32, _2: u32, _3: i16, _4: *mut c_void, _5: *mut c_void, _6: *mut c_void, _7: *mut c_void, _8: *mut c_void) {}
 #[no_mangle] pub extern "C" fn launch_inject_inputs(_1: *mut c_void, _2: *const c_void, _3: *const c_void, _4: u32, _5: u32, _6: *mut c_void) {}
+#[no_mangle] pub extern "C" fn gpu_reset_telemetry_count(_1: *const c_void, _2: *mut c_void) {}

@@ -1,7 +1,7 @@
 [world]
-width_um = 128
-depth_um = 128
-height_um = 1024
+width_um = 7500
+depth_um = 7500
+height_um = 2500
 
 [simulation]
 tick_duration_us = 100
@@ -9,7 +9,9 @@ total_ticks = 10000
 master_seed = "GENESIS"
 global_density = 0.05
 voxel_size_um = 25
-signal_speed_um_tick = 50
+signal_speed_um_tick = 100
+segment_length_voxels = 2
 sync_batch_ticks = 1000
+night_interval_ticks = 1000
 num_virtual_axons = 1024
 axon_growth_max_steps = 1500

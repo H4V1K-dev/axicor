@@ -1,12 +1,12 @@
-use crate::bake::axon_growth::GrownAxon;
-use crate::bake::layout::ShardStateSoA;
-use crate::bake::neuron_placement::PlacedNeuron;
-use crate::bake::seed::entity_seed;
-use crate::bake::sprouting::{compute_power_index, sprouting_score, voxel_dist, SproutingWeights};
-use crate::parser::blueprints::NeuronType;
-use genesis_core::constants::MAX_DENDRITE_SLOTS;
+use genesis_core::config::blueprints::GenesisConstantMemory;
 use genesis_core::coords::{pack_target, unpack_target};
+use crate::bake::sprouting::compute_sprouting_score;
+use genesis_core::constants::MAX_DENDRITE_SLOTS;
+use crate::bake::neuron_placement::PlacedNeuron;
 use std::collections::{HashMap, HashSet};
+use crate::bake::axon_growth::GrownAxon;
+use crate::bake::layout::ShardSoA;
+use crate::bake::seed::entity_seed;
 
 /// Размер ячейки пространственной решётки (в вокселях).
 /// Кандидат может находиться не дальше CELL_SIZE от сомы → ищем только в 3×3×3 ячейках.
@@ -51,13 +51,13 @@ struct Candidate {
     score: f32,
 }
 
-/// Заполняет dendrite_targets и dendrite_weights в ShardStateSoA.
+/// Заполняет dendrite_targets и dendrite_weights в ShardSoA.
 /// Использует пространственную решётку для O(N × K) поиска вместо O(N²).
 pub fn connect_dendrites(
-    shard: &mut ShardStateSoA,
+    shard: &mut ShardSoA,
     neurons: &[PlacedNeuron],
     axons: &[GrownAxon],
-    neuron_types: &[NeuronType],
+    const_mem: &GenesisConstantMemory,
     master_seed: u64,
 ) {
     let pn = shard.padded_n;
@@ -69,8 +69,7 @@ pub fn connect_dendrites(
         let soma_x = neuron.x();
         let soma_y = neuron.y();
         let soma_z = neuron.z();
-        let nt = &neuron_types[neuron.type_idx.min(neuron_types.len() - 1)];
-        let cfg = SproutingWeights::from_neuron_type(nt);
+        let target_type_idx = neuron.type_idx.min(15) as u8;
 
         // Диапазон ячеек для поиска
         let cell_x = soma_x / CELL_SIZE;
@@ -103,17 +102,6 @@ pub fn connect_dendrites(
                             continue;
                         }
 
-                        // Type Whitelist Filter
-                        if !nt.dendrite_whitelist.is_empty() {
-                            let source_type_name = neuron_types
-                                .get(ax.type_idx)
-                                .map(|t| t.name.as_str())
-                                .unwrap_or("");
-                            if !nt.dendrite_whitelist.iter().any(|w| w == source_type_name) {
-                                continue;
-                            }
-                        }
-
                         // Find the closest segment of this axon to the soma
                         let mut min_dist = f32::MAX;
                         let mut best_seg_idx = 0;
@@ -123,7 +111,7 @@ pub fn connect_dendrites(
                             let y = (seg >> 10) & 0x3FF;
                             let x = seg & 0x3FF;
                             
-                            let dist = voxel_dist(soma_x, soma_y, soma_z, x, y, z);
+                            let dist = crate::bake::sprouting::voxel_dist(soma_x, soma_y, soma_z, x, y, z);
                             if dist < min_dist {
                                 min_dist = dist;
                                 best_seg_idx = seg_idx;
@@ -134,14 +122,22 @@ pub fn connect_dendrites(
                             continue;
                         }
 
-                        let epoch_seed = entity_seed(
-                            master_seed,
-                            (soma_id.wrapping_mul(31).wrapping_add(axon_idx)) as u32,
+                        let noise = {
+                            let epoch_seed = entity_seed(
+                                master_seed,
+                                (soma_id.wrapping_mul(31).wrapping_add(axon_idx)) as u32,
+                            );
+                            // deterministic noise via bit mixing
+                            (epoch_seed ^ (epoch_seed >> 17)) as f32 / u64::MAX as f32
+                        };
+                        let power_index = 0.0_f32; // first baking — all weights zero
+                        let score = compute_sprouting_score(
+                            const_mem,
+                            ax.type_idx.min(15) as u8,
+                            min_dist,
+                            power_index,
+                            noise,
                         );
-                        
-                        let is_same_type = ax.type_idx == neuron.type_idx;
-                        let type_affinity = nt.type_affinity;
-                        let score = sprouting_score(min_dist, 0.0, epoch_seed, &cfg, type_affinity, is_same_type);
                         
                         seen_axons.insert(axon_idx);
                         candidates.push(Candidate { axon_idx, segment_idx: best_seg_idx, score });
@@ -156,20 +152,14 @@ pub fn connect_dendrites(
         // Записываем top-N в columnar SoA
         for (slot, cand) in candidates.iter().take(MAX_DENDRITE_SLOTS).enumerate() {
             let axon_idx = cand.axon_idx;
-            let target_type = axons[axon_idx].type_idx;
-            
-            let source_nt = neuron_types.get(target_type);
-            let abs_weight = source_nt
-                .map(|n| n.initial_synapse_weight)
-                .unwrap_or(74);
-            let is_inhibitory = source_nt
-                .map(|n| n.is_inhibitory)
-                .unwrap_or(false);
-                
-            let weight: i16 = if is_inhibitory {
-                -(abs_weight as i16)
+            let variant = &const_mem.variants[axons[axon_idx].type_idx.min(15)];
+            // Начальный вес: используем gsop_potentiation как прокси для начальной силы синапса.
+            // Знак определяем через gsop_depression: если отрицательный — тормозной.
+            let abs_weight = (variant.gsop_potentiation.unsigned_abs() as i16).max(1).min(i16::MAX);
+            let weight: i16 = if variant.gsop_depression < 0 {
+                -abs_weight
             } else {
-                abs_weight as i16
+                abs_weight
             };
 
             let target_packed = pack_target(axon_idx as u32, cand.segment_idx as u32);
@@ -192,7 +182,7 @@ pub fn reconnect_empty_dendrites(
     padded_n: usize,
     neurons: &[PlacedNeuron],
     axons: &[GrownAxon],
-    neuron_types: &[NeuronType],
+    const_mem: &GenesisConstantMemory,
     master_seed: u64,
 ) {
     let grid = build_axon_grid(axons);
@@ -218,8 +208,6 @@ pub fn reconnect_empty_dendrites(
         let soma_x = neuron.x();
         let soma_y = neuron.y();
         let soma_z = neuron.z();
-        let nt = &neuron_types[neuron.type_idx.min(neuron_types.len() - 1)];
-        let cfg = SproutingWeights::from_neuron_type(nt);
 
         let cell_x = soma_x / CELL_SIZE;
         let cell_y = soma_y / CELL_SIZE;
@@ -259,16 +247,6 @@ pub fn reconnect_empty_dendrites(
                             continue;
                         }
 
-                        // Type Whitelist Filter
-                        if !nt.dendrite_whitelist.is_empty() {
-                            let source_type_name = neuron_types
-                                .get(ax.type_idx)
-                                .map(|t| t.name.as_str())
-                                .unwrap_or("");
-                            if !nt.dendrite_whitelist.iter().any(|w| w == source_type_name) {
-                                continue;
-                            }
-                        }
 
                         let mut min_dist = f32::MAX;
                         let mut best_seg_idx = 0;
@@ -278,7 +256,7 @@ pub fn reconnect_empty_dendrites(
                             let y = (seg >> 10) & 0x3FF;
                             let x = seg & 0x3FF;
                             
-                            let dist = voxel_dist(soma_x, soma_y, soma_z, x, y, z);
+                            let dist = crate::bake::sprouting::voxel_dist(soma_x, soma_y, soma_z, x, y, z);
                             if dist < min_dist {
                                 min_dist = dist;
                                 best_seg_idx = seg_idx;
@@ -289,21 +267,27 @@ pub fn reconnect_empty_dendrites(
                             continue;
                         }
 
-                        let epoch_seed = entity_seed(
-                            master_seed,
-                            (soma_id.wrapping_mul(31).wrapping_add(axon_idx)) as u32,
-                        );
-                        
                         let target_soma = ax.soma_idx;
                         let target_power = if target_soma < padded_n {
-                            compute_power_index(target_soma, downloaded_weights, padded_n)
+                            crate::bake::sprouting::compute_power_index(target_soma, downloaded_weights, padded_n)
                         } else {
                             0.0
                         };
                         
-                        let is_same_type = ax.type_idx == neuron.type_idx;
-                        let type_affinity = nt.type_affinity;
-                        let score = sprouting_score(min_dist, target_power, epoch_seed, &cfg, type_affinity, is_same_type);
+                        let noise = {
+                            let epoch_seed = entity_seed(
+                                master_seed,
+                                (soma_id.wrapping_mul(31).wrapping_add(axon_idx)) as u32,
+                            );
+                            (epoch_seed ^ (epoch_seed >> 17)) as f32 / u64::MAX as f32
+                        };
+                        let score = compute_sprouting_score(
+                            const_mem,
+                            ax.type_idx.min(15) as u8,
+                            min_dist,
+                            target_power,
+                            noise,
+                        );
                         candidates.push(Candidate { axon_idx, segment_idx: best_seg_idx, score });
                     }
                 }
@@ -315,20 +299,12 @@ pub fn reconnect_empty_dendrites(
         // Fill only the empty slots
         for (cand, &slot) in candidates.iter().zip(empty_slots.iter()) {
             let axon_idx = cand.axon_idx;
-            let target_type = axons[axon_idx].type_idx;
-            
-            let source_nt = neuron_types.get(target_type);
-            let abs_weight = source_nt
-                .map(|n| n.initial_synapse_weight)
-                .unwrap_or(74);
-            let is_inhibitory = source_nt
-                .map(|n| n.is_inhibitory)
-                .unwrap_or(false);
-                
-            let weight: i16 = if is_inhibitory {
-                -(abs_weight as i16)
+            let variant = &const_mem.variants[axons[axon_idx].type_idx.min(15)];
+            let abs_weight = (variant.gsop_potentiation.unsigned_abs() as i16).max(1).min(i16::MAX);
+            let weight: i16 = if variant.gsop_depression < 0 {
+                -abs_weight
             } else {
-                abs_weight as i16
+                abs_weight
             };
 
             let target_packed = pack_target(axon_idx as u32, cand.segment_idx as u32);

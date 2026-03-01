@@ -1,14 +1,21 @@
 use crate::{Runtime, VariantParameters, GenesisConstantMemory};
 use genesis_core::config::{BlueprintsConfig, InstanceConfig};
+use std::sync::atomic::{AtomicBool, Ordering};
+use crate::network::bsp::PingPongSchedule;
+use std::time::{Instant, Duration};
+use std::sync::Arc;
 
 pub struct ZoneRuntime {
-    pub name: String,
-    pub runtime: Runtime,
     pub const_mem: GenesisConstantMemory,
+    pub is_sleeping: Arc<AtomicBool>,
+    pub ping_pong: Arc<PingPongSchedule>,
     pub config: InstanceConfig,
-    pub prune_threshold: i16,
     pub sleep_requested: bool,
-    pub is_sleeping: bool,
+    pub prune_threshold: i16,
+    pub runtime: Runtime,
+    pub name: String,
+    pub last_night_time: Instant,
+    pub min_night_delay: Duration,
 }
 
 impl ZoneRuntime {
