@@ -32,8 +32,8 @@ fn start_tcp_loader(mut commands: Commands) {
     thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         rt.block_on(async move {
-            println!("IDE: Requesting Geometry from TCP 8001...");
-            let mut stream = match TcpStream::connect("127.0.0.1:8001").await {
+            println!("IDE: Requesting Geometry from TCP 8011...");
+            let mut stream = match TcpStream::connect("127.0.0.1:8011").await {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("IDE: Failed to connect to GeometryServer: {}", e);
@@ -63,6 +63,7 @@ fn start_tcp_loader(mut commands: Commands) {
             }
 
             println!("IDE: Loaded {} neuron positions.", num_neurons);
+            let url = "ws://127.0.0.1:8012/ws";
             let _ = tx.send(GeometryLoaded { positions });
         });
     });

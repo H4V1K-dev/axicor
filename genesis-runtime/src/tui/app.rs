@@ -2,7 +2,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{self, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -19,7 +19,7 @@ pub fn run_tui_thread(state: Arc<DashboardState>) {
     std::thread::spawn(move || {
         enable_raw_mode().unwrap();
         let mut stdout = std::io::stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture).unwrap();
+        execute!(stdout, EnterAlternateScreen).unwrap();
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend).unwrap();
 
@@ -39,13 +39,14 @@ pub fn run_tui_thread(state: Arc<DashboardState>) {
                 let is_night = state.is_night_phase.load(std::sync::atomic::Ordering::Relaxed);
                 let batch_ms = state.latest_batch_ms.load(std::sync::atomic::Ordering::Relaxed);
                 let udp_in = state.udp_in_packets.load(std::sync::atomic::Ordering::Relaxed);
+                let udp_out = state.udp_out_packets.load(std::sync::atomic::Ordering::Relaxed);
 
                 let phase_str = if is_night { "🌙 NIGHT PHASE (Maintenance)" } else { "☀️ DAY PHASE (Hot Loop)" };
                 let phase_color = if is_night { Color::Yellow } else { Color::Cyan };
 
                 let header_text = format!(
-                    " Genesis AGI Engine | Phase: {} | Ticks: {} | Nights: {} | UDP In: {}",
-                    phase_str, ticks, nights, udp_in
+                    " Genesis AGI Engine | Phase: {} | Ticks: {} | Nights: {} | UDP In: {} | UDP Out: {}",
+                    phase_str, ticks, nights, udp_in, udp_out
                 );
 
                 let header = Paragraph::new(header_text)
@@ -78,8 +79,7 @@ pub fn run_tui_thread(state: Arc<DashboardState>) {
         disable_raw_mode().unwrap();
         execute!(
             terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
+            LeaveAlternateScreen
         ).unwrap();
         terminal.show_cursor().unwrap();
         std::process::exit(0); // Жесткий выход при нажатии 'q'

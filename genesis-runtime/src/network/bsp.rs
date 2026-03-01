@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use crate::network::SpikeEvent;
 
 pub struct PingPongSchedule {
@@ -9,6 +9,7 @@ pub struct PingPongSchedule {
     pub reading_from_a: AtomicBool, // State flag
     pub batch_ticks: usize,
     pub max_spikes_per_tick: usize,
+    pub packets_received: AtomicUsize, // BSP Barrier counter
 }
 
 impl PingPongSchedule {
@@ -24,6 +25,17 @@ impl PingPongSchedule {
             reading_from_a: AtomicBool::new(true),
             batch_ticks,
             max_spikes_per_tick,
+            packets_received: AtomicUsize::new(0),
+        }
+    }
+
+    pub fn wait_for_data(&self, last_count: usize) -> usize {
+        loop {
+            let current = self.packets_received.load(Ordering::Acquire);
+            if current > last_count {
+                return current;
+            }
+            std::hint::spin_loop();
         }
     }
 

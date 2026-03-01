@@ -60,13 +60,9 @@ fn main() -> Result<()> {
         .build()
         .expect("Fatal: Failed to build Tokio runtime");
 
-    // We block_on to run the exact same setup code sequentially until the hot loop
     rt.block_on(async {
         let cli = Cli::parse();
         println!("[Node] Starting Genesis Distributed Daemon...");
-    // 1. Parse CLI
-    let cli = Cli::parse();
-    println!("[Node] Starting Genesis Distributed Daemon...");
 
     // 2. Load Brain Config
     let brain_config = parse_brain_config(&cli.brain)
@@ -82,20 +78,20 @@ fn main() -> Result<()> {
     let is_node_a = std::env::var("NODE_A").is_ok();
     println!("[Node] Operating Mode: {}", if is_node_a { "NODE A (Sensory/Motor)" } else { "NODE B (Hidden)" });
 
-    let local_port = if is_node_a { 9001 } else { 9002 };
-    let target_port = if is_node_a { 9002 } else { 9001 };
+    let local_port = if is_node_a { 9011 } else { 9001 };
+    let target_port = if is_node_a { 9001 } else { 9011 };
     
     let udp_addr = format!("127.0.0.1:{}", local_port);
     let target_addr = format!("127.0.0.1:{}", target_port);
 
-    let tcp_port = cli.port + 1;
+    let tcp_port = if is_node_a { 8011 } else { 8001 };
     let geo_addr = format!("0.0.0.0:{}", tcp_port).parse().unwrap();
     let geo_server = GeometryServer::bind(geo_addr).await
         .context("Failed to bind TCP Geometry Server")?;
     println!("[Node] Bound TCP Geometry Server on {}", geo_addr);
     geo_server.spawn();
 
-    let telemetry_port = cli.port + 2; // e.g. 8002
+    let telemetry_port = if is_node_a { 8012 } else { 8002 };
     let telemetry_tx = TelemetryServer::start(telemetry_port).await;
 
     println!("[Node] Bound UDP Fast Path on {}", udp_addr);
@@ -319,46 +315,55 @@ fn main() -> Result<()> {
         }
     }
 
-    let mut gpu_schedule_buffer = vec![0u8; sync_batch_ticks * 1024 * 4];
-
-    // Find IO zones for MVP (SensoryCortex -> input, MotorCortex -> output)
-    let sensory_idx = zones.iter().position(|z| z.name == "SensoryCortex").expect("SensoryCortex missing");
-    let motor_idx = zones.iter().position(|z| z.name == "MotorCortex").expect("MotorCortex missing");
-
-    // 6. External IO Server init 
     let mut pinned_input_ptr = std::ptr::null_mut();
     let mut pinned_output_ptr = std::ptr::null_mut();
+    let mut input_bytes = 0;
+    let mut output_bytes = 0;
 
-    let words_per_tick = (zones[sensory_idx].runtime.vram.num_pixels as u32 + 31) / 32;
-    let input_bytes = (words_per_tick as usize) * sync_batch_ticks * 4;
-    let output_bytes = zones[motor_idx].runtime.vram.num_mapped_somas as usize * sync_batch_ticks;
+    let mut sensory_idx = None;
+    let mut motor_idx = None;
 
-    unsafe {
-        pinned_input_ptr = genesis_runtime::ffi::gpu_host_alloc(input_bytes) as *mut u32;
-        pinned_output_ptr = genesis_runtime::ffi::gpu_host_alloc(output_bytes) as *mut u8;
-        
-        if pinned_input_ptr.is_null() || pinned_output_ptr.is_null() {
-            anyhow::bail!("Failed to allocate Pinned Host RAM for I/O!");
+    if is_node_a {
+        sensory_idx = Some(zones.iter().position(|z| z.name == "SensoryCortex").expect("SensoryCortex missing on Node A"));
+        motor_idx = Some(zones.iter().position(|z| z.name == "MotorCortex").expect("MotorCortex missing on Node A"));
+
+        let s_idx = sensory_idx.unwrap();
+        let m_idx = motor_idx.unwrap();
+
+        let words_per_tick = (zones[s_idx].runtime.vram.num_pixels as u32 + 31) / 32;
+        input_bytes = (words_per_tick as usize) * sync_batch_ticks * 4;
+        output_bytes = zones[m_idx].runtime.vram.num_mapped_somas as usize * sync_batch_ticks;
+
+        unsafe {
+            pinned_input_ptr = genesis_runtime::ffi::gpu_host_alloc(input_bytes) as *mut u32;
+            pinned_output_ptr = genesis_runtime::ffi::gpu_host_alloc(output_bytes) as *mut u8;
+            
+            if pinned_input_ptr.is_null() || pinned_output_ptr.is_null() {
+                anyhow::bail!("Failed to allocate Pinned Host RAM for I/O!");
+            }
         }
     }
 
-    let dashboard_state = Arc::new(DashboardState::default());
+    let mut io_server_opt = None;
+    let mut dashboard_state = Arc::new(DashboardState::default());
     dashboard_state.total_ticks.store(max_restored_tick, Ordering::Relaxed);
 
-    let mut io_server_obj = ExternalIoServer::new(
-        "0.0.0.0:8081",
-        pinned_input_ptr,
-        input_bytes
-    ).await;
-    io_server_obj.dashboard = Some(dashboard_state.clone());
-    let io_server = Arc::new(io_server_obj);
+    if is_node_a {
+        let mut io_server_obj = ExternalIoServer::new(
+            if is_node_a { "0.0.0.0:8014" } else { "0.0.0.0:8081" },
+            pinned_input_ptr,
+            input_bytes
+        ).await;
+        io_server_obj.dashboard = Some(dashboard_state.clone());
+        let io_server = Arc::new(io_server_obj);
 
-    let io_rx = io_server.clone();
-    rt.spawn(async move {
-        io_rx.run_rx_loop().await;
-    });
-
-    println!("Genesis Engine: Hot Loop Started. Listening on UDP 8081.");
+        let io_rx = io_server.clone();
+        rt.spawn(async move {
+            io_rx.run_rx_loop().await;
+        });
+        io_server_opt = Some(io_server);
+        println!("Genesis Engine: Hot Loop Started. Listening on UDP 8081.");
+    }
     
     // =====================================================================
     // 7. MAIN HOT LOOP (Dedicated OS Thread)
@@ -374,19 +379,27 @@ fn main() -> Result<()> {
 
     loop {
         // [BSP БАРЬЕР]: Ожидание нового входного кадра.
-        while io_server.new_frame_ready.load(Ordering::Acquire) == 0 {
-            std::hint::spin_loop();
-        }
-        io_server.new_frame_ready.store(0, Ordering::Release);
+        if is_node_a {
+            let io_server = io_server_opt.as_ref().unwrap();
+            while io_server.new_frame_ready.load(Ordering::Acquire) == 0 {
+                std::hint::spin_loop();
+            }
+            io_server.new_frame_ready.store(0, Ordering::Release);
 
-        // Шаг 1: DMA Host-to-Device (Перекачка свежей маски входов)
-        unsafe {
-            genesis_runtime::ffi::gpu_memcpy_host_to_device_async(
-                zones[sensory_idx].runtime.vram.input_bitmask_buffer as *mut std::ffi::c_void,
-                pinned_input_ptr as *const std::ffi::c_void,
-                input_bytes,
-                stream
-            );
+            // Шаг 1: DMA Host-to-Device (Перекачка свежей маски входов)
+            unsafe {
+                genesis_runtime::ffi::gpu_memcpy_host_to_device_async(
+                    zones[sensory_idx.unwrap()].runtime.vram.input_bitmask_buffer as *mut std::ffi::c_void,
+                    pinned_input_ptr as *const std::ffi::c_void,
+                    input_bytes,
+                    stream
+                );
+            }
+        } else {
+            // NODE B: Ждем пакета от NODE A для каждой зоны
+            for zone in zones.iter() {
+                zone.ping_pong.wait_for_data(total_ticks as usize / sync_batch_ticks); 
+            }
         }
 
         // Шаг 2: Выполнение батча (GPU молотит 6 ядер ПАРАЛЛЕЛЬНО для всех зон)
@@ -439,7 +452,7 @@ fn main() -> Result<()> {
             if is_node_a {
                 genesis_runtime::ffi::gpu_memcpy_device_to_host_async(
                     pinned_output_ptr as *mut std::ffi::c_void,
-                    zones[motor_idx].runtime.vram.output_history as *const std::ffi::c_void,
+                    zones[motor_idx.unwrap()].runtime.vram.output_history as *const std::ffi::c_void,
                     output_bytes,
                     stream
                 );
@@ -470,12 +483,12 @@ fn main() -> Result<()> {
         }
 
         // Шаг 5: Асинхронная отправка выходов
-        let io_tx = io_server.clone();
         let target_addr = "127.0.0.1:8082";
         let zone_hash = 0x12345678; // Твой FNV-1a хэш
         let matrix_hash = 0x87654321;
         
         if is_node_a {
+            let io_tx = io_server_opt.as_ref().unwrap().clone();
             // Передаем указатель через usize границу потока
             let pinned_output_addr = pinned_output_ptr as usize;
             
@@ -509,9 +522,8 @@ fn main() -> Result<()> {
             let ticks_ready = night_interval_ticks > 0 && total_ticks % night_interval_ticks == 0;
             let time_ready = time_since_last_night >= zone.min_night_delay;
 
-            // Зона уходит в ночь ТОЛЬКО если прошли нужные тики И прошло достаточно реального времени
             if !is_sleeping && ticks_ready && time_ready {
-                zone.last_night_time = now; // Обновляем таймер
+                zone.last_night_time = now;
                 night_triggered = true;
                 
                 let vram_ptr = &mut zone.runtime.vram as *mut genesis_runtime::memory::VramState;
@@ -523,7 +535,7 @@ fn main() -> Result<()> {
                     zone.runtime.vram.total_axons as u32,
                     zone.prune_threshold,
                     zone.is_sleeping.clone(),
-                    42 // master_seed TODO: pass from config
+                    42 
                 );
             }
         }
@@ -532,12 +544,10 @@ fn main() -> Result<()> {
             dashboard_state.is_night_phase.store(true, Ordering::Release);
             dashboard_state.night_count.fetch_add(1, Ordering::Relaxed);
             dashboard_state.is_night_phase.store(false, Ordering::Release);
-            start_time = std::time::Instant::now(); // Сбрасываем таймер после ночи
+            start_time = std::time::Instant::now();
         }
     }
 
-    // Ok(()) is never reached due to infinite loop, but needed for type signature
-    #[allow(unreachable_code)]
     Ok(())
     })
 }

@@ -53,6 +53,12 @@ struct Candidate {
 
 /// Заполняет dendrite_targets и dendrite_weights в ShardSoA.
 /// Использует пространственную решётку для O(N × K) поиска вместо O(N²).
+#[derive(Clone, Copy)]
+struct NeuronSlots {
+    targets: [u32; MAX_DENDRITE_SLOTS],
+    weights: [i16; MAX_DENDRITE_SLOTS],
+}
+
 pub fn connect_dendrites(
     shard: &mut ShardSoA,
     neurons: &[PlacedNeuron],
@@ -65,11 +71,24 @@ pub fn connect_dendrites(
     // Строим пространственную решётку по tip-позициям аксонов
     let grid = build_axon_grid(axons);
 
-    for (soma_id, neuron) in neurons.iter().enumerate() {
+    println!("Baking: Initiating Rayon parallel dendrite search for {} somas...", neurons.len());
+
+    // 1. Локальный AoS буфер. Выровнен, легко пилится Rayon'ом.
+    let mut temp_slots = vec![NeuronSlots {
+        targets: [0; MAX_DENDRITE_SLOTS],
+        weights: [0; MAX_DENDRITE_SLOTS],
+    }; pn];
+
+    use rayon::prelude::*;
+
+    // 2. PARALLEL HOT LOOP (Загружаем все 16 потоков Ryzen)
+    temp_slots.par_iter_mut().enumerate().for_each(|(soma_id, slots)| {
+        if soma_id >= neurons.len() { return; } // Пропускаем паддинг
+
+        let neuron = &neurons[soma_id];
         let soma_x = neuron.x();
         let soma_y = neuron.y();
         let soma_z = neuron.z();
-        let target_type_idx = neuron.type_idx.min(15) as u8;
 
         // Диапазон ячеек для поиска
         let cell_x = soma_x / CELL_SIZE;
@@ -146,15 +165,17 @@ pub fn connect_dendrites(
             }
         }
 
-        // Сортируем по убыванию score
-        candidates.sort_unstable_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        // ⚠️ ЗАКОН ДЕТЕРМИНИЗМА 2: Сортировка
+        // Сортируем по убыванию score, при равенстве - по axon_idx для детерминизма
+        candidates.sort_unstable_by(|a, b| {
+            b.score.total_cmp(&a.score).then_with(|| a.axon_idx.cmp(&b.axon_idx))
+        });
 
-        // Записываем top-N в columnar SoA
+        // Записываем top-N во временный слотовый массив (AoS)
         for (slot, cand) in candidates.iter().take(MAX_DENDRITE_SLOTS).enumerate() {
             let axon_idx = cand.axon_idx;
             let variant = &const_mem.variants[axons[axon_idx].type_idx.min(15)];
-            // Начальный вес: используем gsop_potentiation как прокси для начальной силы синапса.
-            // Знак определяем через gsop_depression: если отрицательный — тормозной.
+            
             let abs_weight = (variant.gsop_potentiation.unsigned_abs() as i16).max(1).min(i16::MAX);
             let weight: i16 = if variant.gsop_depression < 0 {
                 -abs_weight
@@ -164,9 +185,19 @@ pub fn connect_dendrites(
 
             let target_packed = pack_target(axon_idx as u32, cand.segment_idx as u32);
             
-            let cell = slot * pn + soma_id;
-            shard.dendrite_targets[cell] = target_packed;
-            shard.dendrite_weights[cell] = weight;
+            slots.targets[slot] = target_packed;
+            slots.weights[slot] = weight;
+        }
+    });
+
+    println!("Baking: Transposing to Columnar Layout...");
+
+    // 3. TRANSPOSE: AoS -> SoA (Columnar Layout для GPU)
+    for slot in 0..MAX_DENDRITE_SLOTS {
+        let col_offset = slot * pn;
+        for i in 0..pn {
+            shard.dendrite_targets[col_offset + i] = temp_slots[i].targets[slot];
+            shard.dendrite_weights[col_offset + i] = temp_slots[i].weights[slot];
         }
     }
 }

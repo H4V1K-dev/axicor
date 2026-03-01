@@ -33,7 +33,6 @@ Thumbs.db
 *.dump
 
 # Папки
-SUMMARIZER/
 SUMARIZER/
 tests/tmp/
 .agents/

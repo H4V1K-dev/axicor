@@ -41,7 +41,7 @@ fn start_network_thread(mut commands: Commands) {
             .unwrap();
 
         rt.block_on(async move {
-            let url = "ws://127.0.0.1:8002/ws";
+            let url = "ws://127.0.0.1:8012/ws";
             println!("IDE: Connecting to Telemetry Stream at {}...", url);
             
             match connect_async(url).await {

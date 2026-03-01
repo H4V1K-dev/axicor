@@ -1,0 +1,5 @@
+[[input]]
+name = "cartpole_sensors"
+target_layer = "L1"
+axon_count = 64
+type_mask = 0x11

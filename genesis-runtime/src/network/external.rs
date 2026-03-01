@@ -107,6 +107,10 @@ impl ExternalIoServer {
             );
         }
 
+
         let _ = self.socket.send_to(&out_buf, target_addr).await;
+        if let Some(dash) = &self.dashboard {
+            dash.udp_out_packets.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }

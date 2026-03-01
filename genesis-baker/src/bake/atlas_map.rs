@@ -1,6 +1,6 @@
-use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
+use std::fs::File;
 
 /// FNV-1a для детерминированного шума
 fn hash_jitter(seed: u64, salt: u32) -> f32 {

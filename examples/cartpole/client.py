@@ -15,7 +15,7 @@ def fnv1a_32(data: bytes) -> int:
 ZONE_HASH = fnv1a_32(b"SensoryCortex") # Шлем в сенсорную кору
 MATRIX_IN_HASH = fnv1a_32(b"cartpole_in")
 GENESIS_IP = "127.0.0.1"
-PORT_OUT = 8081
+PORT_OUT = 8014
 PORT_IN = 8082
 
 # Разделяемое состояние без блокировок (GIL Python спасает от Data Race)
