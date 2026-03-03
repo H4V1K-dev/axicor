@@ -23,5 +23,6 @@ pub struct ZoneRuntime {
     pub inter_node_channels: Vec<crate::network::inter_node::InterNodeChannel>,
     pub intra_gpu_channels: Vec<crate::network::intra_gpu::IntraGpuChannel>,
     pub spatial_grid: std::sync::Arc<std::sync::Mutex<crate::orchestrator::spatial_grid::SpatialGrid>>,
+    pub dashboard: Arc<crate::tui::DashboardState>,
 }
 

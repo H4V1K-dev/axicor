@@ -1,6 +1,6 @@
 /// Тесты для единого конфига `simulation.toml`.
 use super::*;
-use std::path::PathBuf;
+// use std::path::PathBuf;
 
 #[test]
 fn test_default_values() {
@@ -15,8 +15,8 @@ fn test_default_values() {
         total_ticks = 1000
         master_seed = "TEST"
         global_density = 0.05
-        voxel_size_um = 25
-        signal_speed_um_tick = 50
+        voxel_size_um = 25.0
+        signal_speed_m_s = 0.5
         sync_batch_ticks = 10
     "#;
 
@@ -36,13 +36,13 @@ fn test_neuron_budget_calc() {
         height_um = 100
 
         [simulation]
-        voxel_size_um = 25
+        voxel_size_um = 25.0
         global_density = 0.5
         # ... обязательные поля
         tick_duration_us = 100
         total_ticks = 1000
         master_seed = "TEST"
-        signal_speed_um_tick = 50
+        signal_speed_m_s = 0.5
         sync_batch_ticks = 10
     "#;
 

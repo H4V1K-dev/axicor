@@ -1,125 +1,130 @@
 import socket
 import struct
-import gymnasium as gym
 import numpy as np
-import threading
+import gymnasium as gym
 import time
 
-def fnv1a_32(data: bytes) -> int:
-    hash_value = 0x811c9dc5
-    for byte in data:
-        hash_value ^= byte
-        hash_value = (hash_value * 0x01000193) & 0xFFFFFFFF
-    return hash_value
+# --- Genesis Binary Contract §12 ---
+GSIO_MAGIC = 0x4F495347 # "GSIO" (Input)
+GSOO_MAGIC = 0x4F4F5347 # "GSOO" (Output)
 
-ZONE_HASH = fnv1a_32(b"SensoryCortex") # Шлем в сенсорную кору
-MATRIX_IN_HASH = fnv1a_32(b"cartpole_in")
-GENESIS_IP = "127.0.0.1"
-PORT_OUT = 8014
-PORT_IN = 8082
+# Cluster Hashes (Extracted from manifest/GXI/GXO)
+SENSORY_ZONE_HASH = 658493699
+SENSORY_MATRIX_HASH = 780390696
+MOTOR_ZONE_HASH = 3597008999
+MOTOR_MATRIX_HASH = 1590622057
 
-# Разделяемое состояние без блокировок (GIL Python спасает от Data Race)
-class State:
+# Network Config
+ENGINE_IP = "127.0.0.1"
+SENSOR_PORT = 8081
+MOTOR_PORT = 8082
+
+# Hyperparameters
+NUM_VARS = 4
+NEURONS_PER_VAR = 16
+SIGMA_SQ = 0.15 ** 2
+BATCH_TICKS = 100
+
+class GenesisCartPoleClient:
     def __init__(self):
-        self.obs = np.zeros(4)
-        self.action = 0
-        self.running = True
+        self.env = gym.make("CartPole-v1", render_mode="human")
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # Bind to motor port to receive spikes from Genesis
+        self.sock.bind(("0.0.0.0", MOTOR_PORT))
+        self.sock.settimeout(1.0) # 1s failover timeout
 
-state = State()
+        # Precompute Gaussian Centers
+        # CartPole observation space: 
+        # [cart pos (-4.8, 4.8), cart vel (-inf, inf), pole angle (-.418, .418), pole vel (-inf, inf)]
+        # We normalize centers to expected ranges
+        self.centers = np.zeros((NUM_VARS, NEURONS_PER_VAR))
+        ranges = [(-2.4, 2.4), (-3.0, 3.0), (-0.21, 0.21), (-3.0, 3.0)]
+        for i, (low, high) in enumerate(ranges):
+            self.centers[i] = np.linspace(low, high, NEURONS_PER_VAR)
 
-def encode_population(value, min_val, max_val, neurons=16):
-    norm = np.clip((value - min_val) / (max_val - min_val), 0.0, 1.0)
-    center_idx = int(norm * (neurons - 1))
-    bitmask = 0
-    for i in range(max(0, center_idx - 1), min(neurons, center_idx + 2)):
-        bitmask |= (1 << i)
-    return bitmask
+    def encode_state(self, state):
+        """Gaussian Population Coding (Vectorized)"""
+        active_axons = []
+        for i in range(NUM_VARS):
+            val = state[i]
+            # Gaussian Tuning Curve: exp(- (x - mu)^2 / (2 * sigma^2))
+            activations = np.exp(-((val - self.centers[i])**2) / (2 * SIGMA_SQ))
+            
+            # Select top-3 neurons (distributed representation)
+            top_indices = np.argsort(activations)[-3:]
+            for idx in top_indices:
+                global_id = i * NEURONS_PER_VAR + idx
+                active_axons.append(global_id)
+        return active_axons
 
-def udp_hot_loop():
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(("0.0.0.0", PORT_IN))
-    sock.settimeout(0.01) # Короткий таймаут чтобы не висеть при выходе
-    
-    while state.running:
-        # 1. Быстрая упаковка
-        obs = state.obs
-        mask_pos = encode_population(obs[0], -2.4, 2.4)
-        mask_vel = encode_population(obs[1], -3.0, 3.0)
-        mask_ang = encode_population(obs[2], -0.41, 0.41)
-        mask_ang_vel = encode_population(obs[3], -2.0, 2.0)
+    def pack_input(self, active_axons):
+        """Strict C-FFI Binary Packing: 4x u32 Header + 1x u64 Bitmask"""
+        bitmask = 0
+        for axon_id in active_axons:
+            if 0 <= axon_id < 64:
+                bitmask |= (1 << axon_id)
         
-        word_0 = mask_pos | (mask_vel << 16)
-        word_1 = mask_ang | (mask_ang_vel << 16)
-        payload = struct.pack("<IIIII", ZONE_HASH, MATRIX_IN_HASH, 8, word_0, word_1)
+        # Header: magic, zone, matrix, payload_size
+        return struct.pack('<4IQ', GSIO_MAGIC, SENSORY_ZONE_HASH, SENSORY_MATRIX_HASH, 8, bitmask)
+
+    def decode_action(self, payload):
+        """Population Decoding: WTA (Winner-Takes-All) on Spike Counts"""
+        if len(payload) < 16:
+            return 0
         
-        sock.sendto(payload, (GENESIS_IP, PORT_OUT))
+        header = struct.unpack('<4I', payload[:16])
+        if header[0] != GSOO_MAGIC:
+            print(f"Warning: Invalid GSOO magic 0x{header[0]:08X}")
+            return 0
         
-        # 2. Быстрое чтение ответа от MotorCortex
+        # Raw spike data [Ticks, Neurons]
+        # MotorCortex has 32 output channels (16 Left, 16 Right)
+        raw_data = np.frombuffer(payload[16:], dtype=np.uint8)
+        num_channels = len(raw_data) // BATCH_TICKS
+        
+        if num_channels < 32:
+            return 0
+            
+        history = raw_data.reshape((BATCH_TICKS, num_channels))
+        
+        # Sum spikes over populations
+        left_spikes = np.sum(history[:, :16])
+        right_spikes = np.sum(history[:, 16:32])
+        
+        return 0 if left_spikes > right_spikes else 1
+
+    def run(self):
+        state, _ = self.env.reset()
+        print(f"--- Genesis CartPole Bridge Started ---")
+        print(f"Sending to {ENGINE_IP}:{SENSOR_PORT}, Waiting on {MOTOR_PORT}")
+        
         try:
-            data, _ = sock.recvfrom(65535)
-            out_history = data[12:] # Пропуск хедера
-            left_spikes = sum(out_history[0::2])
-            right_spikes = sum(out_history[1::2])
-            state.action = 0 if left_spikes > right_spikes else 1
-        except socket.timeout:
-            pass
+            while True:
+                # 1. Encode & Pack
+                axons = self.encode_state(state)
+                packet = self.pack_input(axons)
+                
+                # 2. Synchronous Pacing: Send & Wait
+                self.sock.sendto(packet, (ENGINE_IP, SENSOR_PORT))
+                
+                try:
+                    data, _ = self.sock.recvfrom(8192) # Wait for Motor Output
+                    action = self.decode_action(data)
+                except socket.timeout:
+                    print("Timeout: Genesis missed a batch!")
+                    continue
 
-import pygame
-
-def main():
-    env = gym.make('CartPole-v1', render_mode="rgb_array")
-    state.obs, _ = env.reset()
-    
-    pygame.init()
-    # The default CartPole size is ~ 600x400
-    screen = pygame.display.set_mode((600, 400))
-    pygame.display.set_caption("Genesis CartPole")
-    font = pygame.font.SysFont(None, 36)
-    
-    udp_thread = threading.Thread(target=udp_hot_loop)
-    udp_thread.start()
-    
-    frame_count = 0
-    try:
-        while True:
-            # Среда обновляется асинхронно от мозга
-            state.obs, reward, terminated, truncated, _ = env.step(state.action)
-            img = env.render()
-            
-            if img is not None:
-                # Транспонируем изображение для pygame (H,W,C) -> (W,H,C)
-                surf = pygame.surfarray.make_surface(np.swapaxes(img, 0, 1))
+                # 3. Environment Step
+                state, reward, terminated, truncated, _ = self.env.step(action)
                 
-                # Сероватый оттенок (по заявке пользователя)
-                gray_overlay = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
-                gray_overlay.fill((100, 100, 100, 80)) # RGBA
-                surf.blit(gray_overlay, (0, 0))
-                
-                # Черный счетчик кадров
-                text = font.render(f"Frame: {frame_count} | Action: {'Left' if state.action == 0 else 'Right'}", True, (0, 0, 0))
-                surf.blit(text, (10, 10))
-                
-                # Масштабируем на экран и отрисовываем
-                screen.blit(pygame.transform.scale(surf, (600, 400)), (0, 0))
-                pygame.display.flip()
-            
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    raise KeyboardInterrupt
-            
-            if terminated or truncated:
-                state.obs, _ = env.reset()
-                frame_count = 0
-                
-            frame_count += 1
-            
-            # Опциональный sleep для ограничения FPS симулятора
-            # time.sleep(1/60) 
-    except (KeyboardInterrupt, SystemExit):
-        state.running = False
-        udp_thread.join()
-        env.close()
-        pygame.quit()
+                if terminated or truncated:
+                    state, _ = self.env.reset()
+                    
+        except KeyboardInterrupt:
+            print("\nShutting down bridge...")
+        finally:
+            self.env.close()
 
 if __name__ == "__main__":
-    main()
+    client = GenesisCartPoleClient()
+    client.run()

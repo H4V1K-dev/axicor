@@ -1,10 +1,31 @@
-#![cfg(feature = "mock-gpu")]
 
+use genesis_core::layout::VramState;
+use genesis_core::ipc::SpikeEvent;
+use std::sync::Mutex;
 use std::ffi::c_void;
 use std::ptr;
 
-/// Compiles ONLY when `--features mock-gpu` is active (usually during tests).
-/// Provides host-memory substitutes for CUDA FFI functions.
+// ─────────────────────────────────────────────────────────────────────────────
+// TDD Call Logger
+// ─────────────────────────────────────────────────────────────────────────────
+
+static CALL_LOG: Mutex<Vec<(String, usize)>> = Mutex::new(Vec::new());
+
+pub fn clear_call_log() {
+    CALL_LOG.lock().unwrap().clear();
+}
+
+pub fn get_call_log() -> Vec<(String, usize)> {
+    CALL_LOG.lock().unwrap().clone()
+}
+
+fn log_call(name: &str, ptr_addr: usize) {
+    CALL_LOG.lock().unwrap().push((name.to_string(), ptr_addr));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Memory Management
+// ─────────────────────────────────────────────────────────────────────────────
 
 #[no_mangle]
 pub extern "C" fn gpu_malloc(size: usize) -> *mut c_void {
@@ -32,10 +53,7 @@ pub extern "C" fn gpu_memcpy_host_to_device(
     src_host: *const c_void,
     size: usize,
 ) -> bool {
-    // Both are host pointers in mock mode
-    unsafe {
-        ptr::copy_nonoverlapping(src_host as *const u8, dst_dev as *mut u8, size);
-    }
+    unsafe { ptr::copy_nonoverlapping(src_host as *const u8, dst_dev as *mut u8, size); }
     true
 }
 
@@ -45,18 +63,29 @@ pub extern "C" fn gpu_memcpy_device_to_host(
     src_dev: *const c_void,
     size: usize,
 ) -> bool {
-    // Both are host pointers in mock mode
-    unsafe {
-        ptr::copy_nonoverlapping(src_dev as *const u8, dst_host as *mut u8, size);
-    }
+    unsafe { ptr::copy_nonoverlapping(src_dev as *const u8, dst_host as *mut u8, size); }
     true
 }
 
 #[no_mangle]
-pub extern "C" fn gpu_device_synchronize() {}
+pub extern "C" fn gpu_memcpy_host_to_device_async(
+    dst: *mut c_void,
+    src: *const c_void,
+    size: usize,
+    _stream: *mut c_void,
+) {
+    unsafe { ptr::copy_nonoverlapping(src as *const u8, dst as *mut u8, size); }
+}
 
 #[no_mangle]
-pub extern "C" fn gpu_stream_synchronize(_stream: *mut c_void) {}
+pub extern "C" fn gpu_memcpy_device_to_host_async(
+    dst: *mut c_void,
+    src: *const c_void,
+    size: usize,
+    _stream: *mut c_void,
+) {
+    unsafe { ptr::copy_nonoverlapping(src as *const u8, dst as *mut u8, size); }
+}
 
 #[no_mangle]
 pub extern "C" fn gpu_memcpy_peer_async(
@@ -71,20 +100,134 @@ pub extern "C" fn gpu_memcpy_peer_async(
     true
 }
 
+#[no_mangle] pub extern "C" fn gpu_device_synchronize() {}
+#[no_mangle] pub extern "C" fn gpu_stream_synchronize(_stream: *mut c_void) {}
+#[no_mangle] pub extern "C" fn gpu_synchronize() {}
+
 #[no_mangle]
-pub extern "C" fn upload_constant_memory(_host_ptr: *const c_void) -> bool {
-    true
+pub extern "C" fn gpu_load_constants(_host_ptr: *const c_void) {}
+
+#[no_mangle]
+pub extern "C" fn upload_constant_memory(_host_ptr: *const c_void) -> bool { true }
+
+#[no_mangle]
+pub extern "C" fn update_constant_memory_hot_reload(
+    _new_variants: *const c_void,
+    _stream: *mut c_void,
+) {}
+
+#[no_mangle]
+pub extern "C" fn update_global_dopamine(_dopamine: i16, _stream: *mut c_void) {}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Day Phase Kernel Launches (6 kernels — Шаг 10)
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[no_mangle]
+pub extern "C" fn launch_inject_inputs(
+    _vram: VramState,
+    bitmask: *const u32,
+    _current_tick: u32,
+    _total_virtual_axons: u32,
+) {
+    log_call("InjectInputs", bitmask as usize);
 }
 
-// --------------------------------------------------------------------------
-// Kernel Launches (No-Op for network/ghost axon tests)
-// --------------------------------------------------------------------------
+#[no_mangle]
+pub extern "C" fn launch_apply_spike_batch(
+    _vram: VramState,
+    tick_schedule: *const SpikeEvent,
+    _tick_spikes_count: u32,
+) {
+    log_call("ApplySpikeBatch", tick_schedule as usize);
+}
 
-#[no_mangle] pub extern "C" fn launch_propagate_axons(_1: u32, _2: *mut c_void, _3: u32, _4: *mut c_void) {}
-#[no_mangle] pub extern "C" fn launch_update_neurons(_1: u32, _2: *mut c_void, _3: *mut c_void, _4: *mut c_void, _5: *mut c_void, _6: *const c_void, _7: *const c_void, _8: *mut c_void, _9: *mut c_void, _10: *mut c_void, _11: *mut c_void) {}
-#[no_mangle] pub extern "C" fn launch_apply_gsop(_1: u32, _2: *const c_void, _3: *const c_void, _4: *mut c_void, _5: *mut c_void, _6: *mut c_void) {}
-#[no_mangle] pub extern "C" fn launch_apply_spike_batch_impl(_1: u32, _2: *const c_void, _3: *mut c_void, _4: u32, _5: *mut c_void) {}
-#[no_mangle] pub extern "C" fn launch_record_readout(_1: *const c_void, _2: *const c_void, _3: *mut c_void, _4: u32, _5: u32, _6: *mut c_void) {}
-#[no_mangle] pub extern "C" fn launch_sort_and_prune(_1: u32, _2: u32, _3: i16, _4: *mut c_void, _5: *mut c_void, _6: *mut c_void, _7: *mut c_void, _8: *mut c_void) {}
-#[no_mangle] pub extern "C" fn launch_inject_inputs(_1: *mut c_void, _2: *const c_void, _3: *const c_void, _4: u32, _5: u32, _6: *mut c_void) {}
-#[no_mangle] pub extern "C" fn gpu_reset_telemetry_count(_1: *const c_void, _2: *mut c_void) {}
+#[no_mangle]
+pub extern "C" fn launch_propagate_axons(
+    _vram: VramState,
+    _v_seg: u32,
+) {
+    log_call("PropagateAxons", 0);
+}
+
+#[no_mangle]
+pub extern "C" fn launch_update_neurons(
+    _vram: VramState,
+    _constants_ptr: *const c_void,
+    _current_tick: u32,
+) {
+    log_call("UpdateNeurons", 0);
+}
+
+#[no_mangle]
+pub extern "C" fn launch_apply_gsop(
+    _vram: VramState,
+) {
+    log_call("ApplyGSOP", 0);
+}
+
+#[no_mangle]
+pub extern "C" fn launch_record_readout(
+    _vram: VramState,
+    _mapped_soma_ids: *const u32,
+    _output_history: *mut u8,
+    _current_tick: u32,
+    _total_pixels: u32,
+) {
+    log_call("RecordReadout", 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auxiliary Kernel Launches — No-Ops
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[no_mangle]
+pub extern "C" fn launch_sort_and_prune(
+    _vram: VramState,
+    prune_threshold: i16,
+) {
+    log_call("SortAndPrune", prune_threshold as usize);
+}
+
+#[no_mangle]
+pub extern "C" fn launch_extract_outgoing_spikes(
+    _axon_heads: *const u32,
+    _src_indices: *const u32,
+    _dst_ghost_ids: *const u32,
+    _count: u32,
+    _sync_batch_ticks: u32,
+    _out_events: *mut c_void,
+    _out_count: *mut u32,
+    _stream: *mut c_void,
+) {}
+
+#[no_mangle]
+pub extern "C" fn launch_ghost_sync(
+    _src_heads: *const u32,
+    _dst_heads: *mut u32,
+    _src_indices: *const u32,
+    _dst_indices: *const u32,
+    _count: u32,
+    _stream: *mut c_void,
+) {}
+
+#[no_mangle]
+pub extern "C" fn gpu_reset_telemetry_count(
+    _vram: VramState,
+    _stream: *mut c_void,
+) {
+    log_call("ResetTelemetryCount", 0);
+}
+
+#[no_mangle]
+pub extern "C" fn launch_extract_telemetry(
+    _vram: VramState,
+    _out_ids: *mut u32,
+    out_count_pinned: *mut u32,
+    _stream: *mut c_void,
+) {
+    log_call("ExtractTelemetry", 0);
+    if !out_count_pinned.is_null() {
+        unsafe { ptr::write_volatile(out_count_pinned, 0); }
+    }
+}

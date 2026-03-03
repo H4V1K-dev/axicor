@@ -16,9 +16,9 @@ pub const AXON_SENTINEL: u32 = 0x80000000;
 pub const SENTINEL_REFRESH_TICKS: u64 = 1_800_000_000; 
 pub const SENTINEL_DANGER_THRESHOLD: u32 = 0x7000_0000; 
 
-/// target_packed bit layout: [31..10] Axon_ID (22 bits) | [9..0] Segment_Index (10 bits)
-pub const TARGET_AXON_SHIFT: u32 = 10;
-pub const TARGET_SEG_MASK: u32 = 0x3FF;
+/// target_packed bit layout: [31..24] Segment_Offset (8 bits) | [23..0] Axon_ID + 1 (24 bits)
+pub const TARGET_AXON_MASK: u32 = 0x00FF_FFFF;
+pub const TARGET_SEG_SHIFT: u32 = 24;
 
 /// Warp size for GPU alignment (padded_n must be multiple of this).
 pub const GPU_WARP_SIZE: usize = 32;
@@ -66,3 +66,10 @@ pub const GXO_MAGIC: u32 = 0x47584F00; // "GXO\0"
 
 /// Заголовок UDP-телеметрии (IDE WebSocket & Fast Path)
 pub const TELEMETRY_MAGIC: u32 = 0x474E5353; // "GNSS"
+
+/// Внешний I/O: Магические числа для UDP пакетов
+pub const GSIO_MAGIC: u32 = 0x4F495347; // "GSIO" (Input)
+pub const GSOO_MAGIC: u32 = 0x4F4F5347; // "GSOO" (Output)
+
+/// Максимальный размер полезной нагрузки UDP (MTU limit)
+pub const MAX_UDP_PAYLOAD: usize = 65507;

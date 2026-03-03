@@ -1,3 +1,5 @@
+#![cfg(not(feature = "mock-gpu"))]
+
 use genesis_runtime::zone_runtime::ZoneRuntime;
 use genesis_runtime::Runtime;
 use genesis_runtime::network::bsp::BspBarrier;

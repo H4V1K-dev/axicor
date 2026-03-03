@@ -1,165 +1,192 @@
-use std::ffi::c_void;
-use crate::ffi;
+use genesis_core::layout::VramState;
+use genesis_core::ipc::SpikeEvent;
+use crate::ffi::*;
+use crate::zone_runtime::ZoneRuntime;
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
-pub fn execute_day_batch(
-    zone: &mut crate::zone_runtime::ZoneRuntime, 
-    batch_ticks: u32, 
-    stream: crate::ffi::CudaStream,
-    telemetry_tx: Option<&tokio::sync::broadcast::Sender<crate::network::telemetry::TelemetryPayload>>,
-    total_ticks: u64,
-    global_dopamine: i16
-) {
+/// DayPhaseRunner orchestrates the "Hot Loop" (6 CUDA kernels per tick).
+/// It ensures strict execution order and maximizes GPU occupancy by avoiding
+/// per-tick synchronization.
+pub struct DayPhaseRunner {
+    pub state: VramState,
+    pub constants_ptr: *const std::ffi::c_void, // Pointer to 1024B in __constant__ VRAM (host mirror)
+    pub mapped_soma_ids: *const u32,            // Pixel mapping array for RecordReadout (GXO)
+    pub num_inputs: u32,                        // Count of virtual axons
+    pub num_outputs: u32,                       // Count of mapped output somas
+}
 
-    // Zero-Downtime Hot-Reload & Async Constant Memory injection
-    let mut mem_updated = false;
-    while let Some(new_const_mem) = zone.hot_reload_queue.pop() {
-        zone.const_mem = new_const_mem;
-        mem_updated = true;
-    }
-    if mem_updated {
-        println!("🚀 [Hot-Reload] 448 bytes of GpuVariantParameters injected to VRAM __constant__!");
-    }
-    unsafe {
-        ffi::update_global_dopamine(global_dopamine, stream);
-        ffi::update_constant_memory_hot_reload(
-            zone.const_mem.as_ptr(),
-            stream,
-        );
-    }
+impl DayPhaseRunner {
+    /// Executes a batch of simulation ticks.
+    ///
+    /// # Contract (spec §1.0):
+    /// 1. Mandatory 1-6 kernel sequence per tick.
+    /// 2. No per-tick synchronization (Async kernel launches only).
+    /// 3. Zero-copy DMA: bitmask and history buffers must be Pinned RAM.
+    /// 4. Final barrier (gpu_synchronize) only at the end of the batch.
+    #[inline(never)]
+    pub fn run_batch(
+        &mut self,
+        sync_batch_ticks: u32,
+        base_tick: u32,
+        v_seg: u32,
+        input_bitmask: *const u32,        // From PinnedBuffer
+        output_history: *mut u8,          // From PinnedBuffer
+        schedule: *const SpikeEvent,      // From Ring Buffer
+        spikes_per_tick: &[u32],          // Length = sync_batch_ticks
+    ) {
+        let mut schedule_offset = 0;
 
-    let layout_vram = genesis_core::layout::VramState {
-        voltage: zone.runtime.vram.voltage as *mut i32,
-        flags: zone.runtime.vram.flags as *mut u8,
-        threshold_offset: zone.runtime.vram.threshold_offset as *mut i32,
-        refractory_timer: zone.runtime.vram.refractory_timer as *mut u8,
-        soma_to_axon: zone.runtime.vram.soma_to_axon as *mut u32,
-        dendrite_targets: zone.runtime.vram.dendrite_targets as *mut u32,
-        dendrite_weights: zone.runtime.vram.dendrite_weights as *mut i16,
-        dendrite_timers: zone.runtime.vram.dendrite_refractory as *mut u8,
-        axon_heads: zone.runtime.vram.axon_head_index as *mut u32,
-        input_bitmask: zone.runtime.vram.input_bitmask_buffer as *mut u32,
-        output_history: zone.runtime.vram.output_history as *mut u8,
-        telemetry_spikes: zone.runtime.vram.telemetry_spikes as *mut u32,
-        telemetry_count: zone.runtime.vram.telemetry_count as *mut u32,
-    };
-    let vram_ptr = &layout_vram as *const genesis_core::layout::VramState;
-
-    unsafe { ffi::gpu_reset_telemetry_count(vram_ptr, stream); }
-
-    let padded_n = zone.runtime.vram.padded_n as u32;
-    let total_axons = zone.runtime.vram.total_axons as u32;
-    
-    let virtual_offset = 0u32;
-    let total_virtual_axons = zone.runtime.vram.num_pixels;
-    let input_stride = zone.runtime.vram.input_stride as u8;
-    
-    let v_seg = zone.runtime.v_seg;
-    let num_output_channels = zone.runtime.vram.num_mapped_somas;
-    let mapped_soma_ids = zone.runtime.vram.mapped_soma_ids as *const u32;
-
-    let schedule_buffer = if zone.ping_pong.reading_from_a.load(std::sync::atomic::Ordering::Relaxed) {
-        zone.ping_pong.buffer_a
-    } else {
-        zone.ping_pong.buffer_b
-    };
-    
-    let counts_buffer = if zone.ping_pong.reading_from_a.load(std::sync::atomic::Ordering::Relaxed) {
-        zone.ping_pong.counts_a
-    } else {
-        zone.ping_pong.counts_b
-    };
-    
-    let max_spikes_per_tick = zone.ping_pong.max_spikes_per_tick as u32;
-
-    for current_tick in 0..batch_ticks {
-        unsafe {
-            if total_virtual_axons > 0 {
-                ffi::launch_inject_inputs(
-                    vram_ptr, virtual_offset, current_tick as u32, input_stride, total_virtual_axons, stream
-                );
-            }
-
-            let is_sleeping = zone.is_sleeping.load(std::sync::atomic::Ordering::Acquire);
+        for tick_offset in 0..sync_batch_ticks {
+            let current_tick = base_tick + tick_offset;
+            let tick_spikes_count = spikes_per_tick[tick_offset as usize];
             
-            // Log spike buffer before applying
-            let spike_count_in_buffer = unsafe { std::ptr::read_volatile(counts_buffer.add(current_tick as usize)) };
-            if spike_count_in_buffer > 0 || current_tick == 0 {
-                eprintln!("[Day Phase] Zone={} Tick={} is_sleeping={} spike_count={} schedule_buffer={:p}", 
-                    zone.name, current_tick, is_sleeping, spike_count_in_buffer, schedule_buffer);
-            }
-            
-            if !is_sleeping {
-                if spike_count_in_buffer > 0 {
-                    eprintln!("[GPU Apply] Zone={} Tick={} launching apply_spike_batch with {} spikes", zone.name, current_tick, spike_count_in_buffer);
+            unsafe {
+                // 1. Входы (Virtual Axons)
+                if self.num_inputs > 0 {
+                    launch_inject_inputs(self.state, input_bitmask, current_tick, self.num_inputs);
                 }
                 
-                ffi::launch_apply_spike_batch(vram_ptr, schedule_buffer, counts_buffer, current_tick as u32, max_spikes_per_tick, stream);
-                ffi::launch_propagate_axons(vram_ptr, total_axons, v_seg, stream);
-                ffi::launch_update_neurons(vram_ptr, padded_n, stream);
-                ffi::launch_apply_gsop(vram_ptr, padded_n, stream);
-            }
-
-            if num_output_channels > 0 && !mapped_soma_ids.is_null() {
-                eprintln!("[RecordReadout] Zone={} Tick={} num_output_channels={} mapped_soma_ids={:p}", 
-                    zone.name, current_tick, num_output_channels, mapped_soma_ids);
-                ffi::launch_record_readout(
-                    vram_ptr, mapped_soma_ids, num_output_channels, current_tick as u32, stream
-                );
-            } else if num_output_channels > 0 {
-                eprintln!("[RecordReadout] WARNING: num_output_channels={} but mapped_soma_ids is NULL!", num_output_channels);
-            } else {
-                eprintln!("[RecordReadout] SKIP: num_output_channels=0 (this is only Node B with output role)");
+                // 2. Сеть (Ghost Axons)
+                if tick_spikes_count > 0 {
+                    let tick_schedule = schedule.add(schedule_offset);
+                    launch_apply_spike_batch(self.state, tick_schedule, tick_spikes_count);
+                    schedule_offset += tick_spikes_count as usize;
+                }
+                
+                // 3. Пропагация (Сдвиг поездов)
+                launch_propagate_axons(self.state, v_seg);
+                
+                // 4. Физика сомы и интеграция дендритов
+                launch_update_neurons(self.state, self.constants_ptr, current_tick);
+                
+                // 5. STDP Пластичность (GSOP)
+                launch_apply_gsop(self.state);
+                
+                // 6. Выходы (Readout)
+                if self.num_outputs > 0 {
+                    launch_record_readout(
+                        self.state, 
+                        self.mapped_soma_ids, 
+                        output_history, 
+                        current_tick, 
+                        self.num_outputs
+                    );
+                }
             }
         }
-    }
-
-    zone.runtime.synchronize();
-    
-    // Информационный лог: параметры выходного канала
-    // DMA Device-to-Host для UDP выполняется в main.rs после gpu_stream_synchronize
-    if num_output_channels > 0 {
-        eprintln!(
-            "[Output] Zone={} num_output_channels={}, batch_ticks={}. DMA will happen in main.rs after stream sync.",
-            zone.name, num_output_channels, batch_ticks
-        );
-    }
-
-    if let Some(tx) = telemetry_tx {
-        let mut h_count: u32 = 0;
+        
+        // Final synchronization barrier (BSP Barrier).
+        #[cfg(not(feature = "mock-gpu"))]
         unsafe {
-            ffi::gpu_memcpy_device_to_host_async(
-                &mut h_count as *mut _ as *mut c_void,
-                zone.runtime.vram.telemetry_count as *const _,
-                4,
-                std::ptr::null_mut(),
-            );
+            crate::ffi::gpu_synchronize(); 
         }
+    }
+}
 
-        eprintln!("[Telemetry] Zone={} Batch output spikes: {}", zone.name, h_count);
+// The TelemetrySwapchain struct and its new function are assumed to be in `crate::network::telemetry`
+// and are modified there. For completeness, here's how they would look if they were in this file:
+/*
+pub struct TelemetrySwapchain {
+    /// Host-mapped pointer to the buffer that is ready for export (A or B).
+    pub ready_for_export: AtomicPtr<u32>,
+    /// Host-mapped pointer to the buffer that is currently being filled by the GPU (A or B).
+    pub back_buffer: AtomicPtr<u32>,
+    /// Host-mapped pointer for the count of fired IDs (size = 1 u32).
+    pub count_buffer: PinnedBuffer<u32>,
+    /// Number of spikes in the ready buffer.
+    pub ready_count: AtomicUsize,
+    /// Number of active clients connected to the telemetry stream.
+    pub active_clients: AtomicUsize,
+    /// Last tick when the ready buffer was swapped.
+    pub last_swap_tick: AtomicU64,
+}
 
-        let safe_count = std::cmp::min(h_count, 500_000);
+impl TelemetrySwapchain {
+    pub fn new(capacity: usize) -> Result<Self, String> {
+        let buffer_a = PinnedBuffer::new(capacity)?;
+        let buffer_b = PinnedBuffer::new(capacity)?;
+        let count_buffer = PinnedBuffer::new(1)?;
+        
+        Ok(Self {
+            ready_for_export: AtomicPtr::new(buffer_a.as_ptr() as *mut u32),
+            back_buffer: AtomicPtr::new(buffer_b.as_ptr() as *mut u32),
+            active_clients: AtomicUsize::new(0),
+            count_buffer,
+            ready_count: AtomicUsize::new(0),
+            last_swap_tick: AtomicU64::new(0),
+        })
+    }
+}
+*/
 
-        if safe_count > 0 {
-            unsafe {
-                ffi::gpu_memcpy_device_to_host_async(
-                    zone.runtime.vram.telemetry_spikes_host,
-                    zone.runtime.vram.telemetry_spikes as *const _,
-                    (safe_count as usize) * 4,
-                    std::ptr::null_mut(),
-                );
-            }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mock_ffi::{clear_call_log, get_call_log};
 
-            let spikes = unsafe {
-                std::slice::from_raw_parts(
-                    zone.runtime.vram.telemetry_spikes_host as *const u32,
-                    safe_count as usize,
-                ).to_vec()
-            };
-
-            let _ = tx.send(crate::network::telemetry::TelemetryPayload {
-                tick: total_ticks, 
-                active_spikes: spikes,
-            });
+    fn dummy_vram() -> VramState {
+        VramState {
+            padded_n: 32,
+            total_axons: 64,
+            voltage: std::ptr::null_mut(),
+            flags: std::ptr::null_mut(),
+            threshold_offset: std::ptr::null_mut(),
+            refractory_timer: std::ptr::null_mut(),
+            soma_to_axon: std::ptr::null_mut(),
+            dendrite_targets: std::ptr::null_mut(),
+            dendrite_weights: std::ptr::null_mut(),
+            dendrite_timers: std::ptr::null_mut(),
+            axon_heads: std::ptr::null_mut(),
+            input_bitmask: std::ptr::null_mut(),
+            output_history: std::ptr::null_mut(),
+            telemetry_count: std::ptr::null_mut(),
+            telemetry_spikes: std::ptr::null_mut(),
         }
+    }
+
+    #[test]
+    #[cfg(feature = "mock-gpu")]
+    fn test_day_phase_order() {
+        clear_call_log();
+        let mut runner = DayPhaseRunner {
+            state: dummy_vram(),
+            constants_ptr: std::ptr::null(),
+            mapped_soma_ids: std::ptr::null(),
+            num_inputs: 64,
+            num_outputs: 64,
+        };
+
+        runner.run_batch(2, 0, 1, std::ptr::null(), std::ptr::null_mut(), std::ptr::null(), &[1, 0]);
+
+        let log = get_call_log();
+        assert_eq!(log.len(), 11);
+        assert_eq!(log[0].0, "InjectInputs");
+        assert_eq!(log[1].0, "ApplySpikeBatch");
+        assert_eq!(log[6].0, "InjectInputs");
+    }
+
+    #[test]
+    #[cfg(feature = "mock-gpu")]
+    fn test_schedule_pointer_math() {
+        clear_call_log();
+        let mut runner = DayPhaseRunner {
+            state: dummy_vram(),
+            constants_ptr: std::ptr::null(),
+            mapped_soma_ids: std::ptr::null(),
+            num_inputs: 0,
+            num_outputs: 0,
+        };
+
+        let base_schedule = 0x1000 as *const SpikeEvent;
+        runner.run_batch(2, 0, 1, std::ptr::null(), std::ptr::null_mut(), base_schedule, &[2, 3]);
+
+        let log = get_call_log();
+        let apply_calls: Vec<_> = log.iter().filter(|(name, _)| name == "ApplySpikeBatch").collect();
+        assert_eq!(apply_calls.len(), 2);
+
+        let spike_event_size = std::mem::size_of::<SpikeEvent>();
+        assert_eq!(apply_calls[0].1, 0x1000);
+        assert_eq!(apply_calls[1].1, 0x1000 + 2 * spike_event_size);
     }
 }

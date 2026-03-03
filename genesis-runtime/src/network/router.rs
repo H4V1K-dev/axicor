@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use tokio::net::UdpSocket;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicPtr, Ordering};
 
 pub fn fnv1a_32(data: &[u8]) -> u32 {
     let mut hash_value: u32 = 0x811c9dc5;
@@ -13,127 +14,94 @@ pub fn fnv1a_32(data: &[u8]) -> u32 {
     hash_value
 }
 
-/// Defines a destination for a spike. 
-/// A single local neuron might project to multiple Ghost Targets across different nodes.
-#[derive(Clone, Debug)]
-pub struct GhostTarget {
-    pub node_id: u32,
-    pub ghost_id: u32,
-    pub tick_offset: u8,
+pub struct RoutingTable {
+    map_ptr: AtomicPtr<HashMap<u32, SocketAddr>>,
 }
 
-/// The SpikeRouter maps a local dense neuron ID (extracted from the GPU) 
-/// into one or more `SpikeEvent`s destined for remote nodes.
-pub struct SpikeRouter {
-    /// Maps generic Local Neuron Dense ID -> Array of Ghost Targets
-    pub routing_table: HashMap<u32, Vec<GhostTarget>>,
-    
-    /// The accumulated batches per node, ready for flushing at the end of the Day Phase.
-    pub outgoing_spikes: HashMap<u32, Vec<SpikeEvent>>,
-}
-
-impl SpikeRouter {
-    pub fn new() -> Self {
+impl RoutingTable {
+    pub fn new(initial_peers: HashMap<u32, SocketAddr>) -> Self {
+        let boxed = Box::new(initial_peers);
         Self {
-            routing_table: HashMap::new(),
-            outgoing_spikes: HashMap::new(),
+            map_ptr: AtomicPtr::new(Box::into_raw(boxed)),
         }
     }
 
-    /// Add a manual subscription mapping (useful for testing and slow-path geography setup).
-    pub fn add_route(&mut self, local_id: u32, target: GhostTarget) {
-        self.routing_table.entry(local_id).or_default().push(target);
+    pub fn get_address(&self, zone_hash: u32) -> Option<SocketAddr> {
+        let ptr = self.map_ptr.load(Ordering::Acquire);
+        if ptr.is_null() { return None; }
+        unsafe { (*ptr).get(&zone_hash).copied() }
     }
 
-    /// Called natively per-tick by the Day Phase orchestration.
-    pub fn route_spikes(&mut self, local_spikes: &[u32], current_tick_offset: u32) {
-        for &nid in local_spikes {
-            if let Some(targets) = self.routing_table.get(&nid) {
-                // Fan-out: One neuron might send spikes to multiple remote locations
-                for t in targets {
-                    let total_offset = current_tick_offset as u32 + t.tick_offset as u32;
-                    // We must clamp the offset mapping to u8 (assuming batch_size < 255)
-                    let final_offset = std::cmp::min(total_offset, 255) as u8;
+    pub fn get_map_ptr(&self) -> *mut HashMap<u32, SocketAddr> {
+        self.map_ptr.load(Ordering::Acquire)
+    }
 
-                    let event = SpikeEvent {
-                        ghost_id: t.ghost_id,
-                        tick_offset: final_offset as u32,
-                    };
-
-                    self.outgoing_spikes.entry(t.node_id).or_default().push(event);
-                }
+    /// RCU update: atomically swaps the map pointer and schedules old map for cleanup.
+    pub unsafe fn update_routes(&self, new_map: HashMap<u32, SocketAddr>) {
+        let boxed = Box::new(new_map);
+        let new_ptr = Box::into_raw(boxed);
+        
+        let old_ptr = self.map_ptr.swap(new_ptr, Ordering::Release);
+        
+        if !old_ptr.is_null() {
+            let old_ptr_usize = old_ptr as usize;
+            // Deferred cleanup to ensure no readers are still using the old map.
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    let _ = Box::from_raw(old_ptr_usize as *mut HashMap<u32, SocketAddr>);
+                });
+            } else {
+                let _ = Box::from_raw(old_ptr);
             }
         }
     }
-
-    /// Fetches and clears the finalized outgoing buffers. 
-    /// Intended for use primarily by the BspBarrier at the end of a Day Batch.
-    pub fn flush_outgoing(&mut self) -> HashMap<u32, Vec<SpikeEvent>> {
-        let current = std::mem::take(&mut self.outgoing_spikes);
-        self.outgoing_spikes = HashMap::new(); // Ensure re-initialization
-        current
-    }
 }
 
-/// Статическая таблица маршрутизации (Загружается из конфига)
-pub struct RoutingTable {
-    // zone_hash -> IP:Port целевой ноды
-    pub peers: HashMap<u32, SocketAddr>, 
+impl Drop for RoutingTable {
+    fn drop(&mut self) {
+        let ptr = self.map_ptr.load(Ordering::Acquire);
+        if !ptr.is_null() {
+            unsafe {
+                let _ = Box::from_raw(ptr);
+            }
+        }
+    }
 }
 
 pub struct InterNodeRouter {
-    pub socket: Arc<UdpSocket>,
     pub routing_table: Arc<RoutingTable>,
+    pub socket: Arc<UdpSocket>,
 }
 
 impl InterNodeRouter {
-    pub async fn new(bind_addr: &str, routing_table: RoutingTable) -> Self {
-        let std_sock = std::net::UdpSocket::bind(bind_addr).expect("Fatal: Failed to bind InterNode UDP");
-        // Максимальный буфер ОС для UDP (требует socket2 или nix crate, пропускаем для MVP)
-        std_sock.set_nonblocking(true).expect("Failed to set non-blocking");
-        let socket = UdpSocket::from_std(std_sock).expect("Failed to convert to tokio UdpSocket");
-
+    pub async fn new(addr: &str, routing_table: Arc<RoutingTable>) -> Self {
+        let socket = UdpSocket::bind(addr).await.expect("Failed to bind InterNodeRouter UDP socket");
         Self {
+            routing_table,
             socket: Arc::new(socket),
-            routing_table: Arc::new(routing_table),
         }
     }
 
-    /// Вызывается в фоновом Tokio-потоке на каждый батч
-    pub async fn flush_outgoing_batch(&self, target_zone_hash: u32, events: &[SpikeEvent]) {
+    pub async fn flush_outgoing_batch(&self, target_node_id: u32, events: &[SpikeEvent]) {
         if events.is_empty() { return; }
 
-        let Some(&addr) = self.routing_table.peers.get(&target_zone_hash) else {
-            return; // Зона не найдена, drop packet (легально)
+        let Some(addr) = self.routing_table.get_address(target_node_id) else {
+            return; // Node not found or isolated
         };
 
-        // Формируем строгий бинарный пакет (Zero-Cost сериализация)
         let header = SpikeBatchHeader {
-            zone_hash: target_zone_hash,
-            count: events.len() as u32,
+            magic: 0x5350494B, // "SPIK"
+            batch_id: 0,
         };
 
-        // Трансмутация структур в байты. 
-        // Безопасно, т.к. структуры #[repr(C, packed)]
-        let header_bytes = unsafe {
-            std::slice::from_raw_parts(
-                &header as *const _ as *const u8,
-                std::mem::size_of::<SpikeBatchHeader>()
-            )
-        };
-        let payload_bytes = unsafe {
-            std::slice::from_raw_parts(
-                events.as_ptr() as *const u8,
-                events.len() * std::mem::size_of::<SpikeEvent>()
-            )
-        };
+        let header_bytes = bytemuck::bytes_of(&header);
+        let payload_bytes = bytemuck::cast_slice(events);
 
-        // TODO: В идеале использовать send_vectored, но для простоты MVP копируем в один буфер
         let mut packet = Vec::with_capacity(header_bytes.len() + payload_bytes.len());
         packet.extend_from_slice(header_bytes);
         packet.extend_from_slice(payload_bytes);
 
-        // Бросаем в сеть (не блокирует CPU)
         let _ = self.socket.send_to(&packet, addr).await;
     }
 
@@ -142,46 +110,79 @@ impl InterNodeRouter {
         zone_ping_pongs: HashMap<u32, Arc<crate::network::bsp::PingPongSchedule>>
     ) {
         tokio::spawn(async move {
-            let mut buf = [0u8; 65535]; // Max UDP packet
+            let mut buf = [0u8; 65535];
             
             loop {
                 if let Ok((size, _)) = socket.recv_from(&mut buf).await {
                     if size < std::mem::size_of::<SpikeBatchHeader>() { continue; }
                     
                     let header_ptr = buf.as_ptr() as *const SpikeBatchHeader;
-                    let header = unsafe { std::ptr::read_unaligned(header_ptr) };
+                    let header = unsafe { &*header_ptr };
                     
-                    let expected_size = std::mem::size_of::<SpikeBatchHeader>() 
-                        + (header.count as usize) * std::mem::size_of::<SpikeEvent>();
-                        
-                    if size < expected_size { continue; } // Corrupted packet
+                    if header.magic != 0x5350494B { continue; }
                     
-                    let zone_hash = header.zone_hash; // Copy to avoid unaligned reference
+                    let events_count = (size - std::mem::size_of::<SpikeBatchHeader>()) / std::mem::size_of::<SpikeEvent>();
+                    let events_ptr = unsafe { buf.as_ptr().add(std::mem::size_of::<SpikeBatchHeader>()) as *const SpikeEvent };
+                    let events = unsafe { std::slice::from_raw_parts(events_ptr, events_count) };
                     
+                    let zone_hash = if zone_ping_pongs.len() == 1 {
+                        *zone_ping_pongs.keys().next().unwrap()
+                    } else {
+                        // For multi-zone nodes, we need a way to route incoming packets to the correct shard.
+                        // Currently simplified to first/only zone.
+                        *zone_ping_pongs.keys().next().unwrap()
+                    };
+
                     if let Some(ping_pong) = zone_ping_pongs.get(&zone_hash) {
-                        let spike_count = header.count; // Copy to local to avoid alignment issues
-                        let events_ptr = unsafe { header_ptr.add(1) as *const SpikeEvent };
-                        let events = unsafe { std::slice::from_raw_parts(events_ptr, spike_count as usize) };
-                        
-                        eprintln!("[Fast Path] Received {} spikes from zone_hash={:x}", spike_count, zone_hash);
-                        
-                        // Log first ghost_id to detect offset bug
-                        if spike_count > 0 {
-                            let first_ghost_id = events[0].ghost_id;
-                            eprintln!("[Fast Path] First ghost_id in batch: {}", first_ghost_id);
-                        }
-                        
-                        // Атомарно вкидываем спайки в спящий буфер VRAM
                         for event in events {
                             unsafe { ping_pong.ingest_spike(event) };
                         }
                         
-                        // Signal BSP Barrier: batch received and buffered
-                        let new_count = ping_pong.packets_received.fetch_add(1, std::sync::atomic::Ordering::Release) + 1;
-                        println!("[Fast Path] ✓ BSP signal: packets_received incremented to {}", new_count);
+                        ping_pong.packets_received.fetch_add(1, Ordering::Release);
                     }
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::time::Duration;
+
+    #[tokio::test]
+    async fn test_lock_free_routing() {
+        let mut initial_map = HashMap::new();
+        initial_map.insert(0x1111, "127.0.0.1:8080".parse().unwrap());
+        
+        let table = Arc::new(RoutingTable::new(initial_map));
+        
+        let mut readers = Vec::new();
+        for _ in 0..100 {
+            let table_clone = table.clone();
+            readers.push(tokio::spawn(async move {
+                for _ in 0..1000 {
+                    let addr = table_clone.get_address(0x1111);
+                    assert!(addr.is_some());
+                }
+            }));
+        }
+
+        let table_clone = table.clone();
+        let writer = tokio::spawn(async move {
+            let mut new_map = HashMap::new();
+            new_map.insert(0x1111, "127.0.0.1:8081".parse().unwrap());
+            new_map.insert(0x2222, "127.0.0.1:8082".parse().unwrap());
+            
+            unsafe { table_clone.update_routes(new_map); }
+        });
+
+        writer.await.unwrap();
+        for r in readers {
+            r.await.unwrap();
+        }
+
+        assert_eq!(table.get_address(0x2222).unwrap(), "127.0.0.1:8082".parse().unwrap());
     }
 }

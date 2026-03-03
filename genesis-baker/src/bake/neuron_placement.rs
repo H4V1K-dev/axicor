@@ -24,7 +24,8 @@ impl PlacedNeuron {
     /// Z-координата в вокселях.
     #[inline] pub fn z(&self) -> u32 { unpack_position(self.position).2 }
     /// Тип-маска нейрона (4 бита).
-    #[inline] pub fn type_mask(&self) -> u32 { unpack_position(self.position).3 }
+    #[inline] #[allow(dead_code)] pub fn type_mask(&self) -> u32 { 
+unpack_position(self.position).3 }
 }
 
 /// Размещает все нейроны зоны в 3D-пространстве.
@@ -43,9 +44,9 @@ pub fn place_neurons(
     let total_budget = sim.neuron_budget();
     let voxel_um = sim.simulation.voxel_size_um;
 
-    let world_w_vox = sim.world.width_um / voxel_um;
-    let world_d_vox = sim.world.depth_um / voxel_um;
-    let world_h_vox = sim.world.height_um / voxel_um;
+    let world_w_vox = (sim.world.width_um as f32 / voxel_um) as u32;
+    let world_d_vox = (sim.world.depth_um as f32 / voxel_um) as u32;
+    let world_h_vox = (sim.world.height_um as f32 / voxel_um) as u32;
 
     let mut all_neurons: Vec<PlacedNeuron> = Vec::with_capacity(total_budget as usize);
     let mut occupancy: HashSet<u32> = HashSet::with_capacity(total_budget as usize);
@@ -114,6 +115,64 @@ pub fn place_neurons(
         }
     }
 
+    // ⚠️ ЗАКОН ДЕТЕРМИНИЗМА 3: Z-Sorting (08_io_matrix.md §3.1)
+    // Весь массив сом обязан быть отсортирован по Z-координате (по возрастанию)
+    // перед тем как индекс в векторе станет легальным Dense ID.
+    all_neurons.sort_by_key(|n| n.z());
+
     all_neurons
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::anatomy::Anatomy;
+
+    #[test]
+    fn test_neuron_z_sorting() {
+        let sim_toml = r#"
+            [world]
+            width_um = 1000
+            depth_um = 1000
+            height_um = 1000
+            [simulation]
+            tick_duration_us = 10
+            total_ticks = 1000
+            master_seed = "test"
+            global_density = 1.0
+            voxel_size_um = 10.0
+            signal_speed_m_s = 1.0
+            sync_batch_ticks = 10
+            segment_length_voxels = 1
+        "#;
+        let sim = SimulationConfig::parse(sim_toml).unwrap();
+        
+        // Мокаем анатомию с двумя слоями
+        let anatomy_toml = r#"
+            [[layer]]
+            name = "L1"
+            population_pct = 0.5
+            height_pct = 0.5
+            [layer.composition]
+            "T1" = 1.0
+
+            [[layer]]
+            name = "L2"
+            population_pct = 0.5
+            height_pct = 0.5
+            [layer.composition]
+            "T1" = 1.0
+        "#;
+        let anatomy = Anatomy::parse(anatomy_toml).unwrap();
+        
+        let type_names = vec!["T1".to_string()];
+        let neurons = place_neurons(&sim, &anatomy, &type_names, 42);
+        
+        // Проверяем, что Z строго возрастает (или равен)
+        for i in 1..neurons.len() {
+            assert!(neurons[i].z() >= neurons[i-1].z(), 
+                "Z-Order violation at index {}: {} < {}", i, neurons[i].z(), neurons[i-1].z());
+        }
+    }
 }
 

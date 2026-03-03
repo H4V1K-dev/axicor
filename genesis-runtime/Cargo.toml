@@ -22,9 +22,14 @@ futures-util = "0.3.32"
 ratatui = "0.26"
 crossterm = "0.27"
 crossbeam = "0.8"
+chrono = "0.4.38"
+memmap2 = "0.9"
 
 [build-dependencies]
 cc = "1.0"
 
 [features]
 mock-gpu = []
+
+[dev-dependencies]
+tempfile = "3"

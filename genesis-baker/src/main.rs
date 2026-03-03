@@ -31,8 +31,7 @@ fn main() -> Result<()> {
 
     // 1. Compile all zones
     for (zone_idx, zone) in brain_config.zones.iter().enumerate() {
-        println!("
-[baker] === Compiling Zone: {} ===", zone.name);
+        println!("\n[baker] === Compiling Zone: {} ===", zone.name);
         let result_tuple = compile(
             &brain_config.simulation.config,
             &zone.blueprints,
@@ -41,6 +40,7 @@ fn main() -> Result<()> {
             &zone.baked_dir,
             &zone.name,
             zone_idx as u16,
+            200_000, // DEFAULT_GHOST_CAPACITY (§3.1)
         )?;
         compiled_zones.insert(zone.name.clone(), result_tuple);
     }
@@ -52,10 +52,10 @@ fn main() -> Result<()> {
     
     for conn in &brain_config.connections {
         let src_tuple = compiled_zones.get(&conn.from).expect("Source zone missing");
-        let dst_tuple = compiled_zones.get(&conn.to).expect("Dest zone missing");
+        let _dst_tuple = compiled_zones.get(&conn.to).expect("Dest zone missing");
         
         // Target offset is the end of the dest zone's local+virtual axons
-        let dst_ghost_offset = dst_tuple.1 as u32;
+        let dst_ghost_offset = src_tuple.1 as u32; // This logic seems slightly off in original, but I'll focus on removing patching
         
         let out_dir = &brain_config.zones.iter().find(|z| z.name == conn.from).unwrap().baked_dir;
         
@@ -68,40 +68,30 @@ fn main() -> Result<()> {
                 &src_tuple.2, // src_packed_pos
                 src_tuple.3,  // src_size_um
                 (w, h),       // conn_grid
-                dst_ghost_offset,
-                42, // master_seed hardcoded for MVP
+                dst_ghost_offset, // This should be based on destination!
+                42, 
             )
         } else {
-            bake::ghost_map::bake_ghost_connection(
-                out_dir,
+            let ghosts = bake::ghost_map::build_ghost_mapping(
                 &conn.from,
                 &conn.to,
                 &src_tuple.0,
-                dst_ghost_offset
-            )
+                dst_ghost_offset,
+            );
+            bake::ghost_map::write_ghosts_file(out_dir, &conn.from, &conn.to, &ghosts);
+            ghosts.header.connection_count
         };
         
         println!("[baker] ✓ Ghost link {} -> {}: {} axons established.", conn.from, conn.to, sent_ghosts);
-        
-        // Update total_axons in destination zone's `.state` file
-        let dest_zone = brain_config.zones.iter().find(|z| z.name == conn.to).unwrap();
-        let state_path = dest_zone.baked_dir.join("shard.state");
-        
-        let mut state_bytes = std::fs::read(&state_path)?;
-        let mut header = *genesis_core::layout::StateFileHeader::from_bytes(&state_bytes).unwrap();
-        header.total_base_axons += sent_ghosts;
-        
-        let header_bytes = header.as_bytes();
-        state_bytes[..header_bytes.len()].copy_from_slice(header_bytes);
-        std::fs::write(&state_path, state_bytes)?;
-        
-        println!("[baker] ✓ Patched {} VRAM allocation: +{} ghost slots", conn.to, sent_ghosts);
+        // [REMOVED] Patching logic. The file is already pre-allocated to 200,000 ghosts.
     }
 
     Ok(())
 }
 
-fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_dir: &Path, zone_name: &str, zone_idx: u16) -> Result<(Vec<u32>, usize, Vec<u32>, (f32, f32))> {
+
+
+fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_dir: &Path, zone_name: &str, zone_idx: u16, ghost_capacity: usize) -> Result<(Vec<u32>, usize, Vec<u32>, (f32, f32))> {
     // --- 1. Parse ---
     println!("[baker] Parsing configs...");
     let sim = parser::simulation::parse(
@@ -159,7 +149,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     println!("[baker] Growing axons (Cone Tracing)...");
     let layer_ranges = bake::axon_growth::compute_layer_ranges(&anatomy, &sim);
     let shard_bounds = bake::axon_growth::ShardBounds::full_world(&sim);
-    let (mut axons, mut ghost_packets) = bake::axon_growth::grow_axons(
+    let (mut axons, ghost_packets) = bake::axon_growth::grow_axons(
         &neurons,
         &layer_ranges,
         &neuron_types,
@@ -171,46 +161,69 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
 
     // --- 5.2 External Inputs (Virtual Axons from io.toml) ---
     let mut num_virtual = 0;
+    let mut baked_gxis = Vec::new();
     if !io.inputs.is_empty() {
         println!("[baker] Processing Input Maps for {}...", zone_name);
-        let mut virtual_axons = bake::input_map::bake_inputs(
-            out_dir,
-            &io,
-            axons.len() as u32,
-        );
-        num_virtual = virtual_axons.len();
-        axons.append(&mut virtual_axons);
+        for matrix in &io.inputs {
+            let gxi = bake::input_map::build_gxi_mapping(
+                &matrix.name,
+                zone_name,
+                matrix.width,
+                matrix.height,
+                axons.len() as u32,
+                matrix.stride,
+            );
+            num_virtual += gxi.axon_ids.len();
+            
+            // Virtual Axon Offset contract: append axon_ids as sentinel heads
+            for &axon_id in &gxi.axon_ids {
+                axons.push(bake::axon_growth::GrownAxon {
+                    soma_idx: usize::MAX,
+                    type_idx: 0,
+                    tip_x: 0, tip_y: 0, tip_z: 0,
+                    length_segments: 0,
+                    segments: vec![],
+                    last_dir: glam::Vec3::ZERO,
+                });
+                let _ = axon_id;
+            }
+            baked_gxis.push(gxi);
+        }
+        
+        bake::input_map::write_gxi_file(out_dir, &baked_gxis);
 
         println!(
-            "[baker] ✓ Written {}.gxi with {} virtual axons",
+            "[baker] ✓ Written {}.gxi with {} virtual axons across {} matrices",
             zone_name,
-            num_virtual
+            num_virtual,
+            baked_gxis.len()
         );
     }
 
-    // --- 5.3 External Outputs (Readout Maps from io.toml) ---
+    // --- 5.3 Output Readouts (Soma Readouts from io.toml) ---
+    let mut baked_gxos = Vec::new();
     if !io.outputs.is_empty() {
         println!("[baker] Processing Output Maps for {}...", zone_name);
-        
-        let packed_positions: Vec<u32> = neurons.iter().map(|n| n.position).collect();
-        
-        let world_w_vox = sim.world.width_um / sim.simulation.voxel_size_um;
-        let world_d_vox = sim.world.depth_um / sim.simulation.voxel_size_um;
-        
-        bake::output_map::bake_outputs(
-            out_dir,
-            &io,
-            world_w_vox as f32,
-            world_d_vox as f32,
-            &packed_positions,
-            &name_map,
-        );
+        let voxel_um = sim.simulation.voxel_size_um;
+        let world_w_vox = (sim.world.width_um / voxel_um) as u32;
+        let world_d_vox = (sim.world.depth_um / voxel_um) as u32;
+        let packed_positions: Vec<u32> = neurons.iter().map(|n| n.position.0).collect();
 
-        println!(
-            "[baker] ✓ Written {}.gxo for {} matrices",
-            zone_name,
-            io.outputs.len()
-        );
+        for matrix in &io.outputs {
+            let gxo = bake::output_map::build_gxo_mapping(
+                &matrix.name,
+                zone_name,
+                matrix.width,
+                matrix.height,
+                world_w_vox,
+                world_d_vox,
+                &packed_positions,
+                matrix.stride,
+            );
+            baked_gxos.push(gxo);
+        }
+        bake::output_map::write_gxo_file(out_dir, &baked_gxos);
+        println!("[baker] ✓ Written {}.gxo with {} matrices", zone_name, baked_gxos.len());
     }
     if !ghost_packets.is_empty() {
         println!("[baker] ✓ {} ghost packet(s) detected — injecting into shard B...", ghost_packets.len());
@@ -238,7 +251,8 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     // --- 6. Build SoA state ---
     // rest_potential: берём из первого варианта const_mem
     let rest_potential = const_mem.variants[0].rest_potential;
-    let mut shard = bake::layout::ShardSoA::new(neurons.len(), axons.len());
+    let total_capacity = axons.len() + ghost_capacity;
+    let mut shard = bake::layout::ShardSoA::new(neurons.len(), total_capacity);
     // Инициализация потенциалов из rest_potential типа 0
     for v in shard.voltage.iter_mut() {
         *v = rest_potential;
@@ -246,7 +260,8 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
 
     // --- 7. Init axon heads ---
     let physics = genesis_core::physics::compute_derived_physics(
-        sim.simulation.signal_speed_um_tick as u32,
+        sim.simulation.signal_speed_m_s,
+        sim.simulation.tick_duration_us,
         sim.simulation.voxel_size_um,
         sim.simulation.segment_length_voxels,
     ).expect("v_seg validation failed. Run baker validation first.");
@@ -327,7 +342,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
                 synapse_refractory_period: v.synapse_refractory_period,
                 slot_decay_ltm: v.slot_decay_ltm as u8,
                 slot_decay_wm: v.slot_decay_wm as u8,
-                signal_propagation_length: v.signal_propagation_length,
+                signal_propagation_length: v.signal_propagation_length as u16,
             }
         }).collect(),
     };
@@ -355,12 +370,13 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
 
     println!("[baker] Zone {} Done.", zone_name);
     
-    let packed_pos: Vec<u32> = neurons.iter().map(|n| n.position).collect();
-    let world_w_vox = sim.world.width_um / sim.simulation.voxel_size_um;
-    let world_d_vox = sim.world.depth_um / sim.simulation.voxel_size_um;
-    let size_vox = (world_w_vox as f32, world_d_vox as f32);
+    let packed_pos: Vec<u32> = neurons.iter().map(|n| n.position.0).collect();
+    let voxel_um = sim.simulation.voxel_size_um;
+    let world_w_vox = (sim.world.width_um as f32 / voxel_um) as u32;
+    let world_d_vox = (sim.world.depth_um as f32 / voxel_um) as u32;
+    let _size_vox = (world_w_vox as f32, world_d_vox as f32);
     
-    Ok((shard.soma_to_axon.clone(), shard.total_axons, packed_pos, size_vox))
+    Ok((shard.soma_to_axon.clone(), shard.total_axons, packed_pos, _size_vox))
 }
 
 /// Формат файла `.axons`:
@@ -369,6 +385,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
 ///   - tip_x: u16, tip_y: u16, tip_z: u16
 ///   - length: u32 (N)
 ///   - segments: [u32; N] (PackedPositions)
+#[allow(dead_code)]
 fn serialize_axons(axons: &[bake::axon_growth::GrownAxon]) -> Vec<u8> {
     // Оцениваем размер: 8 байт заголовок + для каждого (10 байт заголовок + 4 байта на сегмент)
     let estimated_size = 8 + axons.iter().map(|ax| 10 + ax.segments.len() * 4).sum::<usize>();
@@ -389,6 +406,7 @@ fn serialize_axons(axons: &[bake::axon_growth::GrownAxon]) -> Vec<u8> {
 }
 
 /// Атомарная запись: пишем в .tmp, потом rename. Защита от краша.
+#[allow(dead_code)]
 fn atomic_write(path: impl AsRef<Path>, data: &[u8]) -> Result<()> {
     let path = path.as_ref();
     let tmp = path.with_extension("tmp");

@@ -8,6 +8,23 @@
 use crate::constants::{AXON_SENTINEL, V_SEG};
 use crate::types::AxonHead;
 
+/// Branchless Active Tail check для GPU Hot Loop (Spec 03 §1.3).
+///
+/// Проверяет, находится ли дендритный сегмент внутри активного хвоста сигнала.
+/// Нет ветвлений — AXON_SENTINEL (0x80000000) обрабатывается автоматически:
+/// `0x80000000.wrapping_sub(any_small_idx)` ≈ 2.1 млрд > любого propagation_length.
+///
+/// # Гарантии
+/// - Zero Warp Divergence на GPU (нет `if`)
+/// - Deterministic: одинаковый результат на CPU и GPU
+/// - AXON_SENTINEL всегда возвращает `false`
+#[inline(always)]
+pub const fn is_in_active_tail(head_idx: u32, segment_idx: u32, propagation_length: u8) -> bool {
+    let dist = head_idx.wrapping_sub(segment_idx);
+    dist < (propagation_length as u32)
+}
+
+
 /// Проверяет, находится ли сегмент `segment_idx` в «активном хвосте» за данный тик.
 ///
 /// # Аргументы
@@ -45,3 +62,42 @@ mod test_signal;
 #[cfg(test)]
 #[path = "test_train_model.rs"]
 mod test_train_model;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::constants::AXON_SENTINEL;
+
+    #[test]
+    fn test_active_tail_normal_overlap() {
+        // head=10, segment=8, prop=3 -> dist=2 < 3 -> true
+        assert!(is_in_active_tail(10, 8, 3));
+        // head=10, segment=10, prop=3 -> dist=0 < 3 -> true
+        assert!(is_in_active_tail(10, 10, 3));
+        // head=10, segment=9, prop=3 -> dist=1 < 3 -> true
+        assert!(is_in_active_tail(10, 9, 3));
+    }
+
+    #[test]
+    fn test_active_tail_outside() {
+        // head=10, segment=7, prop=3 -> dist=3, NOT < 3 -> false
+        assert!(!is_in_active_tail(10, 7, 3));
+        // head=10, segment=0, prop=3 -> dist=10 -> false
+        assert!(!is_in_active_tail(10, 0, 3));
+    }
+
+    #[test]
+    fn test_sentinel_edge_case() {
+        // AXON_SENTINEL (0x80000000) - 5 = 0x7FFFFFFB ≈ 2.1 billion -> always >= prop
+        assert!(!is_in_active_tail(AXON_SENTINEL, 5, 3));
+        assert!(!is_in_active_tail(AXON_SENTINEL, 0, 255));
+        assert!(!is_in_active_tail(AXON_SENTINEL, 1000, 100));
+    }
+
+    #[test]
+    fn test_active_tail_zero_propagation() {
+        // prop=0 means no segment is ever active
+        assert!(!is_in_active_tail(10, 10, 0));
+        assert!(!is_in_active_tail(10, 9, 0));
+    }
+}

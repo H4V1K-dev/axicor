@@ -1,85 +1,125 @@
-// genesis-ide/src/camera.rs
-use bevy::prelude::*;
-use bevy::input::mouse::{MouseMotion, MouseWheel};
+use bevy::{
+    input::mouse::MouseMotion,
+    prelude::*,
+    window::{CursorGrabMode, PrimaryWindow},
+};
 
 #[derive(Component)]
-pub struct OrbitCamera {
-    pub radius: f32,
-    pub center: Vec3,
-    pub alpha: f32, // Вращение вокруг Y
-    pub beta: f32,  // Вращение вокруг X
+pub struct IdeCamera {
+    pub speed: f32,
+    pub pitch: f32,
+    pub yaw: f32,
 }
 
-impl Default for OrbitCamera {
+impl Default for IdeCamera {
     fn default() -> Self {
-        Self {
-            radius: 100.0,
-            center: Vec3::ZERO,
-            alpha: std::f32::consts::PI / 4.0,
-            beta: std::f32::consts::PI / 6.0,
+        Self { 
+            speed: 50.0, 
+            pitch: 0.0, 
+            yaw: 0.0 
         }
     }
+}
+
+// Ресурс-флаг активного режима (Blender-like toggle)
+#[derive(Resource, Default, PartialEq, Eq)]
+pub enum CameraMode {
+    #[default]
+    Free,
+    Captured,
 }
 
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, update_orbit_camera);
+        app.init_resource::<CameraMode>()
+           .add_systems(Startup, setup_camera)
+           .add_systems(Update, (toggle_camera_mode, camera_movement_system));
     }
 }
 
-fn update_orbit_camera(
-    mut mouse_motion: EventReader<MouseMotion>,
-    mut mouse_wheel: EventReader<MouseWheel>,
-    mouse: Res<ButtonInput<MouseButton>>,
+fn setup_camera(mut commands: Commands) {
+    // 1. Спавним камеру для UI (ОБЯЗАТЕЛЬНО для Bevy)
+    commands.spawn((
+        Camera2d,
+        Camera {
+            order: 1,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+    ));
+
+    // 2. Наша 3D FPS камера
+    commands.spawn((
+        Camera3d::default(),
+        Transform::from_xyz(0.0, 0.0, 500.0).looking_at(Vec3::ZERO, Vec3::Y),
+        IdeCamera::default(),
+    ));
+}
+
+fn toggle_camera_mode(
     keys: Res<ButtonInput<KeyCode>>,
-    mut query: Query<(&mut OrbitCamera, &mut Transform)>,
+    mut mode: ResMut<CameraMode>,
+    mut q_windows: Query<&mut Window, With<PrimaryWindow>>,
 ) {
-    let Ok((mut orbit, mut transform)) = query.get_single_mut() else { return };
+    // Перехват по Alt или выход по Esc
+    if keys.just_pressed(KeyCode::AltLeft) || keys.just_pressed(KeyCode::Escape) {
+        let mut window = q_windows.single_mut();
+        
+        if *mode == CameraMode::Captured || keys.just_pressed(KeyCode::Escape) {
+            *mode = CameraMode::Free;
+            window.cursor_options.visible = true;
+            window.cursor_options.grab_mode = CursorGrabMode::None;
+        } else {
+            *mode = CameraMode::Captured;
+            window.cursor_options.visible = false;
+            window.cursor_options.grab_mode = CursorGrabMode::Locked;
+        }
+    }
+}
 
-    // Зум
-    for event in mouse_wheel.read() {
-        orbit.radius -= event.y * orbit.radius * 0.1;
-        orbit.radius = orbit.radius.clamp(5.0, 1000.0);
+fn camera_movement_system(
+    time: Res<Time>,
+    mode: Res<CameraMode>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut mouse_motion: EventReader<MouseMotion>,
+    mut q_camera: Query<(&mut Transform, &mut IdeCamera)>,
+) {
+    if *mode != CameraMode::Captured {
+        return; // Ранний выход, не тратим такты
     }
 
-    // Собираем дельту мыши один раз за кадр
-    let mut delta = Vec2::ZERO;
-    for event in mouse_motion.read() {
-        delta += event.delta;
+    let (mut transform, mut cam) = q_camera.single_mut();
+    let dt = time.delta_secs();
+
+    // Вращение (Mouse)
+    let mut mouse_delta = Vec2::ZERO;
+    for ev in mouse_motion.read() {
+        mouse_delta += ev.delta;
     }
 
-    // Вращение (Правая кнопка мыши)
-    if mouse.pressed(MouseButton::Right) {
-        orbit.alpha -= delta.x * 0.005;
-        orbit.beta += delta.y * 0.005;
-        // Ограничиваем зенит, чтобы камера не перевернулась
-        orbit.beta = orbit.beta.clamp(-1.5, 1.5);
-    } 
-    // Панорамирование (Средняя кнопка мыши)
-    else if mouse.pressed(MouseButton::Middle) {
-        let right = transform.right() * -delta.x * orbit.radius * 0.002;
-        let up = transform.up() * delta.y * orbit.radius * 0.002;
-        orbit.center += right + up;
+    if mouse_delta != Vec2::ZERO {
+        let sensitivity = 0.002;
+        cam.yaw -= mouse_delta.x * sensitivity;
+        cam.pitch -= mouse_delta.y * sensitivity;
+        cam.pitch = cam.pitch.clamp(-1.54, 1.54); // Ограничение по вертикали (~88 градусов)
+
+        transform.rotation = Quat::from_axis_angle(Vec3::Y, cam.yaw) 
+                           * Quat::from_axis_angle(Vec3::X, cam.pitch);
     }
 
-    // Подняться/опуститься по глобальной высоте (Пробел / Shift)
-    let move_speed = orbit.radius * 0.02;
-    if keys.pressed(KeyCode::Space) {
-        orbit.center.y += move_speed;
-    }
-    if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
-        orbit.center.y -= move_speed;
-    }
+    // Движение (WASD + Space/Shift)
+    let mut direction = Vec3::ZERO;
+    if keys.pressed(KeyCode::KeyW) { direction += *transform.forward(); }
+    if keys.pressed(KeyCode::KeyS) { direction += *transform.back(); }
+    if keys.pressed(KeyCode::KeyA) { direction += *transform.left(); }
+    if keys.pressed(KeyCode::KeyD) { direction += *transform.right(); }
+    if keys.pressed(KeyCode::Space) { direction += Vec3::Y; }
+    if keys.pressed(KeyCode::ShiftLeft) { direction -= Vec3::Y; }
 
-    // Пересчет позиции из сферических координат в декартовы
-    let cos_beta = orbit.beta.cos();
-    let position = orbit.center + Vec3::new(
-        orbit.radius * orbit.alpha.sin() * cos_beta,
-        orbit.radius * orbit.beta.sin(),
-        orbit.radius * orbit.alpha.cos() * cos_beta,
-    );
-
-    *transform = Transform::from_translation(position).looking_at(orbit.center, Vec3::Y);
+    if direction != Vec3::ZERO {
+        let move_speed = cam.speed * dt;
+        transform.translation += direction.normalize() * move_speed;
+    }
 }

@@ -41,8 +41,8 @@ pub struct SimulationParams {
     pub total_ticks: u64,
     pub master_seed: String,
     pub global_density: f32,
-    pub voxel_size_um: u32,
-    pub signal_speed_um_tick: u32, // Было разночтение: baker (u16), runtime (u32). Приведено к u32.
+    pub voxel_size_um: f32,
+    pub signal_speed_m_s: f32,
     pub sync_batch_ticks: u32,
     
     #[serde(default = "default_segment_length")]
@@ -62,10 +62,10 @@ impl SimulationConfig {
     /// Общее число вокселей для заданного размера вокселя (в мкм).
     pub fn total_voxels(&self) -> u64 {
         let v_um = self.simulation.voxel_size_um;
-        if v_um == 0 { return 0; }
-        let w = (self.world.width_um / v_um) as u64;
-        let d = (self.world.depth_um / v_um) as u64;
-        let h = (self.world.height_um / v_um) as u64;
+        if v_um <= 0.0 { return 0; }
+        let w = (self.world.width_um as f32 / v_um) as u64;
+        let d = (self.world.depth_um as f32 / v_um) as u64;
+        let h = (self.world.height_um as f32 / v_um) as u64;
         w * d * h
     }
 

@@ -1,133 +1,177 @@
 // genesis-baker/src/bake/output_map.rs
-use genesis_core::constants::GXO_MAGIC;
-use genesis_core::config::IoConfig;
+//
+// Фаза B: Readout Interface (GXO)
+// Спецификация: 08_io_matrix.md §3.1 / 09_baking_pipeline.md §2.2
+//
+// Контракты:
+//   1. Empty Pixel Trap: пустой столбец → EMPTY_PIXEL (0xFFFF_FFFF).
+//   2. Z-Sort: при наличии нескольких сом в пикселе выбирается та, у которой Z минимален.
+//   3. output_count в заголовке = количество УСПЕШНО привязанных сом (без сентинелей).
+
 use genesis_core::hash::fnv1a_32;
-use std::collections::HashMap;
+use genesis_core::ipc::EMPTY_PIXEL;
+use genesis_core::constants::GXO_MAGIC;
 use std::path::Path;
 
-pub struct BakedOutputs {
-    pub gxo_binary: Vec<u8>,
-    pub num_mapped_somas: u32,
+/// Дескриптор одной матрицы в файле .gxo (16 байт)
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct GxoMatrixDescriptor {
+    pub name_hash: u32,
+    pub offset:    u32, // Индекс в Soma Array
+    pub width:     u16,
+    pub height:    u16,
+    pub stride:    u8,
+    pub _padding:  [u8; 3],
 }
 
-/// Запекает .gxo файл используя Z-Sort алгоритм для выбора сом-кандидатов.
-pub fn bake_outputs(
-    out_dir: &Path,
-    io_config: &IoConfig,
-    zone_width_um: f32,
-    zone_depth_um: f32,
-    neurons_packed_pos: &[u32],
-    name_map: &HashMap<String, u8>,
-) {
-    let result = bake_outputs_to_memory(io_config, zone_width_um, zone_depth_um, neurons_packed_pos, name_map);
-    if result.gxo_binary.is_empty() {
-        return;
-    }
-
-    let path = out_dir.join("shard.gxo");
-    std::fs::write(path, result.gxo_binary).expect("Failed to write .gxo file");
+/// Результат запекания одной матрицы выхода.
+pub struct BakedGxo {
+    pub name_hash: u32,
+    pub width: u16,
+    pub height: u16,
+    pub stride: u8,
+    /// Flat array размером `total_pixels`.
+    /// EMPTY_PIXEL (0xFFFF_FFFF) означает «нет сомы в этом пикселе».
+    pub mapped_soma_ids: Vec<u32>,
 }
 
-pub fn bake_outputs_to_memory(
-    io_config: &IoConfig,
-    zone_width_um: f32,
-    zone_depth_um: f32,
+/// Основная функция маппинга выходов на слой нейронов (Z-Sort + Sentinel).
+pub fn build_gxo_mapping(
+    matrix_name: &str,
+    _zone_name: &str,
+    matrix_width: u32,
+    matrix_height: u32,
+    zone_width_vox: u32,
+    zone_depth_vox: u32,
     neurons_packed_pos: &[u32],
-    name_map: &HashMap<String, u8>,
-) -> BakedOutputs {
-    if io_config.outputs.is_empty() {
-        return BakedOutputs { gxo_binary: vec![], num_mapped_somas: 0 };
-    }
+    stride: u8,
+) -> BakedGxo {
+    let total_pixels = (matrix_width * matrix_height) as usize;
+    let mut mapped_soma_ids = vec![EMPTY_PIXEL; total_pixels];
+    let mut min_z_per_pixel = vec![u32::MAX; total_pixels];
 
-    let mut total_pixels = 0;
-    for m in &io_config.outputs {
-        total_pixels += m.width * m.height;
-    }
+    for (dense_id, &packed) in neurons_packed_pos.iter().enumerate() {
+        let vx = (packed & 0x3FF) as u32;       // X in voxels
+        let vy = ((packed >> 10) & 0x3FF) as u32; // Y in voxels
+        let vz = (packed >> 20) & 0xFF;          // Z in voxels
 
-    let mut payload_soma_ids = vec![0u32; total_pixels as usize];
-    let mut current_offset = 0;
-    let mut num_mapped_somas = 0;
+        let px = ((vx as u64 * matrix_width as u64) / zone_width_vox.max(1) as u64)
+            .min(matrix_width as u64 - 1) as u32;
+        let py = ((vy as u64 * matrix_height as u64) / zone_depth_vox.max(1) as u64)
+            .min(matrix_height as u64 - 1) as u32;
 
-    for matrix in &io_config.outputs {
-        let pixels = matrix.width * matrix.height;
-        
-        for py in 0..matrix.height {
-            for px in 0..matrix.width {
-                let x_min = (px as f32 / matrix.width as f32) * zone_width_um;
-                let x_max = ((px + 1) as f32 / matrix.width as f32) * zone_width_um;
-                let y_min = (py as f32 / matrix.height as f32) * zone_depth_um;
-                let y_max = ((py + 1) as f32 / matrix.height as f32) * zone_depth_um;
+        let pixel_idx = (py * matrix_width + px) as usize;
 
-                let mut best_soma_id = u32::MAX;
-                let mut min_z = u32::MAX;
-
-                let target_type_idx = if !matrix.target_type.is_empty() {
-                    name_map.get(&matrix.target_type).cloned()
-                } else {
-                    None
-                };
-
-                for (dense_id, &packed) in neurons_packed_pos.iter().enumerate() {
-                    // Type filter
-                    if let Some(needed_idx) = target_type_idx {
-                        let type_idx = (packed >> 28) as u8;
-                        if type_idx != needed_idx {
-                            continue;
-                        }
-                    }
-
-                    let vx = (packed & 0x3FF) as f32; 
-                    let vy = ((packed >> 10) & 0x3FF) as f32; 
-                    let vz = (packed >> 20) & 0xFF;
-
-                    if vx >= x_min && vx < x_max && vy >= y_min && vy < y_max {
-                        if vz < min_z {
-                            min_z = vz;
-                            best_soma_id = dense_id as u32;
-                        }
-                    }
-                }
-
-                if best_soma_id != u32::MAX {
-                    num_mapped_somas += 1;
-                } else {
-                    best_soma_id = 0; 
-                }
-
-                let pixel_idx = (py * matrix.width) + px;
-                payload_soma_ids[(current_offset + pixel_idx) as usize] = best_soma_id;
-            }
+        if vz < min_z_per_pixel[pixel_idx] {
+            min_z_per_pixel[pixel_idx] = vz;
+            mapped_soma_ids[pixel_idx] = dense_id as u32;
         }
-        current_offset += pixels;
     }
 
-    let mut gxo_binary = Vec::new();
+    let name_hash = fnv1a_32(matrix_name.as_bytes());
+
+    BakedGxo { 
+        name_hash,
+        width: matrix_width as u16,
+        height: matrix_height as u16,
+        stride,
+        mapped_soma_ids 
+    }
+}
+
+/// Сериализует `BakedGxo` в файл `<out_dir>/shard.gxo` (zero-copy).
+pub fn write_gxo_file(out_dir: &Path, matrices: &[BakedGxo]) {
+    use std::io::Write;
+    let path = out_dir.join("shard.gxo");
+    let mut file = std::fs::File::create(path).expect("Failed to create .gxo file");
+
+    let total_pixels: u32 = matrices.iter().map(|m| m.mapped_soma_ids.len() as u32).sum();
+    let num_matrices = matrices.len() as u16;
+
     // Header (12 bytes)
-    gxo_binary.extend_from_slice(&GXO_MAGIC.to_le_bytes());
-    gxo_binary.extend_from_slice(&[1u8, 0u8]); // Version 1, Padding 1
-    gxo_binary.extend_from_slice(&(io_config.outputs.len() as u16).to_le_bytes());
-    gxo_binary.extend_from_slice(&total_pixels.to_le_bytes());
+    file.write_all(&GXO_MAGIC.to_le_bytes()).unwrap(); // Magic
+    file.write_all(&[1u8, 0u8]).unwrap();              // Version 1 + Padding
+    file.write_all(&num_matrices.to_le_bytes()).unwrap();
+    file.write_all(&total_pixels.to_le_bytes()).unwrap();
 
-    let mut current_offset_px: u32 = 0;
-    for m in &io_config.outputs {
-        let name_hash = fnv1a_32(m.name.as_bytes());
-        gxo_binary.extend_from_slice(&name_hash.to_le_bytes());
-        gxo_binary.extend_from_slice(&current_offset_px.to_le_bytes());
-        gxo_binary.extend_from_slice(&(m.width as u16).to_le_bytes());
-        gxo_binary.extend_from_slice(&(m.height as u16).to_le_bytes());
-        gxo_binary.extend_from_slice(&(m.stride as u8).to_le_bytes());
-        gxo_binary.extend_from_slice(&[0, 0, 0]); // Padding (3 bytes)
-        
-        current_offset_px += m.width * m.height;
+    // Matrix Descriptors (16 bytes each)
+    let mut current_offset = 0;
+    for m in matrices {
+        let desc = GxoMatrixDescriptor {
+            name_hash: m.name_hash,
+            offset: current_offset,
+            width: m.width,
+            height: m.height,
+            stride: m.stride,
+            _padding: [0; 3],
+        };
+        unsafe {
+            let bytes = std::slice::from_raw_parts(
+                (&desc as *const GxoMatrixDescriptor) as *const u8,
+                std::mem::size_of::<GxoMatrixDescriptor>()
+            );
+            file.write_all(bytes).unwrap();
+        }
+        current_offset += m.mapped_soma_ids.len() as u32;
     }
 
-    let payload_bytes = unsafe {
-        std::slice::from_raw_parts(
-            payload_soma_ids.as_ptr() as *const u8,
-            payload_soma_ids.len() * 4
-        )
-    };
-    gxo_binary.extend_from_slice(payload_bytes);
+    // Soma Array (u32 per pixel) 
+    for m in matrices {
+        let payload_bytes = unsafe {
+            std::slice::from_raw_parts(
+                m.mapped_soma_ids.as_ptr() as *const u8,
+                m.mapped_soma_ids.len() * std::mem::size_of::<u32>(),
+            )
+        };
+        file.write_all(payload_bytes).expect("Failed to write soma IDs");
+    }
+}
 
-    BakedOutputs { gxo_binary, num_mapped_somas }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use genesis_core::coords::pack_position;
+    use genesis_core::ipc::EMPTY_PIXEL;
+
+    fn pack(x: u32, y: u32, z: u32) -> u32 {
+        pack_position(x, y, z, 0).0
+    }
+
+    #[test]
+    fn test_gxo_z_sort() {
+        // Three neurons in the SAME pixel (world 10×10 vox, matrix 1×1)
+        // Z values: 10, 50, 5 — algorithm MUST pick Dense ID 2 (Z=5)
+        let neurons = vec![
+            pack(5, 5, 10),  // Dense ID 0
+            pack(5, 5, 50),  // Dense ID 1
+            pack(5, 5,  5),  // Dense ID 2  ← winner
+        ];
+
+        let gxo = build_gxo_mapping("out", "zone", 1, 1, 10, 10, &neurons, 1);
+
+        assert_eq!(gxo.mapped_soma_ids[0], 2, "Z-Sort must pick Dense ID 2 (Z=5)");
+    }
+
+    #[test]
+    fn test_gxo_empty_pixel() {
+        // 2×2 matrix, only top-left cell has a neuron
+        // world: 20 vox wide × 20 vox deep, matrix 2×2 → each pixel is 10×10 vox
+        let neurons = vec![
+            pack(2, 2, 0),  // Pixel (0,0) — Dense ID 0
+        ];
+
+        let gxo = build_gxo_mapping("out", "zone", 2, 2, 20, 20, &neurons, 1);
+
+        assert_eq!(gxo.mapped_soma_ids[0], 0,          "pixel 0 should map to soma 0");
+        assert_eq!(gxo.mapped_soma_ids[1], EMPTY_PIXEL, "pixel 1 (top-right) must be sentinel");
+        assert_eq!(gxo.mapped_soma_ids[2], EMPTY_PIXEL, "pixel 2 (bottom-left) must be sentinel");
+        assert_eq!(gxo.mapped_soma_ids[3], EMPTY_PIXEL, "pixel 3 (bottom-right) must be sentinel");
+    }
+
+    #[test]
+    fn test_gxo_no_neurons() {
+        let gxo = build_gxo_mapping("out", "zone", 2, 2, 20, 20, &[], 1);
+        assert!(gxo.mapped_soma_ids.iter().all(|&id| id == EMPTY_PIXEL));
+    }
 }

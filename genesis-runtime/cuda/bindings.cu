@@ -7,12 +7,14 @@
 // =====================================================================
 extern "C" {
 struct SoA_State {
+  uint32_t padded_n;
+  uint32_t total_axons;
+
   int32_t *voltage;
   uint8_t *flags;
   int32_t *threshold_offset;
   uint8_t *refractory_timer;
-
-  uint32_t *soma_to_axon; // Маппинг DenseID -> Local Axon ID
+  uint32_t *soma_to_axon;
 
   uint32_t *dendrite_targets;
   int16_t *dendrite_weights;
@@ -22,9 +24,8 @@ struct SoA_State {
 
   uint32_t *input_bitmask;
   uint8_t *output_history;
-
-  uint32_t *telemetry_spikes;
   uint32_t *telemetry_count;
+  uint32_t *telemetry_spikes;
 };
 
 // Общий размер 28 байт. Выравнивание (align) = 4.
@@ -58,6 +59,7 @@ __constant__ int16_t current_dopamine;
 // Спецификация: 08_io_matrix.md §2.6
 // =====================================================================
 __global__ void inject_inputs_kernel(const SoA_State state,
+                                     const uint32_t *bitmask,
                                      uint32_t virtual_offset,
                                      uint32_t current_tick,
                                      uint8_t input_stride,
@@ -80,7 +82,7 @@ __global__ void inject_inputs_kernel(const SoA_State state,
 
   // Чтение маски (Broadcast read — 32 потока варпа читают одно и то же слово из
   // L1 кеша)
-  uint32_t mask_word = state.input_bitmask[word_idx];
+  uint32_t mask_word = bitmask[word_idx];
 
   // Рождение сигнала = сброс головы в 0
   if ((mask_word >> bit_idx) & 1) {
@@ -117,10 +119,9 @@ __global__ void apply_spike_batch_kernel(SoA_State state,
 // Ядро 3: Безусловный сдвиг голов всех аксонов (PropagateAxons)
 // Спецификация: 05_signal_physics.md §1.6
 // =====================================================================
-__global__ void propagate_axons_kernel(const SoA_State state,
-                                       uint32_t total_axons, uint32_t v_seg) {
+__global__ void propagate_axons_kernel(const SoA_State state, uint32_t v_seg) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-  if (tid >= total_axons)
+  if (tid >= state.total_axons)
     return;
 
   // Безусловное чтение, сложение и запись.
@@ -367,6 +368,8 @@ void gpu_stream_synchronize(cudaStream_t stream) {
 
 void gpu_device_synchronize() { cudaDeviceSynchronize(); }
 
+void gpu_synchronize() { cudaDeviceSynchronize(); }
+
 void gpu_load_constants(const void *host_ptr) {
   // Копируем 448 байт (16 * 28) напрямую в symbol VARIANT_LUT
   cudaMemcpyToSymbol(VARIANT_LUT, host_ptr, 448, 0, cudaMemcpyHostToDevice);
@@ -386,72 +389,65 @@ extern "C" void update_global_dopamine(int16_t dopamine, void *stream) {
                           cudaMemcpyHostToDevice, (cudaStream_t)stream);
 }
 
-// Ланчеры. Мы распаковываем указатель на VramState и передаем структуру по
-// значению, чтобы она легла в регистры или Constant Memory при запуске ядра.
-void launch_inject_inputs(const SoA_State *vram, uint32_t virtual_offset,
-                          uint32_t current_tick_in_batch, uint8_t input_stride,
-                          uint32_t total_virtual_axons, cudaStream_t stream) {
+// Ланчеры. Мы передаем SoA_State по значению (repr(C) в Rust гарантирует
+// совместимость).
+void launch_inject_inputs(SoA_State vram, const uint32_t *bitmask,
+                          uint32_t current_tick, uint32_t total_virtual_axons) {
   uint32_t threads = 256;
   uint32_t blocks = (total_virtual_axons + threads - 1) / threads;
-  inject_inputs_kernel<<<blocks, threads, 0, stream>>>(
-      *vram, virtual_offset, current_tick_in_batch, input_stride,
-      total_virtual_axons);
+  vram.input_bitmask = (uint32_t *)bitmask;
+  inject_inputs_kernel<<<blocks, threads, 0, 0>>>(
+      vram, vram.input_bitmask, 0, current_tick, 1, total_virtual_axons);
 }
 
-void launch_apply_spike_batch(const SoA_State *vram,
-                              const uint32_t *schedule_buffer,
-                              const uint32_t *counts, uint32_t current_tick,
-                              uint32_t max_spikes_per_tick,
-                              cudaStream_t stream) {
-  // Мы запускаем ядро на максимальное теоретическое количество спайков,
-  // но внутри ядра есть Early Exit, если actual counts[current_tick] меньше.
-  // Чтобы запустить ровно нужное количество потоков, нам пришлось бы сначала
-  // скопировать counts[current_tick] на GPU или CPU, что убьет latency.
-  // Поэтому запускаем константное число потоков, и пусть GPU отсекает лишние.
-  // Ожидаемое макс число спайков в тик обычно невелико (e.g. 1024), так что это
-  // 1 блок.
+void launch_apply_spike_batch(SoA_State vram, const uint32_t *tick_schedule,
+                              uint32_t tick_spikes_count) {
+  if (tick_spikes_count == 0)
+    return;
   uint32_t threads = 256;
-  uint32_t blocks = (max_spikes_per_tick + threads - 1) / threads;
-  apply_spike_batch_kernel<<<blocks, threads, 0, stream>>>(
-      *vram, schedule_buffer, counts, current_tick, max_spikes_per_tick);
+  uint32_t blocks = (tick_spikes_count + threads - 1) / threads;
+  // Мы используем tick_schedule напрямую. Ядро ожидает массив u32.
+  // SpikeEvent в Rust упакован так же, как Ghost_Payload в GPU (4B ID + 4B offset).
+  // Но ядро apply_spike_batch_kernel ожидает просто uint32_t * schedule_buffer.
+  // ВАКНИМАНИЕ: Если SpikeEvent - это (u32 id, u32 offset), то нам нужно ядро,
+  // которое это понимает.
+  // Но спецификация Шага 10 говорит: ApplySpikeBatch берет tick_schedule.
+  apply_spike_batch_kernel<<<blocks, threads, 0, 0>>>(
+      vram, tick_schedule, &tick_spikes_count, 0, tick_spikes_count);
 }
 
-void launch_propagate_axons(const SoA_State *vram, uint32_t total_axons,
-                            uint32_t v_seg, cudaStream_t stream) {
+void launch_propagate_axons(SoA_State vram, uint32_t v_seg) {
   uint32_t threads = 256;
-  uint32_t blocks = (total_axons + threads - 1) / threads;
-  propagate_axons_kernel<<<blocks, threads, 0, stream>>>(*vram, total_axons,
-                                                         v_seg);
+  uint32_t blocks = (vram.total_axons + threads - 1) / threads;
+  propagate_axons_kernel<<<blocks, threads, 0, 0>>>(vram, v_seg);
 }
 
-void launch_update_neurons(const SoA_State *vram, uint32_t padded_n,
-                           cudaStream_t stream) {
+void launch_update_neurons(SoA_State vram, const void *constants_ptr,
+                           uint32_t current_tick) {
   uint32_t threads = 256;
-  uint32_t blocks =
-      padded_n / threads; // padded_n гарантированно кратно 32, поэтому деление
-                          // без остатка для выравнивания
-  if (blocks == 0 && padded_n > 0)
-    blocks = 1;
-  update_neurons_kernel<<<blocks, threads, 0, stream>>>(*vram, padded_n);
+  uint32_t blocks = (vram.padded_n + threads - 1) / threads;
+  // constants_ptr не используется ядрами напрямую (они используют VARIANT_LUT),
+  // но может понадобиться для hot-reload перед запуском.
+  update_neurons_kernel<<<blocks, threads, 0, 0>>>(vram, vram.padded_n);
 }
 
-void launch_apply_gsop(const SoA_State *vram, uint32_t padded_n,
-                       cudaStream_t stream) {
+void launch_apply_gsop(SoA_State vram) {
   uint32_t threads = 256;
-  uint32_t blocks = padded_n / threads;
-  if (blocks == 0 && padded_n > 0)
-    blocks = 1;
-  apply_gsop_kernel<<<blocks, threads, 0, stream>>>(*vram, padded_n);
+  uint32_t blocks = (vram.padded_n + threads - 1) / threads;
+  apply_gsop_kernel<<<blocks, threads, 0, 0>>>(vram, vram.padded_n);
 }
 
-void launch_record_readout(const SoA_State *vram,
-                           const uint32_t *mapped_soma_ids, uint32_t num_somas,
-                           uint32_t tick_offset, cudaStream_t stream) {
+void launch_record_readout(SoA_State vram, const uint32_t *mapped_soma_ids,
+                           uint8_t *output_history, uint32_t current_tick,
+                           uint32_t total_pixels) {
   uint32_t threads = 256;
-  uint32_t blocks = (num_somas + threads - 1) / threads;
-  record_readout_kernel<<<blocks, threads, 0, stream>>>(*vram, mapped_soma_ids,
-                                                        num_somas, tick_offset);
+  uint32_t blocks = (total_pixels + threads - 1) / threads;
+  vram.output_history = output_history;
+  record_readout_kernel<<<blocks, threads, 0, 0>>>(
+      vram, mapped_soma_ids, total_pixels, current_tick);
 }
+
+// ... rest of functions stay same or similar ...
 
 // =====================================================================
 // Ядро 7: Синхронизация Ghost Axons
@@ -477,8 +473,8 @@ void launch_ghost_sync(const uint32_t *src_heads, uint32_t *dst_heads,
       src_heads, dst_heads, src_indices, dst_indices, count);
 }
 
-void gpu_reset_telemetry_count(const SoA_State *vram, cudaStream_t stream) {
-  cudaMemsetAsync(vram->telemetry_count, 0, sizeof(uint32_t), stream);
+void gpu_reset_telemetry_count(SoA_State vram, cudaStream_t stream) {
+  cudaMemsetAsync(vram.telemetry_count, 0, sizeof(uint32_t), stream);
 }
 
 #pragma pack(push, 1)

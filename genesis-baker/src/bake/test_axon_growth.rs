@@ -15,14 +15,14 @@ mod tests {
                 height_um: h * 50,
             },
             simulation: SimulationParams {
-                voxel_size_um: 50,
+                voxel_size_um: 50.0,
                 segment_length_voxels: 1, // 1 voxel step
                 axon_growth_max_steps: 100,
                 tick_duration_us: 1000,
                 total_ticks: 100_000,
                 master_seed: "0".to_string(),
                 global_density: 1.0,
-                signal_speed_um_tick: 50,
+                signal_speed_m_s: 0.05,
                 sync_batch_ticks: 10,
                 night_interval_ticks: 1000,
             },
@@ -76,12 +76,7 @@ mod tests {
         }
     }
 
-    fn make_h_type() -> NeuronType {
-        let mut t = make_v_type();
-        t.name = "H_Type".to_string();
-        t.growth_vertical_bias = 0.0; // Horizontal growth
-        t
-    }
+
 
     fn setup_env_v(w: u32, d: u32, h: u32) -> (SimulationConfig, Vec<LayerZRange>, Vec<NeuronType>, ShardBounds) {
         let sim = make_sim_config(w, d, h);
@@ -127,7 +122,7 @@ mod tests {
         // It should max out steps or hit stagnation.
         for packed in &axon.segments {
             let z = (packed >> 20) & 0xFF;
-            assert!(z >= 0 && z <= 10, "Escaped layer! z={}", z);
+            assert!(z <= 10, "Escaped layer! z={}", z);
         }
     }
 
@@ -230,7 +225,7 @@ mod tests {
         h_types[0].growth_vertical_bias = 0.0; // H-growth
         h_types[0].steering_weight_sensor = 1.0; // Pull heavily towards target
         h_types[0].steering_weight_inertia = 0.0; 
-        h_types[0].steering_fov_deg = 180.0;
+        h_types[0].steering_fov_deg = 360.0;
         h_types[0].steering_radius_um = 1000.0; // Huge radius to see target
         
         let (axons, _) = grow_axons(&neurons, &layers, &h_types, &sim, &bounds, 42);

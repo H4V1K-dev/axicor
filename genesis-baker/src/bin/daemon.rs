@@ -1,7 +1,5 @@
 // genesis-baker/src/bin/daemon.rs
-use genesis_core::layout::{align_to_warp};
 use genesis_baker::bake::axon_growth::GrownAxon;
-use std::collections::HashMap;
 
 fn main() {
     // This is a minimal stub for the baker-daemon which might be used for live interaction.

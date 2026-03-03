@@ -4,7 +4,7 @@ use std::ffi::c_void;
 /// Опак-тип для CUDA Stream. В Rust мы не знаем его структуру, просто таскаем указатель.
 pub type CudaStream = *mut c_void;
 
-#[link(name = "genesis_cuda", kind = "static")]
+#[cfg_attr(not(feature = "mock-gpu"), link(name = "genesis_cuda", kind = "static"))]
 extern "C" {
     // =====================================================================
     // 1. Управление памятью и потоками (Zero-Copy DMA)
@@ -44,18 +44,17 @@ extern "C" {
     pub fn gpu_stream_synchronize(stream: CudaStream);
     pub fn gpu_device_synchronize();
     
+    /// Barrier: blocks CPU until all previous commands in the default stream are done.
+    pub fn gpu_synchronize();
+    
     // Загрузка Blueprint-параметров в Constant Memory GPU
     pub fn gpu_load_constants(host_ptr: *const c_void);
     pub fn update_constant_memory_hot_reload(new_variants: *const genesis_core::config::manifest::GpuVariantParameters, stream: CudaStream);
     pub fn update_global_dopamine(dopamine: i16, stream: CudaStream);
 
     pub fn launch_sort_and_prune(
-        padded_n: u32,
-        targets: *mut c_void,
-        weights: *mut c_void,
-        timers: *mut c_void,
+        vram: VramState,
         prune_threshold: i16,
-        stream: CudaStream,
     );
     
     pub fn launch_extract_outgoing_spikes(
@@ -79,62 +78,62 @@ extern "C" {
     );
 
     // =====================================================================
-    // 2. Day Phase Pipeline (6 ядер строго по спецификации)
+    // 2. Day Phase Pipeline (6 ядер строго по спецификации Шага 10)
     // =====================================================================
 
-    /// Ядро 1: Инъекция внешних сигналов в Virtual Axons (Single-Tick Pulse)
+    /// Ядро 1: Инъекция внешних сигналов.
+    /// [VramState, bitmask, current_tick, total_virtual_axons]
     pub fn launch_inject_inputs(
-        vram: *const VramState,
-        virtual_offset: u32,
-        current_tick_in_batch: u32,
-        input_stride: u8,
-        total_virtual_axons: u32,
-        stream: CudaStream,
-    );
-
-    /// Ядро 2: Инъекция сетевых спайков из расписания (Strict BSP)
-    pub fn launch_apply_spike_batch(
-        vram: *const VramState,
-        schedule_buffer: *const u32,
-        counts: *const u32,
+        vram: VramState,
+        bitmask: *const u32,
         current_tick: u32,
-        max_spikes_per_tick: u32,
-        stream: CudaStream,
+        total_virtual_axons: u32,
     );
 
-    /// Ядро 3: Безусловный сдвиг голов всех аксонов (Local + Ghost + Virtual)
+    /// Ядро 2: Инъекция сетевых спайков.
+    /// [VramState, tick_schedule, tick_spikes_count]
+    pub fn launch_apply_spike_batch(
+        vram: VramState,
+        tick_schedule: *const genesis_core::ipc::SpikeEvent,
+        tick_spikes_count: u32,
+    );
+
+    /// Ядро 3: Безусловный сдвиг голов всех аксонов.
     pub fn launch_propagate_axons(
-        vram: *const VramState,
-        total_axons: u32,
+        vram: VramState,
         v_seg: u32,
-        stream: CudaStream,
     );
 
-    /// Ядро 4: GLIF Физика, суммация дендритов, срыв спайков
+    /// Ядро 4: GLIF Физика, суммация дендритов.
     pub fn launch_update_neurons(
-        vram: *const VramState,
-        padded_n: u32,
-        stream: CudaStream,
+        vram: VramState,
+        constants_ptr: *const c_void,
+        current_tick: u32,
     );
 
-    /// Ядро 5: Пластичность GSOP (Timer-as-Contact-Flag)
+    /// Ядро 5: Пластичность GSOP.
     pub fn launch_apply_gsop(
-        vram: *const VramState,
-        padded_n: u32,
-        stream: CudaStream,
+        vram: VramState,
     );
 
-    /// Ядро 6: Вывод активности сом в Output_History (Z-Sort Population Code)
+    /// Ядро 6: Вывод активности сом (RecordReadout).
     pub fn launch_record_readout(
-        vram: *const VramState,
-        mapped_soma_ids: *const u32, // Указатель на массив ID сом, привязанных к пикселям
-        num_output_channels: u32,
-        current_tick_in_batch: u32,
-        stream: CudaStream,
+        vram: VramState,
+        mapped_soma_ids: *const u32,
+        output_history: *mut u8,
+        current_tick: u32,
+        total_pixels: u32,
     );
 
     pub fn gpu_reset_telemetry_count(
-        vram: *const genesis_core::layout::VramState,
+        vram: VramState,
+        stream: CudaStream,
+    );
+
+    pub fn launch_extract_telemetry(
+        vram: VramState,
+        out_ids: *mut u32,
+        out_count_pinned: *mut u32,
         stream: CudaStream,
     );
 }

@@ -123,8 +123,9 @@ mod tests {
     #[test]
     fn test_variant_parameters_layout() {
         use crate::layout::VariantParameters;
-        assert_eq!(std::mem::size_of::<VariantParameters>(), 32);
-        assert_eq!(std::mem::align_of::<VariantParameters>(), 32);
+        // 64B per spec: 16 variants × 64B = 1024B = exactly one CUDA __constant__ block
+        assert_eq!(std::mem::size_of::<VariantParameters>(),  64);
+        assert_eq!(std::mem::align_of::<VariantParameters>(), 64);
     }
 
     #[test]

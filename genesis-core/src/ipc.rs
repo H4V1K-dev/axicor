@@ -25,7 +25,7 @@ pub const SHM_VERSION: u8 = 1;
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct ShmHeader {
-    /// Magic: 0x47454E53
+    /// Magic: 0x47454E53 ("GENS")
     pub magic: u32,
     /// IPC protocol version (SHM_VERSION)
     pub version: u8,
@@ -35,22 +35,25 @@ pub struct ShmHeader {
     pub zone_id: u16,
     /// Number of neurons (padded to warp boundary). Used to compute offsets.
     pub padded_n: u32,
-    /// Number of dendrite slots per neuron (always 128, here for sanity check)
+    /// Number of dendrite slots per neuron (always 128)
     pub dendrite_slots: u32,
     /// Byte offset from start of SHM to weights array
     pub weights_offset: u32,
     /// Byte offset from start of SHM to targets array
     pub targets_offset: u32,
-    /// Monotonic counter incremented each Night Phase (for debugging)
+    /// Monotonic counter incremented each Night Phase.
+    /// MUST be at offset 24 for 8-byte alignment.
     pub epoch: u64,
-    pub _padding: [u8; 32],
+    /// Total number of axons in this shard.
+    pub total_axons: u32,
+    pub _padding: [u8; 28], // Total: 32 + 4 + 28 = 64
 }
 
 const _: () = assert!(std::mem::size_of::<ShmHeader>() == 64, "ShmHeader must be 64 bytes");
 
 impl ShmHeader {
     /// Construct a valid header for a new SHM segment.
-    pub fn new(zone_id: u16, padded_n: u32) -> Self {
+    pub fn new(zone_id: u16, padded_n: u32, total_axons: u32) -> Self {
         let weights_offset = std::mem::size_of::<ShmHeader>() as u32;
         let weights_bytes = padded_n * 128 * std::mem::size_of::<i16>() as u32;
         let targets_offset = weights_offset + weights_bytes;
@@ -64,7 +67,8 @@ impl ShmHeader {
             weights_offset,
             targets_offset,
             epoch: 0,
-            _padding: [0; 32],
+            total_axons,
+            _padding: [0; 28],
         }
     }
 
@@ -131,3 +135,323 @@ pub fn shm_name(zone_id: u16) -> String {
 pub fn default_socket_path(zone_id: u16) -> String {
     format!("/tmp/genesis_baker_{zone_id}.sock")
 }
+
+// ---------------------------------------------------------------------------
+// Trigger-Only UDS IPC (Strike 3)
+// ---------------------------------------------------------------------------
+
+pub const BAKE_MAGIC: u32 = 0x42414B45;       // "BAKE"
+pub const BAKE_READY_MAGIC: u32 = 0x424B4F4B; // "BKOK"
+
+/// Lightweight trigger for the Baker Daemon.
+/// Exactly 16 bytes.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct BakeRequest {
+    pub magic: u32,           // BAKE_MAGIC
+    pub zone_hash: u32,       // FNV-1a of zone name
+    pub current_tick: u32,
+    pub prune_threshold: i16,
+    pub _padding: u16,
+}
+
+const _: () = assert!(std::mem::size_of::<BakeRequest>() == 16, "BakeRequest must be 16 bytes");
+
+// =============================================================================
+// §2  File-format IPC: baked binary blobs (.gxi / .gxo / .ghosts)
+// =============================================================================
+
+/// Sentinel written to `mapped_soma_ids` for a GXO pixel that has no somas.
+/// GPU RecordReadout kernel must Early-Exit when it sees this value.
+pub const EMPTY_PIXEL: u32 = 0xFFFF_FFFF;
+
+/// Header of a baked input-matrix blob (.gxi).
+/// Exactly 32 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GxiHeader {
+    pub magic:        u32,       // GXI_MAGIC (0x47584900)
+    pub zone_hash:    u32,       // FNV-1a of zone name
+    pub matrix_hash:  u32,       // FNV-1a of matrix name
+    pub input_count:  u32,       // Number of virtual axons
+    pub total_pixels: u32,       // W × H
+    pub _padding:     [u32; 3],  // Reserved; always zero
+}
+const _: () = assert!(std::mem::size_of::<GxiHeader>() == 32, "GxiHeader must be 32 bytes");
+
+impl GxiHeader {
+    pub fn new(zone_hash: u32, matrix_hash: u32, total_pixels: u32) -> Self {
+        Self {
+            magic:        crate::constants::GXI_MAGIC,
+            zone_hash,
+            matrix_hash,
+            input_count:  total_pixels,
+            total_pixels,
+            _padding:     [0; 3],
+        }
+    }
+
+    #[inline(always)]
+    pub fn as_bytes(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(
+                (self as *const Self) as *const u8,
+                std::mem::size_of::<Self>(),
+            )
+        }
+    }
+}
+
+/// Header of a baked output-matrix blob (.gxo).
+/// Exactly 32 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GxoHeader {
+    pub magic:        u32,       // GXO_MAGIC (0x47584F00)
+    pub zone_hash:    u32,       // FNV-1a of zone name
+    pub matrix_hash:  u32,       // FNV-1a of matrix name
+    pub output_count: u32,       // Number of mapped somas (NOT sentinel-filled pixels)
+    pub _padding:     [u32; 4],  // Reserved; always zero
+}
+const _: () = assert!(std::mem::size_of::<GxoHeader>() == 32, "GxoHeader must be 32 bytes");
+
+impl GxoHeader {
+    pub fn new(zone_hash: u32, matrix_hash: u32, output_count: u32) -> Self {
+        Self {
+            magic: crate::constants::GXO_MAGIC,
+            zone_hash,
+            matrix_hash,
+            output_count,
+            _padding: [0; 4],
+        }
+    }
+
+    #[inline(always)]
+    pub fn as_bytes(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(
+                (self as *const Self) as *const u8,
+                std::mem::size_of::<Self>(),
+            )
+        }
+    }
+}
+
+/// Header of an inter-zone ghost-routing blob (.ghosts).
+/// Exactly 16 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GhostsHeader {
+    pub magic:            u32,   // GHST_MAGIC (0x47485354)
+    pub from_zone_hash:   u32,   // FNV-1a of source zone name
+    pub to_zone_hash:     u32,   // FNV-1a of destination zone name
+    pub connection_count: u32,   // Length of the GhostConnection array that follows
+}
+const _: () = assert!(std::mem::size_of::<GhostsHeader>() == 16, "GhostsHeader must be 16 bytes");
+
+impl GhostsHeader {
+    pub fn new(from_zone_hash: u32, to_zone_hash: u32, connection_count: u32) -> Self {
+        Self {
+            magic: GHST_MAGIC,
+            from_zone_hash,
+            to_zone_hash,
+            connection_count,
+        }
+    }
+
+    #[inline(always)]
+    pub fn as_bytes(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(
+                (self as *const Self) as *const u8,
+                std::mem::size_of::<Self>(),
+            )
+        }
+    }
+}
+
+/// A single inter-zone connection record written into a .ghosts blob.
+/// Exactly 8 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GhostConnection {
+    pub src_soma_id:    u32,     // Dense ID of the soma in Zone A (from .gxo)
+    pub target_ghost_id: u32,   // Index of the ghost axon in Zone B
+}
+const _: () = assert!(std::mem::size_of::<GhostConnection>() == 8, "GhostConnection must be 8 bytes");
+
+impl GhostConnection {
+    #[inline(always)]
+    pub fn slice_as_bytes(slice: &[Self]) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(
+                slice.as_ptr() as *const u8,
+                slice.len() * std::mem::size_of::<Self>(),
+            )
+        }
+    }
+}
+
+use bytemuck::{Pod, Zeroable};
+
+/// Header for inter-node spike batches.
+/// Exactly 8 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+pub struct SpikeBatchHeader {
+    pub magic:    u32, // 0x5350494B ("SPIK")
+    pub batch_id: u32, // Batch counter for ordering
+}
+const _: () = assert!(std::mem::size_of::<SpikeBatchHeader>() == 8, "SpikeBatchHeader must be 8 bytes");
+
+/// A single spike event recorded for inter-zone transfer or readout.
+/// Exactly 8 bytes, repr(C) for Coalesced Access on GPU.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+pub struct SpikeEvent {
+    pub ghost_axon_id: u32, // Direct index in axon_heads[] of receiver
+    pub tick_offset:   u32, // Offset within the batch
+}
+const _: () = assert!(std::mem::size_of::<SpikeEvent>() == 8, "SpikeEvent must be 8 bytes");
+
+// ===========================================================================
+// IDE Telemetry (Step 14)
+// ===========================================================================
+
+pub const TELE_MAGIC: u32 = 0x454C4554; // "TELE" in Little-Endian
+
+/// Header for binary telemetry frames sent over WebSocket.
+/// Exactly 16 bytes, repr(C).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+pub struct TelemetryFrameHeader {
+    pub magic:        u32, // TELE_MAGIC
+    pub tick:         u32, // Simulation tick
+    pub spikes_count: u32, // Number of fired neurons in this frame
+    pub _padding:     u32, // 16-byte alignment
+}
+const _: () = assert!(std::mem::size_of::<TelemetryFrameHeader>() == 16, "TelemetryFrameHeader must be 16 bytes");
+
+/// Magic bytes for inter-zone ghost routing file.
+pub const GHST_MAGIC: u32 = 0x47485354; // "GHST"
+
+#[cfg(test)]
+mod file_ipc_tests {
+    use super::*;
+
+    #[test]
+    fn test_struct_sizes() {
+        assert_eq!(std::mem::size_of::<GxiHeader>(),     32);
+        assert_eq!(std::mem::size_of::<GxoHeader>(),     32);
+        assert_eq!(std::mem::size_of::<GhostsHeader>(),  16);
+        assert_eq!(std::mem::size_of::<GhostConnection>(), 8);
+    }
+
+    #[test]
+    fn test_gxi_header_magic() {
+        let h = GxiHeader::new(0xDEAD, 0xBEEF, 64);
+        assert_eq!(h.magic, crate::constants::GXI_MAGIC);
+        assert_eq!(h.total_pixels, 64);
+        assert_eq!(h.input_count, 64);
+        assert_eq!(h._padding, [0; 3]);
+    }
+
+    #[test]
+    fn test_gxo_header_magic() {
+        let h = GxoHeader::new(0x1234, 0x5678, 30);
+        assert_eq!(h.magic, crate::constants::GXO_MAGIC);
+        assert_eq!(h.output_count, 30);
+        assert_eq!(h._padding, [0; 4]);
+    }
+
+    #[test]
+    fn test_ghosts_header() {
+        let h = GhostsHeader::new(0xAABB, 0xCCDD, 5);
+        assert_eq!(h.magic, GHST_MAGIC);
+        assert_eq!(h.connection_count, 5);
+    }
+
+    #[test]
+    fn test_gxi_as_bytes_length() {
+        let h = GxiHeader::new(1, 2, 16);
+        assert_eq!(h.as_bytes().len(), 32);
+    }
+
+    #[test]
+    fn test_gxo_as_bytes_roundtrip() {
+        let h = GxoHeader::new(0, 0, 99);
+        let b = h.as_bytes();
+        // First 4 bytes are GXO_MAGIC in little-endian
+        let magic = u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+        assert_eq!(magic, crate::constants::GXO_MAGIC);
+    }
+
+    #[test]
+    fn test_ghost_connection_slice_bytes() {
+        let conns = [
+            GhostConnection { src_soma_id: 10, target_ghost_id: 20 },
+            GhostConnection { src_soma_id: 11, target_ghost_id: 21 },
+        ];
+        assert_eq!(GhostConnection::slice_as_bytes(&conns).len(), 16);
+    }
+
+    #[test]
+    fn test_empty_pixel_sentinel() {
+        assert_eq!(EMPTY_PIXEL, 0xFFFF_FFFF);
+    }
+}
+
+/// Header for external asynchronous I/O (Sensors/Motors) over UDP.
+/// Exactly 16 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExternalIoHeader {
+    pub magic:        u32, // GSIO_MAGIC or GSOO_MAGIC
+    pub zone_hash:    u32, // FNV-1a of zone name
+    pub matrix_hash:  u32, // FNV-1a of matrix name
+    pub payload_size: u32, // Length of data following this header
+}
+const _: () = assert!(std::mem::size_of::<ExternalIoHeader>() == 16, "ExternalIoHeader must be 16 bytes");
+
+impl ExternalIoHeader {
+    pub fn new(magic: u32, zone_hash: u32, matrix_hash: u32, payload_size: u32) -> Self {
+        Self {
+            magic,
+            zone_hash,
+            matrix_hash,
+            payload_size,
+        }
+    }
+}
+// ===========================================================================
+// §3 Self-Healing & Replication (Step 19)
+// ===========================================================================
+
+pub const SNAP_MAGIC: u32 = 0x50414E53; // "SNAP"
+
+#[repr(C, align(32))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+pub struct ShardStateHeader {
+    pub magic: u32,
+    pub zone_hash: u32,
+    pub tick: u32,
+    pub _padding1: u32,      // Добиваем до 16 байт для выравнивания u64
+    pub payload_size: u64,   // Смещено на 16 байт
+    pub _padding2: [u64; 1], // Добиваем еще 8 байт до 32
+}
+
+const _: () = assert!(std::mem::size_of::<ShardStateHeader>() == 32);
+
+pub const ROUT_MAGIC: u32 = 0x54554F52; // "ROUT"
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+pub struct RouteUpdate {
+    pub magic: u32,
+    pub zone_hash: u32,
+    pub new_ipv4: u32, // u32 representation of IPv4Addr
+    pub new_port: u16,
+    pub _padding: u16,
+}
+
+const _: () = assert!(std::mem::size_of::<RouteUpdate>() == 16);

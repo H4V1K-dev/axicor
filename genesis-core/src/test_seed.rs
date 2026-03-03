@@ -46,7 +46,20 @@ fn raw_not_equal_to_literal() {
 #[test]
 fn random_f32_range() {
     for i in 0..10_000u32 {
-        let f = random_f32(wyhash::wyhash(&i.to_le_bytes(), 42));
+        let f = random_f32(entity_seed(42, i));
         assert!(f >= 0.0 && f < 1.0, "random_f32 out of bounds: {f}");
     }
+}
+
+#[test]
+fn test_avalanche_effect() {
+    let master = 0x1234567890ABCDEF;
+    let s1 = entity_seed(master, 10);
+    let s2 = entity_seed(master, 11);
+    
+    assert_ne!(s1, s2, "Adjacent IDs must have different seeds");
+    
+    // Проверка что биты сильно перемешаны (минимум 16 бит разницы - эвристика)
+    let diff_bits = (s1 ^ s2).count_ones();
+    assert!(diff_bits >= 16, "Avalanche effect too weak: only {diff_bits} bits differ");
 }

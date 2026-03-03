@@ -4,9 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bevy = "0.13"
+bevy = { version = "0.15", features = ["wayland"] }
 tokio = { version = "1.37", features = ["rt", "net", "macros"] }
 tokio-tungstenite = "0.21"
 futures-util = "0.3"
+futures-lite = "2.0"
 bytes = "1.5"
 crossbeam-channel = "0.5"
+bytemuck = { version = "1.16", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"

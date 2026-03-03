@@ -3,6 +3,7 @@ use genesis_core::config::blueprints::GenesisConstantMemory;
 /// Нормализованный «вес» сомы = Σ|dendrite_weights| / (128 × 32767).
 /// При первом Baking все веса = 0 → power_index = 0.0 (новые нейроны равны).
 /// (04_connectivity.md §1.6.1)
+#[allow(dead_code)]
 pub fn compute_power_index(soma_id: usize, weights: &[i16], padded_n: usize) -> f32 {
     let mut power = 0u32;
     for slot in 0..128 {

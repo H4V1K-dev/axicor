@@ -1,4 +1,5 @@
-use genesis_core::config::blueprints::{GenesisConstantMemory, VariantParameters, BlueprintsConfig, NeuronType};
+use genesis_core::config::blueprints::{GenesisConstantMemory, BlueprintsConfig, NeuronType};
+use genesis_core::layout::{VariantParameters};
 use std::collections::HashMap;
 
 pub fn parse_blueprints(toml_content: &str) -> (GenesisConstantMemory, Vec<NeuronType>, HashMap<String, u8>) {
@@ -33,6 +34,12 @@ pub fn parse_blueprints(toml_content: &str) -> (GenesisConstantMemory, Vec<Neuro
         }
 
         name_map.insert(nt.name.clone(), i as u8);
+
+        let mut inertia = [0i16; 16];
+        for (idx, &val) in nt.inertia_curve.iter().enumerate() {
+            inertia[idx] = val as i16;
+        }
+
         memory.variants[i] = VariantParameters {
             threshold: nt.threshold,
             rest_potential: nt.rest_potential,
@@ -40,15 +47,15 @@ pub fn parse_blueprints(toml_content: &str) -> (GenesisConstantMemory, Vec<Neuro
             homeostasis_penalty: nt.homeostasis_penalty,
             gsop_potentiation: nt.gsop_potentiation as i16,
             gsop_depression: nt.gsop_depression as i16,
-            homeostasis_decay: nt.homeostasis_decay,
-            signal_propagation_length: nt.signal_propagation_length as u16,
-            conduction_velocity: nt.conduction_velocity,
-            slot_decay_ltm: nt.slot_decay_ltm as u16,
-            slot_decay_wm: nt.slot_decay_wm as u16,
+            homeostasis_decay: nt.homeostasis_decay as u16,
+            signal_propagation_length: nt.signal_propagation_length as u8,
+            conduction_velocity: nt.conduction_velocity as u8,
+            slot_decay_ltm: nt.slot_decay_ltm as u8,
+            slot_decay_wm: nt.slot_decay_wm as u8,
             refractory_period: nt.refractory_period,
             synapse_refractory_period: nt.synapse_refractory_period,
-            inertia_curve: nt.inertia_curve,
-            _reserved: [0; 16],
+            inertia_curve: inertia,
+            ..VariantParameters::default()
         };
     }
 

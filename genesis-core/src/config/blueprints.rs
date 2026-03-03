@@ -156,7 +156,7 @@ impl BlueprintsConfig {
 
 /// Параметры физики и пластичности для одного типа нейрона (Variant).
 /// Выровнено ровно до 64 байт для идеального кэширования в L1 Constant Memory GPU.
-use serde::Serialize;
+// use serde::Serialize;
 
 // VariantParameters is now defined in crate::layout.rs
 /*

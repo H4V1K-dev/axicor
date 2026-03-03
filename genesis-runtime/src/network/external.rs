@@ -28,7 +28,7 @@ pub struct ExternalIoServer {
     // R-STDP Dopamine Modulator (Global Reward Broadcast)
     pub global_dopamine: Arc<std::sync::atomic::AtomicI32>, 
 
-    pub dashboard: Option<Arc<crate::tui::DashboardState>>,
+    pub dashboard: Arc<crate::tui::DashboardState>,
     
     // Mapping: matrix_hash -> offset_in_pinned_words
     pub matrix_offsets: std::collections::HashMap<u32, u32>,
@@ -39,7 +39,7 @@ unsafe impl Send for ExternalIoServer {}
 unsafe impl Sync for ExternalIoServer {}
 
 impl ExternalIoServer {
-    pub async fn new(bind_addr: &str, pinned_input_ptr: *mut u32, max_payload_bytes: usize) -> Self {
+    pub async fn new(bind_addr: &str, pinned_input_ptr: *mut u32, max_payload_bytes: usize, dashboard: Arc<crate::tui::DashboardState>) -> Self {
         let socket = UdpSocket::bind(bind_addr).await.expect("Fatal: Failed to bind UDP I/O socket");
         
         Self {
@@ -48,7 +48,7 @@ impl ExternalIoServer {
             max_payload_bytes,
             new_frame_ready: Arc::new(AtomicUsize::new(0)),
             global_dopamine: Arc::new(std::sync::atomic::AtomicI32::new(0)),
-            dashboard: None,
+            dashboard,
             matrix_offsets: std::collections::HashMap::new(),
         }
     }
@@ -100,12 +100,7 @@ impl ExternalIoServer {
                         self.new_frame_ready.store(1, Ordering::Release);
                         
                         // Debug log for tracking input
-                        if let Some(dash) = &self.dashboard {
-                            dash.udp_in_packets.fetch_add(1, Ordering::Relaxed);
-                        } else {
-                            // Log every 50th packet to avoid spamming too hard, or just log all for debug
-                            // eprintln!("[ExternalIO] Received frame, payload={} bytes", payload_bytes);
-                        }
+                        self.dashboard.udp_in_packets.fetch_add(1, Ordering::Relaxed);
                     }
                 }
                 Err(_) => {
@@ -140,9 +135,6 @@ impl ExternalIoServer {
         let _ = self.socket.send_to(&out_buf, target_addr).await;
         
         eprintln!("[ExternalIO] Sent output batch to {}, {} bytes", target_addr, output_bytes);
-        
-        if let Some(dash) = &self.dashboard {
-            dash.udp_out_packets.fetch_add(1, Ordering::Relaxed);
-        }
+        self.dashboard.udp_out_packets.fetch_add(1, Ordering::Relaxed);
     }
 }

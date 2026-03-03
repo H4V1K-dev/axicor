@@ -28,18 +28,32 @@ impl MasterSeed {
 
 pub const DEFAULT_MASTER_SEED: &str = "GENESIS";
 
-/// Хэшируем строку-сид в u64.
+/// Хэшируем строку-сид в u64 (FNV-1a 64-bit).
 /// Позволяет использовать читаемые сиды: "GENESIS", "DEBUG_RUN_42".
-pub fn seed_from_str(s: &str) -> u64 {
-    wyhash::wyhash(s.as_bytes(), 0)
+pub const fn seed_from_str(s: &str) -> u64 {
+    let bytes = s.as_bytes();
+    let mut hash: u64 = 0xcbf29ce484222325;
+    let mut i = 0;
+    while i < bytes.len() {
+        hash ^= bytes[i] as u64;
+        hash = hash.wrapping_mul(0x00000100000001B3);
+        i += 1;
+    }
+    hash
 }
 
 /// `Local_Seed = Hash(Master_Seed_u64 + Entity_ID)` — §2.2
 ///
-/// Результат не зависит от порядка вызовов: нейрон №5001 всегда одинаков
-/// независимо от того, создали его первым или миллионным.
-pub fn entity_seed(master_seed: u64, entity_id: u32) -> u64 {
-    wyhash::wyhash(&entity_id.to_le_bytes(), master_seed)
+/// Детерминированный stateless-хэш для Entity (WyHash-like 64-bit).
+/// Гарантирует O(1) вычисление свойств сомы независимо от порядка генерации.
+#[inline(always)]
+pub const fn entity_seed(master_seed: u64, entity_id: u32) -> u64 {
+    let seed = master_seed.wrapping_add(entity_id as u64).wrapping_add(0x60bee2bee120fc15);
+    // Выполняем лавинообразное перемешивание битов (Avalanche effect)
+    let mut tmp = (seed as u128).wrapping_mul(0xa3b195354a39b70d);
+    let m1 = (tmp >> 64) ^ tmp;
+    tmp = m1.wrapping_mul(0x1b03738712fad5c9);
+    ((tmp >> 64) ^ tmp) as u64
 }
 
 /// Быстрый псевдослучайный float в диапазоне [0.0, 1.0) из seed.
@@ -49,13 +63,14 @@ pub fn random_f32(seed: u64) -> f32 {
     f32::from_bits(bits) - 1.0
 }
 
-/// Детерминированный shuffle индексов [0..len) через Fisher-Yates + wyhash.
+/// Детерминированный shuffle индексов [0..len) через Fisher-Yates + entity_seed.
 /// Результат бит-в-бит идентичен для одного и того же seed.
 pub fn shuffle_indices(len: usize, seed: u64) -> Vec<usize> {
     let mut indices: Vec<usize> = (0..len).collect();
     let mut s = seed;
     for i in (1..len).rev() {
-        s = wyhash::wyhash(&s.to_le_bytes(), s);
+        // Каскадное хэширование для получения следующего числа
+        s = entity_seed(s, i as u32);
         let j = (s as usize) % (i + 1);
         indices.swap(i, j);
     }

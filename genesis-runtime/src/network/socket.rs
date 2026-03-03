@@ -33,8 +33,8 @@ impl NodeSocket {
     /// Zero-copy send of a SpikeBatch
     pub async fn send_batch(&self, target: SocketAddr, batch_id: u32, events: &[SpikeEvent]) -> Result<()> {
         let header = SpikeBatchHeader {
-            zone_hash: batch_id,
-            count: events.len() as u32,
+            magic: 0x5350494B, // "SPIK"
+            batch_id,
         };
 
         // We construct a single buffer using IoSlice to avoid copying, 
@@ -78,17 +78,15 @@ impl NodeSocket {
         let (header_bytes, body_bytes) = buf.split_at(header_sz);
         let header: &SpikeBatchHeader = bytemuck::from_bytes(header_bytes);
         
-        // Copy out fields from packed struct before referencing
-        let count = header.count;
-        let zone_hash = header.zone_hash;
+        if header.magic != 0x5350494B {
+            bail!("Invalid spike batch magic: {:x}", header.magic);
+        }
         
-        let expected_body_sz = count as usize * std::mem::size_of::<SpikeEvent>();
+        let batch_id = header.batch_id;
+        let expected_body_sz = body_bytes.len() / std::mem::size_of::<SpikeEvent>() * std::mem::size_of::<SpikeEvent>();
         
-        if body_bytes.len() < expected_body_sz {
-            bail!(
-                "Packet truncated. Header claims {} spikes ({} bytes), but body is {} bytes.",
-                count, expected_body_sz, body_bytes.len()
-            );
+        if body_bytes.len() < std::mem::size_of::<SpikeEvent>() && body_bytes.len() > 0 {
+            bail!("Packet truncated. Body is {} bytes.", body_bytes.len());
         }
 
         // We slice strictly what the header claimed (ignoring trailing padding if any)
@@ -97,6 +95,6 @@ impl NodeSocket {
         // Zero-copy cast back to SpikeEvent slice, then clone into a vector.
         let events_slice: &[SpikeEvent] = bytemuck::cast_slice(exact_body_bytes);
         
-        Ok((src_addr, zone_hash, events_slice.to_vec()))
+        Ok((src_addr, batch_id, events_slice.to_vec()))
     }
 }

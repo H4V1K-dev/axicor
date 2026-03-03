@@ -48,9 +48,9 @@ pub fn run_cpu_sprouting(
         let dy = ((packed_dir >> 8) & 0xFF) as i8 as f32 / 127.0;
         let dz = ((packed_dir >> 16) & 0xFF) as i8 as f32 / 127.0;
 
-        let mut ux = tx as f32 * voxel_size_um + dx * axon_growth_step_um;
-        let mut uy = ty as f32 * voxel_size_um + dy * axon_growth_step_um;
-        let mut uz = tz as f32 * voxel_size_um + dz * axon_growth_step_um;
+        let ux = tx as f32 * voxel_size_um + dx * axon_growth_step_um;
+        let uy = ty as f32 * voxel_size_um + dy * axon_growth_step_um;
+        let uz = tz as f32 * voxel_size_um + dz * axon_growth_step_um;
 
         if ux < 0.0 || ux >= world_size_um.0 || uy < 0.0 || uy >= world_size_um.1 || uz < 0.0 || uz >= world_size_um.2 {
              handovers.push(crate::network::slow_path::AxonHandoverEvent {

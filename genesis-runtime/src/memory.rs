@@ -1,4 +1,4 @@
-use genesis_core::layout::{padded_n, StateFileHeader, AxonsFileHeader};
+use genesis_core::layout::{align_to_warp, StateFileHeader, AxonsFileHeader};
 use genesis_core::constants::MAX_DENDRITE_SLOTS;
 use std::ffi::c_void;
 use crate::ffi;
@@ -64,18 +64,37 @@ pub struct VramState {
 impl VramState {
     pub fn load_shard(state_bytes: &[u8], axons_bytes: &[u8], gxi: Option<&crate::input::GxiFile>, gxo: Option<&crate::output::GxoFile>, readout_batch_ticks: u32, input_stride: u32, required_ghost_slots: usize) -> anyhow::Result<Self> {
         let axons_header = AxonsFileHeader::from_bytes(axons_bytes)
-            .map_err(|e| anyhow::anyhow!(e))?;
+            .ok_or_else(|| anyhow::anyhow!("Failed to parse AxonsFileHeader"))?;
         let num_axons = axons_header.total_axons as usize;
 
-        let pa = padded_n(num_axons);
+        let pa = align_to_warp(num_axons);
 
         let state_header = StateFileHeader::from_bytes(state_bytes)
-            .map_err(|e| anyhow::anyhow!(e))?;
+            .ok_or_else(|| anyhow::anyhow!("Failed to parse StateFileHeader"))?;
         
         let pn = state_header.padded_n as usize;
         let dc = MAX_DENDRITE_SLOTS * pn;
 
-        let mut offset = state_header.header_size as usize;
+        // [Fail-Fast] CRC/Size Validation (§1.2.1)
+        // Ensure the .state file is exactly the size we expect for SoA loading.
+        // Layout: Header(32) + Voltage(4) + Flags(1) + Threshold(4) + RefTimer(1) + SomaToAxon(4)
+        //         + DendriteTargets(4) + Weights(2) + DendriteTimers(1) + AxonHeads(4)
+        // All arrays are padded to 'pn' (Neurons) or 'pa' (Axons) or 'dc' (Dendrites).
+        let expected_size = std::mem::size_of::<StateFileHeader>() 
+            + (pn * 4) + (pn * 1) + (pn * 4) + (pn * 1) + (pn * 4) // Somas
+            + (dc * 4) + (dc * 2) + (dc * 1)                      // Dendrites
+            + (pa * 4);                                          // Axons (Heads)
+
+        if state_bytes.len() < expected_size {
+            panic!(
+                "CRITICAL: Binary file size mismatch! \
+                Manifest/Header claims {} axons ({} bytes), but .state file is only {} bytes. \
+                The Baker Daemon failed to pad the SoA arrays. RE-RUN BAKER!",
+                pa, expected_size, state_bytes.len()
+            );
+        }
+
+        let mut offset = std::mem::size_of::<StateFileHeader>();
         // --- Inject Inputs Context ---
         let mut map_pixel_to_axon = std::ptr::null_mut();
         let mut num_pixels = 0;
@@ -299,12 +318,8 @@ impl VramState {
     pub fn run_sort_and_prune(&self, prune_threshold: i16) {
         unsafe {
             ffi::launch_sort_and_prune(
-                self.padded_n as u32,
-                self.dendrite_targets,
-                self.dendrite_weights,
-                self.dendrite_refractory, // Using timers
+                self.to_layout(),
                 prune_threshold,
-                std::ptr::null_mut()
             );
         }
     }
@@ -414,6 +429,26 @@ impl VramState {
 
     /// Uploads a bitmask array to GPU memory. Used for External Virtual Axons.
     /// Bitmask must be accurately sized: ((num_pixels + 31)/32) u32s times batch size.
+    pub fn to_layout(&self) -> genesis_core::layout::VramState {
+        genesis_core::layout::VramState {
+            padded_n: self.padded_n as u32,
+            total_axons: self.total_axons as u32,
+            voltage: self.voltage as *mut i32,
+            flags: self.flags as *mut u8,
+            threshold_offset: self.threshold_offset as *mut i32,
+            refractory_timer: self.refractory_timer as *mut u8,
+            soma_to_axon: self.soma_to_axon as *mut u32,
+            dendrite_targets: self.dendrite_targets as *mut u32,
+            dendrite_weights: self.dendrite_weights as *mut i16,
+            dendrite_timers: self.dendrite_refractory as *mut u8,
+            axon_heads: self.axon_head_index as *mut u32,
+            input_bitmask: self.input_bitmask_buffer as *mut u32,
+            output_history: self.output_history as *mut u8,
+            telemetry_count: self.telemetry_count as *mut u32,
+            telemetry_spikes: self.telemetry_spikes as *mut u32,
+        }
+    }
+
     pub fn upload_input_bitmask(&self, bitmask: &[u32], num_ticks: usize) -> anyhow::Result<()> {
         if self.num_pixels == 0 {
             return Ok(());
@@ -593,11 +628,11 @@ mod tests {
 
     #[test]
     fn test_axon_allocation_with_ghosts() {
-        // Test that total_axons = padded_n(base_axons) + required_ghost_slots
+        // Test that total_axons = align_to_warp(base_axons) + required_ghost_slots
         let base_axons = 1024usize;
         let required_ghosts = 5usize;
         
-        let base_padded = padded_n(base_axons);
+        let base_padded = align_to_warp(base_axons);
         let total_expected = base_padded + required_ghosts;
         
         // With required_ghost_slots = 5, we should allocate base_padded + 5 slots
@@ -611,7 +646,7 @@ mod tests {
     fn test_small_required_ghosts() {
         let required_ghosts = 0usize;
         let base_axons = 100usize;
-        let base_padded = padded_n(base_axons);
+        let base_padded = align_to_warp(base_axons);
         
         // With 0 required ghosts, still allocate the padded base
         let total = base_padded + required_ghosts;
@@ -622,9 +657,361 @@ mod tests {
     fn test_large_required_ghosts() {
         let required_ghosts = 10000usize;
         let base_axons = 5598usize;
-        let base_padded = padded_n(base_axons);
-        
+        let base_padded = align_to_warp(base_axons);
+
         let total = base_padded + required_ghosts;
         assert_eq!(total, base_padded + required_ghosts);
+    }
+}
+
+// =============================================================================
+// PinnedBuffer<T> — Page-Locked Host Memory
+// =============================================================================
+//
+// Pinned (page-locked) memory is the prerequisite for true async DMA.
+// When cudaMemcpyAsync receives a *pageable* src/dst pointer, the NVIDIA
+// driver silently allocates a staging pinned buffer, does a synchronous
+// memcpy into it, and THEN starts the DMA.  That hidden sync kills the
+// Tokio thread and destroys BSP timing.
+//
+// Contract (spec §1.0): every host buffer that participates in H↔D transfer
+// MUST be allocated with cudaMallocHost (= ffi::gpu_host_alloc).
+//
+// PinnedBuffer<T> owns a flat typed array in pinned memory.
+// No Vec<T> is ever created on the DMA-critical path.
+
+pub struct PinnedBuffer<T> {
+    ptr: *mut T,
+    len: usize,
+}
+
+unsafe impl<T: Send> Send for PinnedBuffer<T> {}
+unsafe impl<T: Sync> Sync for PinnedBuffer<T> {}
+
+impl<T> PinnedBuffer<T> {
+    /// Allocate `len` elements of `T` in page-locked host memory.
+    ///
+    /// In mock-gpu mode `gpu_host_alloc` delegates to `libc::malloc`, so
+    /// tests run without a CUDA installation.
+    pub fn new(len: usize) -> Result<Self, String> {
+        if len == 0 {
+            return Ok(Self { ptr: std::ptr::NonNull::dangling().as_ptr(), len: 0 });
+        }
+        let size = len * std::mem::size_of::<T>();
+        let ptr = unsafe { crate::ffi::gpu_host_alloc(size) as *mut T };
+        if ptr.is_null() {
+            return Err(format!(
+                "PinnedBuffer::new — gpu_host_alloc failed ({} bytes)", size
+            ));
+        }
+        Ok(Self { ptr, len })
+    }
+
+    #[inline(always)] pub fn len(&self) -> usize { self.len }
+    #[inline(always)] pub fn is_empty(&self) -> bool { self.len == 0 }
+
+    /// Raw pointer — pass to cudaMemcpyAsync as host src/dst.
+    #[inline(always)] pub fn as_ptr(&self) -> *const T { self.ptr }
+    #[inline(always)] pub fn as_mut_ptr(&mut self) -> *mut T { self.ptr }
+
+    #[inline(always)]
+    pub fn as_slice(&self) -> &[T] {
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
+
+    #[inline(always)]
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) }
+    }
+}
+
+impl<T> Drop for PinnedBuffer<T> {
+    fn drop(&mut self) {
+        if self.len > 0 {
+            // cudaFreeHost in production; libc::free in mock.
+            unsafe { crate::ffi::gpu_host_free(self.ptr as *mut std::ffi::c_void) };
+        }
+    }
+}
+
+// =============================================================================
+// DeviceSoA — VRAM Bootstrapper
+// =============================================================================
+//
+// DeviceSoA takes the CPU-side `ShardStateSoA` produced by the Baker and
+// uploads each flat array into video memory via cudaMalloc + cudaMemcpy.
+// The resulting `VramState` holds raw device pointers passed verbatim to
+// every CUDA kernel.
+//
+// Rules:
+//  • No Vec<T> on the hot upload path — arrays are &[T] slices from ShardStateSoA.
+//  • Every device allocation is recorded in `raw_ptrs` for deallocation on Drop.
+//  • Upload is synchronous (cudaMemcpy, not Async) so no stream tracking needed.
+
+pub struct DeviceSoA {
+    /// CUDA-compatible view (raw device pointers).
+    pub state: genesis_core::layout::VramState,
+    /// Every cudaMalloc'd pointer — freed in Drop.
+    raw_ptrs: Vec<*mut std::ffi::c_void>,
+}
+
+unsafe impl Send for DeviceSoA {}
+unsafe impl Sync for DeviceSoA {}
+
+impl DeviceSoA {
+    /// Boot a zone from a Baker-generated `ShardStateSoA`.
+    ///
+    /// # Safety
+    /// All raw GPU allocations happen here. In mock-gpu mode all FFI calls
+    /// are synchronous host-side memcpy, so tests pass without a GPU.
+    pub unsafe fn boot_from_host(
+        host_soa: &genesis_core::layout::ShardStateSoA,
+    ) -> Result<Self, String> {
+        let mut raw_ptrs: Vec<*mut std::ffi::c_void> = Vec::with_capacity(8);
+
+        // Inline helper: cudaMalloc + cudaMemcpy, push ptr into allocation list.
+        macro_rules! upload {
+            ($slice:expr, $ty:ty) => {{
+                let bytes = $slice.len() * std::mem::size_of::<$ty>();
+                let dev = crate::ffi::gpu_malloc(bytes);
+                if dev.is_null() {
+                    return Err(format!(
+                        "DeviceSoA — gpu_malloc failed ({} bytes for {})",
+                        bytes,
+                        stringify!($ty)
+                    ));
+                }
+                raw_ptrs.push(dev);
+                let ok = crate::ffi::gpu_memcpy_host_to_device(
+                    dev,
+                    $slice.as_ptr() as *const std::ffi::c_void,
+                    bytes,
+                );
+                if !ok {
+                    return Err(format!(
+                        "DeviceSoA — gpu_memcpy_host_to_device failed ({} bytes)",
+                        bytes
+                    ));
+                }
+                dev
+            }};
+        }
+
+        let pn = host_soa.padded_n;
+        let dc = genesis_core::constants::MAX_DENDRITE_SLOTS * pn;
+
+        let d_voltage          = upload!(host_soa.voltage,          i32) as *mut i32;
+        let d_flags            = upload!(host_soa.flags,            u8)  as *mut u8;
+        let d_threshold_offset = upload!(host_soa.threshold_offset, i32) as *mut i32;
+        let d_refractory_timer = upload!(host_soa.refractory_timer, u8)  as *mut u8;
+        let d_dendrite_targets = upload!(host_soa.dendrite_targets, u32) as *mut u32;
+        let d_dendrite_weights = upload!(host_soa.dendrite_weights, i16) as *mut i16;
+        let d_dendrite_timers  = upload!(host_soa.dendrite_timers,  u8)  as *mut u8;
+        let d_axon_heads       = upload!(host_soa.axon_heads,       u32) as *mut u32;
+
+        // Sanity assertions — catch layout mismatches at boot time.
+        debug_assert_eq!(host_soa.dendrite_targets.len(), dc);
+        debug_assert_eq!(host_soa.dendrite_weights.len(), dc);
+        debug_assert_eq!(host_soa.dendrite_timers.len(),  dc);
+
+        let state = genesis_core::layout::VramState {
+            padded_n:         pn as u32,
+            total_axons:      host_soa.axon_heads.len() as u32,
+            voltage:          d_voltage,
+            flags:            d_flags,
+            threshold_offset: d_threshold_offset,
+            refractory_timer: d_refractory_timer,
+            soma_to_axon:     std::ptr::null_mut(),
+            dendrite_targets: d_dendrite_targets,
+            dendrite_weights: d_dendrite_weights,
+            dendrite_timers:  d_dendrite_timers,
+            axon_heads:       d_axon_heads,
+            input_bitmask:    std::ptr::null_mut(),
+            output_history:   std::ptr::null_mut(),
+            telemetry_count:  std::ptr::null_mut(),
+            telemetry_spikes: std::ptr::null_mut(),
+        };
+
+        Ok(Self { state, raw_ptrs })
+    }
+
+    /// Boot a zone from raw host pointers (e.g. from mmap).
+    /// Used for Hot Standby recovery.
+    pub unsafe fn boot_from_raw_parts(
+        padded_n: usize,
+        total_axons: usize,
+        voltage: *const i32,
+        flags: *const u8,
+        threshold_offset: *const i32,
+        refractory_timer: *const u8,
+        soma_to_axon: *const u32,
+        dendrite_targets: *const u32,
+        dendrite_weights: *const i16,
+        dendrite_timers: *const u8,
+        axon_heads: *const u32,
+    ) -> Result<Self, String> {
+        let mut raw_ptrs: Vec<*mut std::ffi::c_void> = Vec::with_capacity(8);
+
+        macro_rules! upload_raw {
+            ($ptr:expr, $len:expr, $ty:ty) => {{
+                let bytes = $len * std::mem::size_of::<$ty>();
+                let dev = crate::ffi::gpu_malloc(bytes);
+                if dev.is_null() {
+                    return Err(format!("DeviceSoA::boot_from_raw_parts failed gpu_malloc"));
+                }
+                raw_ptrs.push(dev);
+                crate::ffi::gpu_memcpy_host_to_device(dev, $ptr as *const _, bytes);
+                dev
+            }};
+        }
+
+        let dc = genesis_core::constants::MAX_DENDRITE_SLOTS * padded_n;
+        
+        let d_voltage = upload_raw!(voltage, padded_n, i32) as *mut i32;
+        let d_flags = upload_raw!(flags, padded_n, u8) as *mut u8;
+        let d_threshold_offset = upload_raw!(threshold_offset, padded_n, i32) as *mut i32;
+        let d_refractory_timer = upload_raw!(refractory_timer, padded_n, u8) as *mut u8;
+        let d_soma_to_axon = upload_raw!(soma_to_axon, padded_n, u32) as *mut u32;
+        let d_dendrite_targets = upload_raw!(dendrite_targets, dc, u32) as *mut u32;
+        let d_dendrite_weights = upload_raw!(dendrite_weights, dc, i16) as *mut i16;
+        let d_dendrite_timers = upload_raw!(dendrite_timers, dc, u8) as *mut u8;
+        let d_axon_heads = upload_raw!(axon_heads, total_axons, u32) as *mut u32;
+
+        let state = genesis_core::layout::VramState {
+            padded_n: padded_n as u32,
+            total_axons: total_axons as u32,
+            voltage: d_voltage,
+            flags: d_flags,
+            threshold_offset: d_threshold_offset,
+            refractory_timer: d_refractory_timer,
+            soma_to_axon: d_soma_to_axon,
+            dendrite_targets: d_dendrite_targets,
+            dendrite_weights: d_dendrite_weights,
+            dendrite_timers: d_dendrite_timers,
+            axon_heads: d_axon_heads,
+            input_bitmask: std::ptr::null_mut(),
+            output_history: std::ptr::null_mut(),
+            telemetry_count: std::ptr::null_mut(),
+            telemetry_spikes: std::ptr::null_mut(),
+        };
+
+        Ok(Self { state, raw_ptrs })
+    }
+}
+
+impl Drop for DeviceSoA {
+    fn drop(&mut self) {
+        // Free in LIFO order — mirrors typical CUDA resource teardown.
+        for &ptr in self.raw_ptrs.iter().rev() {
+            unsafe { crate::ffi::gpu_free(ptr) };
+        }
+    }
+}
+
+// =============================================================================
+// PinnedBuffer / DeviceSoA tests
+// =============================================================================
+
+#[cfg(test)]
+mod pinned_device_tests {
+    use super::*;
+    use genesis_core::layout::ShardStateSoA;
+
+    /// Allocation, write, read-back, and Drop via gpu_host_free.
+    #[test]
+    fn test_pinned_buffer() {
+        let len = 256usize;
+        let mut buf: PinnedBuffer<u32> = PinnedBuffer::new(len).expect("alloc");
+
+        assert_eq!(buf.len(), len);
+        assert!(!buf.is_empty());
+        assert!(!buf.as_ptr().is_null());
+
+        // Write sentinel pattern (no Vec involved).
+        for (i, v) in buf.as_mut_slice().iter_mut().enumerate() {
+            *v = (i as u32).wrapping_mul(0xDEAD_BEEF);
+        }
+
+        // Read-back — verifies no silent truncation or misalignment.
+        for (i, &v) in buf.as_slice().iter().enumerate() {
+            assert_eq!(
+                v,
+                (i as u32).wrapping_mul(0xDEAD_BEEF),
+                "PinnedBuffer[{}] mismatch", i
+            );
+        }
+
+        // as_ptr and as_mut_ptr must agree.
+        assert_eq!(buf.as_ptr() as usize, buf.as_mut_ptr() as usize);
+
+        // Drop at end of scope → gpu_host_free must not segfault.
+    }
+
+    /// Smaller element type smoke test.
+    #[test]
+    fn test_pinned_buffer_i16() {
+        let mut buf: PinnedBuffer<i16> = PinnedBuffer::new(64).expect("alloc");
+        for (i, v) in buf.as_mut_slice().iter_mut().enumerate() {
+            *v = i as i16;
+        }
+        assert_eq!(buf.as_slice()[63], 63);
+    }
+
+    /// Empty buffer is legal and must not segfault on Drop.
+    #[test]
+    fn test_pinned_buffer_zero_len() {
+        let buf: PinnedBuffer<u32> = PinnedBuffer::new(0).expect("zero-len alloc");
+        assert!(buf.is_empty());
+        assert_eq!(buf.len(), 0);
+        // Drop — no gpu_host_free called (guarded by len > 0 check).
+    }
+
+    /// boot_from_host uploads all SoA fields, VramState reflects correct sizes,
+    /// and a device→host round-trip preserves voltage sentinel values.
+    #[test]
+    fn test_device_soa_boot() {
+        let n      = 64usize;
+        let n_axon = 128usize;
+
+        let mut host_soa = ShardStateSoA::new(n, n_axon);
+
+        // Write sentinel into voltage.
+        for (i, v) in host_soa.voltage.iter_mut().enumerate() {
+            *v = (i as i32).wrapping_mul(1337);
+        }
+
+        let device = unsafe {
+            DeviceSoA::boot_from_host(&host_soa).expect("boot_from_host")
+        };
+
+        // Structural invariants.
+        assert_eq!(device.state.padded_n   as usize, host_soa.padded_n,
+                   "padded_n mismatch");
+        assert_eq!(device.state.total_axons as usize, n_axon,
+                   "total_axons mismatch");
+        assert!(!device.state.voltage.is_null(),     "voltage null");
+        assert!(!device.state.axon_heads.is_null(),  "axon_heads null");
+        assert!(!device.state.dendrite_weights.is_null(), "dw null");
+
+        // Round-trip: copy device voltage back to host and verify sentinel.
+        let mut readback = vec![0i32; host_soa.padded_n];
+        let ok = unsafe {
+            crate::ffi::gpu_memcpy_device_to_host(
+                readback.as_mut_ptr() as *mut std::ffi::c_void,
+                device.state.voltage as *const std::ffi::c_void,
+                host_soa.padded_n * std::mem::size_of::<i32>(),
+            )
+        };
+        assert!(ok, "device→host copy failed");
+
+        for (i, &v) in readback.iter().enumerate() {
+            assert_eq!(
+                v,
+                (i as i32).wrapping_mul(1337),
+                "voltage[{}] round-trip mismatch", i
+            );
+        }
+
+        // Drop frees 8 raw_ptrs in LIFO order — no segfault = success.
     }
 }

@@ -13,6 +13,9 @@ pub mod mock_ffi;
 pub mod orchestrator;
 pub mod zone_runtime;
 pub mod sentinel;
+pub mod compute;
+pub mod node;
+pub mod boot;
 
 use memory::VramState;
 use std::ptr;

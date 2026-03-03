@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use crate::layout::VariantParameters;
-use std::fmt;
+// use crate::layout::VariantParameters;
+// use std::fmt;
 
 /// 1. DTO: Читается из manifest.toml. Содержит String, живет в куче (Heap).
 /// Ни в коем случае не передается по сырому указателю в C++!

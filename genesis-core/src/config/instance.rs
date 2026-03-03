@@ -4,7 +4,7 @@ use std::fs;
 
 /// Configures exactly *what* piece of the brain this node simulates, 
 /// and *where* its neighbors are located.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct InstanceConfig {
     /// Reference to the zone folder name (e.g. "V1")
     pub zone_id: String,
@@ -20,21 +20,21 @@ pub struct InstanceConfig {
     pub neighbors: Neighbors,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct Coordinate {
     pub x: u32,
     pub y: u32,
     pub z: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct Dimensions {
     pub w: u32,
     pub d: u32,
     pub h: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct Neighbors {
     pub x_plus: Option<String>,
     pub x_minus: Option<String>,

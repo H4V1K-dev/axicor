@@ -1,87 +1,42 @@
-// genesis-runtime/src/tui/app.rs
+use crate::tui::DashboardState;
 use std::sync::Arc;
 use std::time::Duration;
-use crossterm::{
-    event::{self, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use ratatui::{
-    backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
-    widgets::{Block, Borders, Paragraph},
-    Terminal,
-};
-use super::DashboardState;
 
-pub fn run_tui_thread(state: Arc<DashboardState>) {
-    std::thread::spawn(move || {
-        enable_raw_mode().unwrap();
-        let mut stdout = std::io::stdout();
-        execute!(stdout, EnterAlternateScreen).unwrap();
-        let backend = CrosstermBackend::new(stdout);
-        let mut terminal = Terminal::new(backend).unwrap();
+/// The Dashboard UI Application.
+/// In this MVP, it serves as a background thread that prints the state
+/// to the terminal if TUI is enabled, or simply holds the state.
+pub struct DashboardApp {
+    pub state: Arc<DashboardState>,
+}
 
-        loop {
-            terminal.draw(|f| {
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([
-                        Constraint::Length(3),
-                        Constraint::Min(10),
-                    ].as_ref())
-                    .split(f.size());
+impl DashboardApp {
+    pub fn new(state: Arc<DashboardState>) -> Self {
+        Self { state }
+    }
 
-                // Читаем атомики (Zero-cost snapshot)
-                let ticks = state.total_ticks.load(std::sync::atomic::Ordering::Relaxed);
-                let nights = state.night_count.load(std::sync::atomic::Ordering::Relaxed);
-                let is_night = state.is_night_phase.load(std::sync::atomic::Ordering::Relaxed);
-                let batch_ms = state.latest_batch_ms.load(std::sync::atomic::Ordering::Relaxed);
-                let udp_in = state.udp_in_packets.load(std::sync::atomic::Ordering::Relaxed);
-                let udp_out = state.udp_out_packets.load(std::sync::atomic::Ordering::Relaxed);
-
-                let phase_str = if is_night { "🌙 NIGHT PHASE (Maintenance)" } else { "☀️ DAY PHASE (Hot Loop)" };
-                let phase_color = if is_night { Color::Yellow } else { Color::Cyan };
-
-                let header_text = format!(
-                    " Genesis AGI Engine | Phase: {} | Ticks: {} | Nights: {} | UDP In: {} | UDP Out: {}",
-                    phase_str, ticks, nights, udp_in, udp_out
-                );
-
-                let header = Paragraph::new(header_text)
-                    .style(Style::default().fg(phase_color))
-                    .block(Block::default().borders(Borders::ALL).title(" Global State "));
-                f.render_widget(header, chunks[0]); // changed from `chunks` to `chunks[0]`
-
-                let perf_text = format!(
-                    "Last Batch Time: {} ms\nThroughput: {} ticks/sec\n\n[Press 'q' to gracefully shutdown]",
-                    batch_ms,
-                    if batch_ms > 0 { (100 * 1000) / batch_ms } else { 0 } // предполагая sync_batch_ticks = 1000? Let's just do an approx
-                );
-
-                let perf = Paragraph::new(perf_text)
-                    .block(Block::default().borders(Borders::ALL).title(" Core Loop Performance "));
-                f.render_widget(perf, chunks[1]);
-            }).unwrap();
-
-            // Опрос клавиатуры (non-blocking)
-            if event::poll(Duration::from_millis(200)).unwrap() {
-                if let Event::Key(key) = event::read().unwrap() {
-                    if let KeyCode::Char('q') = key.code {
-                        break;
-                    }
-                }
-            }
+    /// Spawns the TUI rendering loop.
+    /// [Stub] For now, it just sleeps and waits for events. 
+    /// Rendering using Ratatui will be added in the final pass.
+    pub fn spawn(self) {
+        let state = self.state.clone();
+        if !state.use_tui {
+            return;
         }
 
-        // Cleanup
-        disable_raw_mode().unwrap();
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen
-        ).unwrap();
-        terminal.show_cursor().unwrap();
-        std::process::exit(0); // Жесткий выход при нажатии 'q'
-    });
+        tokio::spawn(async move {
+            println!("[Dashboard] TUI Initialized. Monitoring hot loop...");
+            
+            loop {
+                // Future: Ratatui terminal.draw() here
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                
+                // For debug: occasionally print ticks to show it's alive
+                let ticks = state.total_ticks.load(std::sync::atomic::Ordering::Relaxed);
+                if ticks % 1000 == 0 && ticks > 0 {
+                    // We don't want to spam stdout here, 
+                    // but we can see the throughput atomics working.
+                }
+            }
+        });
+    }
 }

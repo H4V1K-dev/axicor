@@ -46,13 +46,14 @@ pub struct ShardBounds {
 impl ShardBounds {
     /// Единый шард = весь мировой объём. Ghost Packets генерироваться не будут.
     pub fn full_world(sim: &SimulationConfig) -> Self {
+        let voxel_um = sim.simulation.voxel_size_um;
         Self {
             x_start: 0,
-            x_end: sim.world.width_um / sim.simulation.voxel_size_um,
+            x_end: (sim.world.width_um as f32 / voxel_um) as u32,
             y_start: 0,
-            y_end: sim.world.depth_um / sim.simulation.voxel_size_um,
+            y_end: (sim.world.depth_um as f32 / voxel_um) as u32,
             z_start: 0,
-            z_end: sim.world.height_um / sim.simulation.voxel_size_um,
+            z_end: (sim.world.height_um as f32 / voxel_um) as u32,
         }
     }
 
@@ -89,7 +90,7 @@ pub struct GhostPacket {
 /// Предвычисляет Z-диапазоны всех слоёв в вокселях.
 pub fn compute_layer_ranges(anatomy: &Anatomy, sim: &SimulationConfig) -> Vec<LayerZRange> {
     let voxel_um = sim.simulation.voxel_size_um;
-    let world_h_vox = sim.world.height_um / voxel_um;
+    let world_h_vox = (sim.world.height_um as f32 / voxel_um) as u32;
     let mut cursor_pct = 0.0f32;
     let mut ranges = Vec::with_capacity(anatomy.layers.len());
     for layer in &anatomy.layers {
@@ -129,9 +130,10 @@ pub fn grow_axons(
     shard_bounds: &ShardBounds,
     master_seed: u64,
 ) -> (Vec<GrownAxon>, Vec<GhostPacket>) {
-    let world_w_vox = sim.world.width_um / sim.simulation.voxel_size_um;
-    let world_d_vox = sim.world.depth_um / sim.simulation.voxel_size_um;
-    let world_h_vox = sim.world.height_um / sim.simulation.voxel_size_um;
+    let voxel_um = sim.simulation.voxel_size_um;
+    let world_w_vox = (sim.world.width_um as f32 / voxel_um) as u32;
+    let world_d_vox = (sim.world.depth_um as f32 / voxel_um) as u32;
+    let world_h_vox = (sim.world.height_um as f32 / voxel_um) as u32;
 
     use rayon::prelude::*;
 
@@ -415,9 +417,10 @@ pub fn inject_ghost_axons(
     shard_bounds: &ShardBounds,
     master_seed: u64,
 ) -> (Vec<GrownAxon>, Vec<GhostPacket>) {
-    let world_w_vox = sim.world.width_um / sim.simulation.voxel_size_um;
-    let world_d_vox = sim.world.depth_um / sim.simulation.voxel_size_um;
-    let world_h_vox = sim.world.height_um / sim.simulation.voxel_size_um;
+    let voxel_um = sim.simulation.voxel_size_um;
+    let world_w_vox = (sim.world.width_um as f32 / voxel_um) as u32;
+    let world_d_vox = (sim.world.depth_um as f32 / voxel_um) as u32;
+    let world_h_vox = (sim.world.height_um as f32 / voxel_um) as u32;
     let segment_length_vox = sim.simulation.segment_length_voxels as f32;
 
     let max_search_radius_vox = sim.simulation.segment_length_voxels as f32 * 3.0;
@@ -581,7 +584,8 @@ mod tests {
     #[test]
     fn test_inject_empty_packets() {
         let neurons: Vec<PlacedNeuron> = vec![];
-        use genesis_core::config::blueprints::{GenesisConstantMemory, VariantParameters};
+        use genesis_core::layout::{VariantParameters};
+        use genesis_core::config::blueprints::{GenesisConstantMemory};
         let empty_const_mem = GenesisConstantMemory {
             variants: [VariantParameters {
                 threshold: 0, rest_potential: 0, leak_rate: 0, homeostasis_penalty: 0,
@@ -589,7 +593,7 @@ mod tests {
                 signal_propagation_length: 0, conduction_velocity: 0,
                 slot_decay_ltm: 0, slot_decay_wm: 0,
                 refractory_period: 0, synapse_refractory_period: 0,
-                inertia_curve: [0; 16], _reserved: [0; 16],
+                ..VariantParameters::default()
             }; 16],
         };
         let toml = r#"
@@ -603,8 +607,8 @@ mod tests {
             total_ticks = 1000
             master_seed = "TEST"
             global_density = 0.05
-            voxel_size_um = 25
-            signal_speed_um_tick = 50
+            voxel_size_um = 25.0
+            signal_speed_m_s = 0.5
             sync_batch_ticks = 10
         "#;
         let sim = SimulationConfig::parse(toml).unwrap();
