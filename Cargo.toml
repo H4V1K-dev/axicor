@@ -2,8 +2,8 @@
 members = [
     "genesis-core",
     "genesis-baker",
-    "genesis-runtime",
-    "genesis-ide",
+    
+    "genesis-ide", "genesis-compute", "genesis-node",
 ]
 resolver = "2"
 

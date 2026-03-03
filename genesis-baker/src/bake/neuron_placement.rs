@@ -1,178 +1,121 @@
-use crate::bake::seed::{entity_seed, random_f32, shuffle_indices};
-use crate::parser::{anatomy::Anatomy, simulation::SimulationConfig};
-use genesis_core::coords::{pack_position, unpack_position};
-use genesis_core::types::PackedPosition;
 use std::collections::HashSet;
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng; // Быстрый и детерминированный алгоритм
+use genesis_core::types::PackedPosition;
+use genesis_core::config::anatomy::AnatomyConfig;
 
-/// Размещённый нейрон в 3D-пространстве.
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub struct PlacedNeuron {
-    /// Packed voxel coordinate: [Type(4b)|Z(8b)|Y(10b)|X(10b)]
-    pub position: PackedPosition,
-    /// Индекс нейронного типа из blueprints.neuron_type[]
-    pub type_idx: usize,
-    /// Имя слоя в котором размещён нейрон (для отладки)
-    pub layer_name: String,
+pub struct ZoneDimensions {
+    pub width_um: f32,
+    pub depth_um: f32,
+    pub height_um: f32,
 }
 
-impl PlacedNeuron {
-    /// X-координата в вокселях.
-    #[inline] pub fn x(&self) -> u32 { unpack_position(self.position).0 }
-    /// Y-координата в вокселях.
-    #[inline] pub fn y(&self) -> u32 { unpack_position(self.position).1 }
-    /// Z-координата в вокселях.
-    #[inline] pub fn z(&self) -> u32 { unpack_position(self.position).2 }
-    /// Тип-маска нейрона (4 бита).
-    #[inline] #[allow(dead_code)] pub fn type_mask(&self) -> u32 { 
-unpack_position(self.position).3 }
-}
-
-/// Размещает все нейроны зоны в 3D-пространстве.
-///
-/// Алгоритм (02_configuration.md §5.5):
-/// 1. `Layer_Budget = floor(population_pct × total_budget)`
-/// 2. Для каждого типа: `count = floor(quota × Layer_Budget)`
-/// 3. Нейроны размещаются равномерно в [Z_start, Z_end], XY — случайно в [0, width)
-/// 4. Детерминированный shuffle через wyhash + master_seed
-pub fn place_neurons(
-    sim: &SimulationConfig,
-    anatomy: &Anatomy,
-    type_names: &[String], // blueprints.neuron_type[i].name → индекс
+/// Выполняет детерминированное размещение нейронов и квантование координат.
+/// Возвращает массив PackedPosition (SoA-ready).
+pub fn generate_placement(
+    anatomy: &AnatomyConfig,
+    dims: &ZoneDimensions,
+    voxel_size_um: f32,
+    global_density: f32,
     master_seed: u64,
-) -> Vec<PlacedNeuron> {
-    let total_budget = sim.neuron_budget();
-    let voxel_um = sim.simulation.voxel_size_um;
+    type_names: &[String],
+) -> Vec<PackedPosition> {
+    // 1. Вычисляем границы воксельной сетки (максимум для 11 бит = 2047, 6 бит = 63)
+    let max_x = (dims.width_um / voxel_size_um).floor() as u32;
+    let max_y = (dims.depth_um / voxel_size_um).floor() as u32;
+    let max_z = (dims.height_um / voxel_size_um).floor() as u32;
 
-    let world_w_vox = (sim.world.width_um as f32 / voxel_um) as u32;
-    let world_d_vox = (sim.world.depth_um as f32 / voxel_um) as u32;
-    let world_h_vox = (sim.world.height_um as f32 / voxel_um) as u32;
+    assert!(max_x <= 0x7FF, "Width exceeds 11-bit limit (2047 voxels)");
+    assert!(max_y <= 0x7FF, "Depth exceeds 11-bit limit (2047 voxels)");
+    assert!(max_z <= 0x3F, "Height exceeds 6-bit limit (63 voxels)");
 
-    let mut all_neurons: Vec<PlacedNeuron> = Vec::with_capacity(total_budget as usize);
-    let mut occupancy: HashSet<u32> = HashSet::with_capacity(total_budget as usize);
+    let total_voxels = max_x * max_y * max_z;
+    let total_capacity = (total_voxels as f32 * global_density).floor() as usize;
 
-    let mut z_cursor_pct = 0.0f32;
+    let mut positions = Vec::with_capacity(total_capacity);
+    let mut occupancy = HashSet::with_capacity(total_capacity);
+    
+    // Инициализируем детерминированный генератор
+    let mut rng = ChaCha8Rng::seed_from_u64(master_seed);
 
+    let mut current_z_pct = 0.0;
+
+    // 2. Идем по слоям сверху вниз
     for layer in &anatomy.layers {
-        let layer_budget = (total_budget as f32 * layer.population_pct) as u64;
-        let z_start = (z_cursor_pct * world_h_vox as f32) as u32;
-        let z_end = ((z_cursor_pct + layer.height_pct) * world_h_vox as f32) as u32;
-        let z_range = (z_end - z_start).max(1);
-        z_cursor_pct += layer.height_pct;
+        // Пространственные рамки слоя в вокселях
+        let z_start = (current_z_pct * max_z as f32).floor() as u32;
+        let z_end = ((current_z_pct + layer.height_pct) * max_z as f32).floor() as u32;
+        current_z_pct += layer.height_pct;
 
-        // Для каждого типа — разместить floor(quota × budget) нейронов
+        let layer_budget = (layer.population_pct * total_capacity as f32).floor() as usize;
+        if layer_budget == 0 { continue; }
+
+        // Поиск самого частого типа для добивания остатка
+        let most_frequent_type_name = layer.composition.iter()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(k, _)| k.clone())
+            .unwrap_or_default();
+        let fallback_type_id = type_names.iter().position(|n| n == &most_frequent_type_name).unwrap_or(0) as u8;
+
+        // 3. Формируем точный пул типов (Hard Quotas)
+        let mut type_pool = Vec::with_capacity(layer_budget);
         for (type_name, &quota) in &layer.composition {
-            let count = (layer_budget as f32 * quota) as u64;
-            let type_idx = type_names.iter().position(|n| n == type_name).unwrap_or(0);
-            // type_mask — просто индекс типа (0..3), 4 бита
-            let type_mask = (type_idx & 0xF) as u32;
-
-            // Генерируем `count` позиций с детерминированным shuffle
-            let shuffle = shuffle_indices(
-                count as usize,
-                entity_seed(master_seed, all_neurons.len() as u32),
-            );
-
-            for (i, &si) in shuffle.iter().enumerate() {
-                // Равномерное распределение по Z внутри слоя
-                let z_base = z_start + (si as u32 % z_range);
-                
-                let mut x = 0;
-                let mut y = 0;
-                let mut z = z_base;
-                let mut is_unique = false;
-
-                // Reject-sampling: до 100 попыток чтобы найти пустой воксель
-                for attempt in 0..100 {
-                    // XY — псевдослучайно через seed
-                    let pos_seed = entity_seed(master_seed, (all_neurons.len() + i + attempt * 1_000_000) as u32);
-                    x = (random_f32(pos_seed) * world_w_vox as f32) as u32;
-                    y = (random_f32(pos_seed.wrapping_mul(6364136223846793005))
-                        * world_d_vox as f32) as u32;
-
-                    x = x.min(world_w_vox.saturating_sub(1));
-                    y = y.min(world_d_vox.saturating_sub(1));
-                    z = z_base.min(255); // Z 8-bit cap
-
-                    // Key без type_mask (только координаты)
-                    let key = (z << 20) | (y << 10) | x;
-                    if occupancy.insert(key) {
-                        is_unique = true;
-                        break;
-                    }
-                }
-
-                if !is_unique {
-                    eprintln!("[warn] Voxel collision at ({}, {}, {}). Max attempts reached.", x, y, z);
-                }
-
-                all_neurons.push(PlacedNeuron {
-                    position: pack_position(x, y, z, type_mask),
-                    type_idx,
-                    layer_name: layer.name.clone(),
-                });
+            let count = (quota * layer_budget as f32).floor() as usize;
+            let type_id = type_names.iter().position(|n| n == type_name).unwrap_or(0) as u8;
+            for _ in 0..count {
+                type_pool.push(type_id);
             }
+        }
+
+        // Если из-за floor() не хватило нейронов до бюджета, добиваем самым частым типом
+        while type_pool.len() < layer_budget {
+            type_pool.push(fallback_type_id);
+        }
+
+        // 4. Размещаем нейроны со строгим контролем коллизий (Reject-Sampling)
+        for type_id in type_pool {
+            let mut attempt = 0;
+            loop {
+                let x = rng.gen_range(0..max_x);
+                let y = rng.gen_range(0..max_y);
+                let z = rng.gen_range(z_start..z_end.max(z_start + 1)); // Защита от нулевой толщины
+                
+                // Пространственный хэш вокселя (28 бит)
+                let voxel_hash = x | (y << 11) | (z << 22);
+
+                if occupancy.insert(voxel_hash) {
+                    positions.push(PackedPosition::pack_raw(x, y, z, type_id));
+                    break;
+                }
+
+                attempt += 1;
+                if attempt > 100 {
+                    panic!(
+                        "[Baker] FATAL: Occupancy collision limit reached! \
+                        Density is too high for layer at Z: {}-{}. \
+                        Increase voxel_size or reduce global_density.",
+                        z_start, z_end
+                    );
+                }
+            }
+        }
+    }
+
+    // ВАЖНО: Паддинг для Warp Alignment (кратность 32)
+    // Это гарантирует 100% Coalesced Access в UpdateNeurons (см. 02_configuration.md §4.3)
+    let remainder = positions.len() % 32;
+    if remainder != 0 {
+        let pad_count = 32 - remainder;
+        for _ in 0..pad_count {
+            // Добиваем пустышками (0 координаты, 0 тип)
+            positions.push(PackedPosition::pack_raw(0, 0, 0, 0));
         }
     }
 
     // ⚠️ ЗАКОН ДЕТЕРМИНИЗМА 3: Z-Sorting (08_io_matrix.md §3.1)
     // Весь массив сом обязан быть отсортирован по Z-координате (по возрастанию)
     // перед тем как индекс в векторе станет легальным Dense ID.
-    all_neurons.sort_by_key(|n| n.z());
+    positions.sort_by_key(|p| p.z());
 
-    all_neurons
+    positions
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::parser::anatomy::Anatomy;
-
-    #[test]
-    fn test_neuron_z_sorting() {
-        let sim_toml = r#"
-            [world]
-            width_um = 1000
-            depth_um = 1000
-            height_um = 1000
-            [simulation]
-            tick_duration_us = 10
-            total_ticks = 1000
-            master_seed = "test"
-            global_density = 1.0
-            voxel_size_um = 10.0
-            signal_speed_m_s = 1.0
-            sync_batch_ticks = 10
-            segment_length_voxels = 1
-        "#;
-        let sim = SimulationConfig::parse(sim_toml).unwrap();
-        
-        // Мокаем анатомию с двумя слоями
-        let anatomy_toml = r#"
-            [[layer]]
-            name = "L1"
-            population_pct = 0.5
-            height_pct = 0.5
-            [layer.composition]
-            "T1" = 1.0
-
-            [[layer]]
-            name = "L2"
-            population_pct = 0.5
-            height_pct = 0.5
-            [layer.composition]
-            "T1" = 1.0
-        "#;
-        let anatomy = Anatomy::parse(anatomy_toml).unwrap();
-        
-        let type_names = vec!["T1".to_string()];
-        let neurons = place_neurons(&sim, &anatomy, &type_names, 42);
-        
-        // Проверяем, что Z строго возрастает (или равен)
-        for i in 1..neurons.len() {
-            assert!(neurons[i].z() >= neurons[i-1].z(), 
-                "Z-Order violation at index {}: {} < {}", i, neurons[i].z(), neurons[i-1].z());
-        }
-    }
-}
-

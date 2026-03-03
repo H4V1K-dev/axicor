@@ -21,6 +21,8 @@ serde = { version = "1", features = ["derive"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 wyhash = "0.5"
-glam = "0.29"
+glam = "0.24"
 libc = "0.2"
 rayon = "1.10"
+rand = "0.8"
+rand_chacha = "0.3"

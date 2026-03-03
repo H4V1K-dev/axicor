@@ -1,5 +1,7 @@
-use crate::bake::neuron_placement::PlacedNeuron;
+use genesis_core::types::PackedPosition;
 use crate::bake::seed::{entity_seed, random_f32};
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 use genesis_core::config::blueprints::{GenesisConstantMemory, NeuronType};
 use crate::parser::simulation::SimulationConfig;
 use crate::parser::anatomy::Anatomy;
@@ -21,6 +23,59 @@ pub struct GrownAxon {
     pub segments: Vec<u32>,
     /// Last segment vector (for handover)
     pub last_dir: glam::Vec3,
+}
+
+pub struct SteeringWeights {
+    pub global: f32,
+    pub attract: f32,
+    pub noise: f32,
+}
+
+/// Вычисляет следующий шаг аксона, смешивая градиенты, и возвращает (Непрерывную позицию, Квантованную позицию)
+#[inline(always)]
+pub fn step_and_pack(
+    current_pos_um: Vec3,
+    v_global: Vec3,
+    v_attract: Vec3,
+    weights: &SteeringWeights,
+    step_size_um: f32,
+    type_id: u8,
+    rng: &mut ChaCha8Rng,
+    voxel_size_um: f32,
+) -> (Vec3, PackedPosition) {
+    // 1. V_noise: Выход из локальных минимумов (WyHash/ChaCha джиттер)
+    let theta = rng.gen_range(0.0..std::f32::consts::TAU);
+    let phi = rng.gen_range(0.0..std::f32::consts::PI);
+    let v_noise = Vec3::new(
+        phi.sin() * theta.cos(),
+        phi.sin() * theta.sin(),
+        phi.cos()
+    );
+
+    // 2. Взвешенное смешивание (Steering)
+    let mut v_final = (v_global * weights.global) 
+                    + (v_attract * weights.attract) 
+                    + (v_noise * weights.noise);
+
+    // Защита от идеального математического нуля
+    if v_final.length_squared() < 0.0001 {
+        v_final = v_global;
+    } else {
+        v_final = v_final.normalize();
+    }
+
+    // 3. Шаг в непрерывном пространстве (сохраняем f32 для защиты от дрейфа сетки)
+    let next_pos_um = current_pos_um + (v_final * step_size_um);
+
+    // 4. Квантование (Zero-Cost конвертация в индексы вокселей)
+    // Ограничиваем снизу нулем, чтобы избежать underflow при приведении к u32
+    let x_idx = (next_pos_um.x / voxel_size_um).max(0.0) as u32;
+    let y_idx = (next_pos_um.y / voxel_size_um).max(0.0) as u32;
+    let z_idx = (next_pos_um.z / voxel_size_um).max(0.0) as u32;
+
+    let packed = PackedPosition::pack_raw(x_idx, y_idx, z_idx, type_id);
+
+    (next_pos_um, packed)
 }
 
 /// Кэш Z-диапазонов слоёв (вычисляется один раз из anatomy + sim)
@@ -123,7 +178,7 @@ use crate::bake::spatial_grid::SpatialGrid;
 use glam::Vec3;
 
 pub fn grow_axons(
-    neurons: &[PlacedNeuron],
+    positions: &[PackedPosition],
     layer_ranges: &[LayerZRange],
     types: &[NeuronType],
     sim: &SimulationConfig,
@@ -138,16 +193,17 @@ pub fn grow_axons(
     use rayon::prelude::*;
 
     let max_search_radius_vox = sim.simulation.segment_length_voxels as f32 * 3.0;
-    let spatial_grid = SpatialGrid::new(neurons, max_search_radius_vox);
+    let spatial_grid = SpatialGrid::new(positions.to_vec(), f32::max(1.0, max_search_radius_vox.ceil()) as u32);
 
-    let results: Vec<(GrownAxon, Option<GhostPacket>)> = neurons
+    let results: Vec<(GrownAxon, Option<GhostPacket>)> = positions
         .par_iter()
         .enumerate()
-        .map(|(soma_idx, neuron): (usize, &PlacedNeuron)| {
-            let soma_z = neuron.z();
-            let soma_x = neuron.x();
-            let soma_y = neuron.y();
-            let type_idx = neuron.type_idx;
+        .filter(|(_, pos)| pos.0 != 0) // Skip dummy warp-aligned neurons
+        .map(|(soma_idx, pos)| {
+            let soma_z = pos.z() as u32;
+            let soma_x = pos.x() as u32;
+            let soma_y = pos.y() as u32;
+            let type_idx = pos.type_id();
 
             grow_single_axon(
                 soma_x, soma_y, soma_z,
@@ -158,7 +214,6 @@ pub fn grow_axons(
                 world_w_vox, world_d_vox, world_h_vox,
                 layer_ranges,
                 &spatial_grid,
-                neurons,
                 shard_bounds,
                 master_seed,
             )
@@ -181,11 +236,10 @@ pub fn grow_single_axon(
     world_w_vox: u32, world_d_vox: u32, world_h_vox: u32,
     layer_ranges: &[LayerZRange],
     spatial_grid: &SpatialGrid,
-    neurons: &[PlacedNeuron],
     shard_bounds: &ShardBounds,
     master_seed: u64,
 ) -> (GrownAxon, Option<GhostPacket>) {
-    use crate::bake::cone_tracing::calculate_v_attract;
+    use crate::bake::cone_tracing::{calculate_v_attract, ConeParams};
 
     // Чтение параметров роста за O(1) из плоского массива:
     let type_params = &types[type_idx as usize];
@@ -236,9 +290,11 @@ pub fn grow_single_axon(
     
     let fov_cos = (type_params.steering_fov_deg / 2.0).to_radians().cos();
     let max_search_radius_vox = type_params.steering_radius_um / sim.simulation.voxel_size_um as f32;
-    let weight_inertia = type_params.steering_weight_inertia;
-    let weight_sensor = type_params.steering_weight_sensor;
-    let weight_jitter = type_params.steering_weight_jitter;
+    let weights = SteeringWeights {
+        global: type_params.steering_weight_inertia,
+        attract: type_params.steering_weight_sensor,
+        noise: type_params.steering_weight_jitter,
+    };
 
     let bias = type_params.growth_vertical_bias;
     let type_idx_usize = type_idx as usize;
@@ -246,6 +302,9 @@ pub fn grow_single_axon(
 
 
     let mut current_pos = Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32);
+    let voxel_size_um = sim.simulation.voxel_size_um as f32;
+    let segment_length_um = segment_length_vox * voxel_size_um;
+    let mut current_pos_um = current_pos * voxel_size_um;
     let is_growing_up = tip_z >= soma_z;
 
     let (mut forward_dir, target_pos) = if is_horizontal {
@@ -283,6 +342,7 @@ pub fn grow_single_axon(
     let max_steps = sim.simulation.axon_growth_max_steps;
     let mut step = 0;
     let mut ghost_packet = None;
+    let mut rng = ChaCha8Rng::seed_from_u64(cone_seed);
 
     while step < max_steps {
         step += 1;
@@ -309,36 +369,44 @@ pub fn grow_single_axon(
         let v_global = (target_pos - current_pos).normalize_or_zero();
         
         // Sensing → Weighting
-        let v_attract = calculate_v_attract(
-            current_pos,
-            forward_dir,
+        let params = ConeParams {
+            radius_um: type_params.steering_radius_um,
             fov_cos,
-            max_search_radius_vox,
+            target_type: None, // TODO: Affinity -> target_type logic
+        };
+        let current_packed = PackedPosition::new(
+            current_pos.x.round() as u32,
+            current_pos.y.round() as u32,
+            current_pos.z.round() as u32,
+            owner_type_mask
+        );
+        let v_attract = calculate_v_attract(
+            current_packed,
+            forward_dir,
+            &params,
             spatial_grid,
-            neurons,
-            owner_type_mask,
-            soma_idx,
-            0.5, // TODO: type_affinity → вынести в CPU-конфиг
+            sim.simulation.voxel_size_um as f32,
         );
 
-        // Jitter
-        let s = cone_seed.wrapping_add(step as u64);
-        let v_noise = Vec3::new(
-            random_f32(s) * 2.0 - 1.0,
-            random_f32(s.wrapping_add(1)) * 2.0 - 1.0,
-            random_f32(s.wrapping_add(2)) * 2.0 - 1.0,
-        ).normalize_or_zero();
+        // Jitter & Steering & Pack
+        let (next_pos_um, current_packed_new) = step_and_pack(
+            current_pos_um,
+            v_global,
+            v_attract,
+            &weights,
+            segment_length_um,
+            type_idx,
+            &mut rng,
+            voxel_size_um,
+        );
 
-        // Steering
-        forward_dir = (v_global * weight_inertia + v_attract * weight_sensor + v_noise * weight_jitter).normalize_or_zero();
+        current_pos_um = next_pos_um;
+        forward_dir = (next_pos_um - (current_pos * voxel_size_um)).normalize_or_zero(); // Rough estimate for forward dir
+        current_pos = current_pos_um / voxel_size_um; // Update voxel pos for next iteration checks
         
-        // Step & Pack
-        current_pos += forward_dir * segment_length_vox;
-        
-        let x = (current_pos.x.round() as u32).min(world_w_vox.saturating_sub(1)).min(1023); // 10 bits
-        let y = (current_pos.y.round() as u32).min(world_d_vox.saturating_sub(1)).min(1023); // 10 bits
-        let z = (current_pos.z.round() as u32).min(world_h_vox.saturating_sub(1)).min(255); // 8 bits
-        let t = (owner_type_mask & 0x0F) as u32; // 4 bits
+        let x = current_packed_new.x() as u32;
+        let y = current_packed_new.y() as u32;
+        let z = current_packed_new.z() as u32;
 
         // Crossing detection — аксон вышел за границы шарда?
         if shard_bounds.is_outside(x, y, z) {
@@ -355,7 +423,7 @@ pub fn grow_single_axon(
             break; // Аксон в этом шарде заканчивается
         }
 
-        let packed = (t << 28) | (z << 20) | (y << 10) | x;
+        let packed = current_packed_new.0;
 
         if let Some(&last) = segments.last() {
             if last == packed {
@@ -411,7 +479,7 @@ pub fn init_axon_head(length_segments: u32, v_seg: u32) -> u32 {
 /// Возвращает: `(grown_ghosts, outgoing_packets)`
 pub fn inject_ghost_axons(
     ghost_packets: &[GhostPacket],
-    neurons: &[PlacedNeuron],
+    positions: &[PackedPosition],
     const_mem: &GenesisConstantMemory,
     sim: &SimulationConfig,
     shard_bounds: &ShardBounds,
@@ -424,7 +492,7 @@ pub fn inject_ghost_axons(
     let segment_length_vox = sim.simulation.segment_length_voxels as f32;
 
     let max_search_radius_vox = sim.simulation.segment_length_voxels as f32 * 3.0;
-    let spatial_grid = SpatialGrid::new(neurons, max_search_radius_vox);
+    let spatial_grid = SpatialGrid::new(positions.to_vec(), f32::max(1.0, max_search_radius_vox.ceil()) as u32);
     let mut grown = Vec::with_capacity(ghost_packets.len());
     let mut outgoing: Vec<GhostPacket> = Vec::new();
 
@@ -440,47 +508,63 @@ pub fn inject_ghost_axons(
             packet.entry_y as f32,
             packet.entry_z as f32,
         );
+        let mut current_pos_um = current_pos * voxel_um as f32;
+        let segment_length_um = segment_length_vox * voxel_um as f32;
         let mut forward_dir = packet.entry_dir;
         let mut segments = Vec::new();
 
         let ghost_seed = master_seed
             .wrapping_add(packet.soma_idx as u64)
             .wrapping_add(packet.origin_shard_id as u64);
+            
+        let mut rng = ChaCha8Rng::seed_from_u64(ghost_seed);
 
+        use crate::bake::cone_tracing::ConeParams;
+        let params = ConeParams {
+            radius_um: max_search_radius_vox * voxel_um as f32,
+            fov_cos,
+            target_type: None,
+        };
         let mut exited_again = false;
         for step in 0..packet.remaining_steps {
+            let current_packed = PackedPosition::new(
+                current_pos.x.round() as u32,
+                current_pos.y.round() as u32,
+                current_pos.z.round() as u32,
+                owner_type_mask
+            );
             let v_attract = calculate_v_attract(
-                current_pos,
+                current_packed,
                 forward_dir,
-                fov_cos,
-                max_search_radius_vox,
+                &params,
                 &spatial_grid,
-                neurons,
-                owner_type_mask,
-                usize::MAX, // Ghost не имеет сомы — self-check никогда не сработает
-                0.5, // TODO: type_affinity → вынести в CPU-конфиг
+                voxel_um as f32,
             );
 
-            let s = ghost_seed.wrapping_add(step as u64);
-            let v_noise = Vec3::new(
-                random_f32(s) * 2.0 - 1.0,
-                random_f32(s.wrapping_add(1)) * 2.0 - 1.0,
-                random_f32(s.wrapping_add(2)) * 2.0 - 1.0,
-            ).normalize_or_zero();
+            let weights = SteeringWeights {
+                global: 0.6,
+                attract: 0.3,
+                noise: 0.1,
+            };
 
-            // Нет v_global — аксон летит свободно: только инерция + притяжение + шум
-            forward_dir = (
-                forward_dir * 0.6
-                + v_attract * 0.3
-                + v_noise * 0.1
-            ).normalize_or_zero();
+            let (next_pos_um, current_packed_new) = step_and_pack(
+                current_pos_um,
+                forward_dir, // Use existing inertia as global pull
+                v_attract,
+                &weights,
+                segment_length_um,
+                packet.type_idx as u8,
+                &mut rng,
+                voxel_um as f32,
+            );
 
-            current_pos += forward_dir * segment_length_vox;
+            current_pos_um = next_pos_um;
+            forward_dir = (next_pos_um - (current_pos * voxel_um as f32)).normalize_or_zero();
+            current_pos = current_pos_um / voxel_um as f32;
 
-            let x = (current_pos.x.round() as u32).min(world_w_vox.saturating_sub(1)).min(1023);
-            let y = (current_pos.y.round() as u32).min(world_d_vox.saturating_sub(1)).min(1023);
-            let z = (current_pos.z.round() as u32).min(world_h_vox.saturating_sub(1)).min(255);
-            let t = (owner_type_mask & 0x0F) as u32;
+            let x = current_packed_new.x() as u32;
+            let y = current_packed_new.y() as u32;
+            let z = current_packed_new.z() as u32;
 
             // Повторный выход → пакет для следующего шарда
             if shard_bounds.is_outside(x, y, z) {
@@ -498,7 +582,7 @@ pub fn inject_ghost_axons(
                 break;
             }
 
-            let packed = (t << 28) | (z << 20) | (y << 10) | x;
+            let packed = current_packed_new.0;
             if segments.last().copied() == Some(packed) {
                 break; // Стагнация
             }
@@ -583,7 +667,7 @@ mod tests {
 
     #[test]
     fn test_inject_empty_packets() {
-        let neurons: Vec<PlacedNeuron> = vec![];
+        let positions: Vec<PackedPosition> = vec![];
         use genesis_core::layout::{VariantParameters};
         use genesis_core::config::blueprints::{GenesisConstantMemory};
         let empty_const_mem = GenesisConstantMemory {
@@ -615,7 +699,7 @@ mod tests {
         
         let (grown, outgoing) = inject_ghost_axons(
             &[],
-            &neurons,
+            &positions,
             &empty_const_mem,
             &sim,
             &mock_bounds(),

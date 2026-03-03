@@ -138,19 +138,33 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
 
     // --- 4. Place neurons ---
     println!("[baker] Placing neurons...");
-    // Build sorted type_names from name_map for placement ordering
     let mut type_name_pairs: Vec<(&String, &u8)> = name_map.iter().collect();
     type_name_pairs.sort_by_key(|(_, &idx)| idx);
     let type_names: Vec<String> = type_name_pairs.into_iter().map(|(n, _)| n.clone()).collect();
-    let neurons = bake::neuron_placement::place_neurons(&sim, &anatomy, &type_names, master_seed);
-    println!("[baker] ✓ Placed {} neurons", neurons.len());
+    
+    let voxel_size_um = sim.simulation.voxel_size_um as f32;
+    let dims = bake::neuron_placement::ZoneDimensions {
+        width_um: sim.world.width_um as f32,
+        depth_um: sim.world.depth_um as f32,
+        height_um: sim.world.height_um as f32,
+    };
+    
+    let positions = bake::neuron_placement::generate_placement(
+        &anatomy,
+        &dims,
+        voxel_size_um,
+        sim.simulation.global_density,
+        master_seed,
+        &type_names
+    );
+    println!("[baker] ✓ Placed {} neurons", positions.len());
 
     // --- 5. Cone Tracing: grow axons ---
     println!("[baker] Growing axons (Cone Tracing)...");
     let layer_ranges = bake::axon_growth::compute_layer_ranges(&anatomy, &sim);
     let shard_bounds = bake::axon_growth::ShardBounds::full_world(&sim);
     let (mut axons, ghost_packets) = bake::axon_growth::grow_axons(
-        &neurons,
+        &positions,
         &layer_ranges,
         &neuron_types,
         &sim,
@@ -171,7 +185,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
                 matrix.width,
                 matrix.height,
                 axons.len() as u32,
-                matrix.stride,
+                matrix.stride as u8,
             );
             num_virtual += gxi.axon_ids.len();
             
@@ -204,10 +218,10 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     let mut baked_gxos = Vec::new();
     if !io.outputs.is_empty() {
         println!("[baker] Processing Output Maps for {}...", zone_name);
-        let voxel_um = sim.simulation.voxel_size_um;
-        let world_w_vox = (sim.world.width_um / voxel_um) as u32;
-        let world_d_vox = (sim.world.depth_um / voxel_um) as u32;
-        let packed_positions: Vec<u32> = neurons.iter().map(|n| n.position.0).collect();
+        let voxel_um = sim.simulation.voxel_size_um as f32;
+        let world_w_vox = (sim.world.width_um as f32 / voxel_um) as u32;
+        let world_d_vox = (sim.world.depth_um as f32 / voxel_um) as u32;
+        let packed_positions: Vec<u32> = positions.iter().map(|p| p.0).collect();
 
         for matrix in &io.outputs {
             let gxo = bake::output_map::build_gxo_mapping(
@@ -218,7 +232,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
                 world_w_vox,
                 world_d_vox,
                 &packed_positions,
-                matrix.stride,
+                matrix.stride as u8,
             );
             baked_gxos.push(gxo);
         }
@@ -229,7 +243,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
         println!("[baker] ✓ {} ghost packet(s) detected — injecting into shard B...", ghost_packets.len());
         let (mut ghost_axons, leftover) = bake::axon_growth::inject_ghost_axons(
             &ghost_packets,
-            &neurons,
+            &positions,
             &const_mem,
             &sim,
             &shard_bounds,
@@ -249,10 +263,9 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
         axons.len(), local_axons_count, num_virtual);
 
     // --- 6. Build SoA state ---
-    // rest_potential: берём из первого варианта const_mem
     let rest_potential = const_mem.variants[0].rest_potential;
     let total_capacity = axons.len() + ghost_capacity;
-    let mut shard = bake::layout::ShardSoA::new(neurons.len(), total_capacity);
+    let mut shard = bake::layout::ShardSoA::new(positions.len(), total_capacity);
     // Инициализация потенциалов из rest_potential типа 0
     for v in shard.voltage.iter_mut() {
         *v = rest_potential;
@@ -289,7 +302,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     println!("[baker] Connecting dendrites...");
     bake::dendrite_connect::connect_dendrites(
         &mut shard,
-        &neurons,
+        &positions,
         &axons,
         &const_mem,
         master_seed,
@@ -299,7 +312,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
     println!(
         "[baker] ✓ Connected {} synapses ({:.1} avg per neuron)",
         connected,
-        connected as f64 / neurons.len() as f64
+        connected as f64 / positions.len() as f64
     );
 
     // --- 9. Dump to disk (Zero-Copy binary: raw bytes, no serde) ---
@@ -370,7 +383,7 @@ fn compile(sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, out_
 
     println!("[baker] Zone {} Done.", zone_name);
     
-    let packed_pos: Vec<u32> = neurons.iter().map(|n| n.position.0).collect();
+    let packed_pos: Vec<u32> = positions.iter().map(|p| p.0).collect();
     let voxel_um = sim.simulation.voxel_size_um;
     let world_w_vox = (sim.world.width_um as f32 / voxel_um) as u32;
     let world_d_vox = (sim.world.depth_um as f32 / voxel_um) as u32;
