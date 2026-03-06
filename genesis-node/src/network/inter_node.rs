@@ -1,6 +1,7 @@
 use genesis_compute::ffi;
-use crate::network::SpikeEvent;
+use crate::network::{SpikeEvent, SpikeBatchHeaderV3};
 use std::ptr;
+use bytemuck::Zeroable;
 
 pub struct InterNodeChannel {
     pub target_zone_hash: u32,
@@ -70,21 +71,7 @@ impl InterNodeChannel {
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct SpikeBatchHeaderV2 {
-    pub src_zone_hash: u32,
-    pub dst_zone_hash: u32,
-    pub epoch: u32,
-    pub is_last: u32, // 1 = последний чанк в эпохе (Heartbeat)
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct SpikeEventV2 {
-    pub ghost_id: u32,
-    pub tick_offset: u32, // Выровнено до 8 байт для Coalesced Access
-}
+// SpikeBatchHeaderV2 and SpikeEventV2 removed as they are replaced by V3 in ipc.rs
 
 pub struct InterNodeRouter {
     pub socket: std::sync::Arc<tokio::net::UdpSocket>,
@@ -105,7 +92,8 @@ impl InterNodeRouter {
         src_zone_hash: u32,
         target_zone_hash: u32,
         events: &[crate::network::SpikeEvent],
-        epoch: u32, // [DOD] Инъекция эпохи
+        epoch: u32,
+        current_tick: u64, // [DOD] Heartbeat Pulse
     ) {
         let Some(target_addr) = self.routing_table.get_address(target_zone_hash) else { return; };
         const MAX_EVENTS_PER_PACKET: usize = 8186;
@@ -117,12 +105,13 @@ impl InterNodeRouter {
                 std::hint::spin_loop();
             };
             unsafe {
-                let header = msg.buffer.as_mut_ptr() as *mut SpikeBatchHeaderV2;
+                let header = msg.buffer.as_mut_ptr() as *mut SpikeBatchHeaderV3;
                 (*header).src_zone_hash = src_zone_hash;
                 (*header).dst_zone_hash = target_zone_hash;
                 (*header).epoch = epoch;
                 (*header).is_last = 1; // Единственный и последний
-                msg.size = 16;
+                (*header).tick = current_tick;
+                msg.size = 32;
             }
             msg.target = target_addr;
             pool.ready_queue.push(msg).unwrap();
@@ -140,20 +129,21 @@ impl InterNodeRouter {
             };
 
             unsafe {
-                let header = msg.buffer.as_mut_ptr() as *mut SpikeBatchHeaderV2;
+                let header = msg.buffer.as_mut_ptr() as *mut SpikeBatchHeaderV3;
                 (*header).src_zone_hash = src_zone_hash;
                 (*header).dst_zone_hash = target_zone_hash;
                 (*header).epoch = epoch;
                 // Только последний чанк пробивает барьер получателя
                 (*header).is_last = if i == total_chunks - 1 { 1 } else { 0 };
-
+                (*header).tick = current_tick;
+ 
                 let events_bytes = bytemuck::cast_slice(chunk);
                 std::ptr::copy_nonoverlapping(
                     events_bytes.as_ptr(),
-                    msg.buffer.as_mut_ptr().add(16),
+                    msg.buffer.as_mut_ptr().add(32),
                     events_bytes.len()
                 );
-                msg.size = 16 + events_bytes.len();
+                msg.size = 32 + events_bytes.len();
             }
             msg.target = target_addr;
             pool.ready_queue.push(msg).unwrap();
@@ -171,16 +161,19 @@ impl InterNodeRouter {
             let mut buf = vec![0u8; 65507];
             loop {
                 if let Ok((size, _)) = sock.recv_from(&mut buf).await {
-                    if size < 16 { continue; }
-
-                    let header: SpikeBatchHeaderV2 = *bytemuck::from_bytes(&buf[0..16]);
+                    if size < 32 { continue; }
+ 
+                    let header: SpikeBatchHeaderV3 = *bytemuck::from_bytes(&buf[0..32]);
                     let current_epoch = bsp_barrier.current_epoch.load(std::sync::atomic::Ordering::Acquire);
-
+ 
+                    // [DOD Pulse] Refresh health registry
+                    bsp_barrier.peer_last_seen.insert(header.src_zone_hash, std::time::Instant::now());
+ 
                     // 1. Biological Amnesia: Игнорируем пакеты из прошлого
                     if header.epoch < current_epoch {
                         continue;
                     }
-
+ 
                     // 2. Self-Healing: Прыжок в будущее, если мы отстали (или пропустили пакет)
                     if header.epoch > current_epoch {
                         println!("⚠️ [BSP] Self-Healing: Fast-forwarding epoch {} -> {} to catch up", current_epoch, header.epoch);
@@ -188,35 +181,36 @@ impl InterNodeRouter {
                         bsp_barrier.completed_peers.store(0, std::sync::atomic::Ordering::Release);
                         bsp_barrier.get_write_schedule().clear();
                     }
-
+ 
                     // 3. Обработка ACK-пакета
                     if header.is_last == 2 {
                         bsp_barrier.completed_peers.fetch_add(1, std::sync::atomic::Ordering::Release);
                         continue;
                     }
-
+ 
                     // 4. Обработка спайков
-                    let payload_bytes = &buf[16..size];
+                    let payload_bytes = &buf[32..size];
                     if payload_bytes.len() % 8 == 0 && !payload_bytes.is_empty() {
-                        let events: &[SpikeEventV2] = bytemuck::cast_slice(payload_bytes);
+                        let events: &[crate::network::SpikeEvent] = bytemuck::cast_slice(payload_bytes);
                         let schedule = bsp_barrier.get_write_schedule();
                         for ev in events {
-                            schedule.push_spike(ev.tick_offset as usize, ev.ghost_id);
+                            schedule.push_spike(ev.tick_offset as usize, ev.ghost_axon_id);
                         }
                     }
 
                     // 5. Триггер барьера и отправка ACK
                     if header.is_last == 1 {
                         bsp_barrier.completed_peers.fetch_add(1, std::sync::atomic::Ordering::Release);
-
+ 
                         // Отправляем ACK отправителю
                         if let Some(src_addr) = routing_table.get_address(header.src_zone_hash) {
-                            let ack = SpikeBatchHeaderV2 {
-                                src_zone_hash: header.dst_zone_hash, // Меняем местами для обратного роутинга
-                                dst_zone_hash: header.src_zone_hash,
-                                epoch: header.epoch,
-                                is_last: 2, // 2 = ACK
-                            };
+                            let mut ack = SpikeBatchHeaderV3::zeroed();
+                            ack.src_zone_hash = header.dst_zone_hash; // Меняем местами для обратного роутинга
+                            ack.dst_zone_hash = header.src_zone_hash;
+                            ack.epoch = header.epoch;
+                            ack.is_last = 2; // 2 = ACK
+                            ack.tick = header.tick;
+ 
                             let _ = sock.send_to(bytemuck::bytes_of(&ack), src_addr).await;
                         }
                     }

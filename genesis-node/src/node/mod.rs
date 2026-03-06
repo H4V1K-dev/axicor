@@ -8,6 +8,8 @@ use crate::network::io_server::ExternalIoServer;
 use crate::network::bsp::BspBarrier;
 use crate::network::router::RoutingTable;
 use crate::network::inter_node::InterNodeRouter;
+use genesis_core::ipc::{ShardStateHeader, shm_name, SNAP_MAGIC};
+use genesis_compute::memory::compute_state_offsets;
 
 pub mod recovery;
 pub mod shard_thread;
@@ -72,6 +74,10 @@ pub struct NodeRuntime {
     pub night_interval: u64,
     pub zone_v_segs: HashMap<u32, u32>,
     pub virtual_offset_map: HashMap<u32, u32>,
+    pub rt_handle: tokio::runtime::Handle,
+    /// [NEW Phase 49] Replication Targets: zone_hash -> [ip:port, ...]
+    pub replication_targets: HashMap<u32, Vec<String>>,
+    pub shard_padded_ns: HashMap<u32, usize>,
 }
 
 unsafe impl Send for NodeRuntime {}
@@ -94,6 +100,9 @@ impl NodeRuntime {
         egress_pool: Arc<crate::network::egress::EgressPool>,
         night_interval: u64,
         reporter: Arc<crate::simple_reporter::SimpleReporter>,
+        rt_handle: tokio::runtime::Handle,
+        replication_targets: HashMap<u32, Vec<String>>,
+        shard_padded_ns: HashMap<u32, usize>,
     ) -> Self {
         let (feedback_tx, feedback_rx) = bounded(shards.len() + 32);
         let total_ticks = Arc::new(AtomicU32::new(0));
@@ -111,8 +120,6 @@ impl NodeRuntime {
             compute_dispatchers.insert(desc.hash, tx);
             shard_receivers.insert(desc.hash, rx);
         }
-
-        let rt_handle = tokio::runtime::Handle::current();
         
         let mut zone_v_segs = HashMap::new();
         let mut virtual_offset_map = HashMap::new();
@@ -171,6 +178,9 @@ impl NodeRuntime {
             night_interval,
             zone_v_segs,
             virtual_offset_map,
+            rt_handle,
+            replication_targets,
+            shard_padded_ns,
         };
 
         node
@@ -305,19 +315,62 @@ impl NodeRuntime {
                     channel.src_zone_hash,
                     channel.target_zone_hash,
                     events_slice,
-                    (batch_counter & 0xFFFFFFFF) as u32
+                    (batch_counter & 0xFFFFFFFF) as u32,
+                    current_tick as u64
                 );
             }
 
             // [DOD] 7. Wait for Ingress data (Strict BSP network sync)
-            self.services.bsp_barrier.wait_for_data_sync();
+            if let Err(e) = self.services.bsp_barrier.wait_for_data_sync() {
+                eprintln!("🔴 [Node] BSP Isolation Detected: {}", e);
+                break; 
+            }
 
             // [DOD] 8. Synchronize BSP and consume Ghost events
             self.services.bsp_barrier.sync_and_swap();
 
+            // [NEW Phase 49] Shadow Replication
+            if (batch_counter + 1) % 500 == 0 {
+                self.replicate_shards(current_tick as u32);
+            }
+ 
             current_tick += batch_size;
             batch_counter += 1;
             self.services.reporter.total_ticks.store(current_tick as u64, Ordering::Relaxed);
+        }
+    }
+ 
+    fn replicate_shards(&self, tick: u32) {
+        for (&shard_hash, targets) in &self.replication_targets {
+            if targets.is_empty() { continue; }
+            
+            let padded_n = *self.shard_padded_ns.get(&shard_hash).unwrap();
+            let offsets = compute_state_offsets(padded_n);
+            let weights_size = (padded_n * 128 * 2) as u64;
+            
+            let header = ShardStateHeader {
+                magic: SNAP_MAGIC,
+                zone_hash: shard_hash,
+                tick,
+                _padding1: 0,
+                payload_size: weights_size,
+                _padding2: [0; 1],
+            };
+            
+            let shm_path = std::path::PathBuf::from(format!("/dev/shm{}", shm_name(shard_hash)));
+            let targets = targets.clone();
+            
+            self.rt_handle.spawn(async move {
+                for target_addr in targets {
+                    let _ = crate::network::replication::send_replica_from_shm(
+                        &target_addr,
+                        header,
+                        &shm_path,
+                        offsets.dendrite_weights as u64,
+                        weights_size,
+                    ).await;
+                }
+            });
         }
     }
 }

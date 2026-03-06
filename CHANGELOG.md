@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.227.29] - 2026-03-06 22:01:28
+
+**SHM v4: 64B Alignment, GXO Capacity 1M, Offset Collision Fix**
+
+### Added
+- Implement robust 64-byte boundary alignment for all shared arrays (Weights, Targets, S2A, GXO, Handovers, Prunes, Flags) in ipc.rs
+- Increase GXO capacity to MAX_GXO_PIXELS = 1,048,576 to support complex readout layers
+- Centralize layout calculation in ipc.rs to ensure shm_size and ShmHeader::new are perfectly in sync
+- Reduce ghost reclamation complexity from O(N^2) to O(N) using parallel FixedBitSet
+- Eliminate redundant .state and .gxo file reads from the Night Phase
+
+### Fixed
+- Fix overlapping offsets for prunes_offset and flags_offset in SHM by initializing them in ShmHeader::new
+- Update daemon.rs to use static, pre-aligned hdr.prunes_offset and hdr.flags_offset, removing manual calculations
+- Add safety check in daemon.rs to panic if total_gxo_count exceeds MAX_GXO_PIXELS
+- Update shard_thread.rs to correctly utilize header offsets for reliable Zero-Copy mapping sync to GPU
+
 ## [0.220.28] - 2026-03-06 21:36:44
 
 **Structural Reclamation & Unit Fix**

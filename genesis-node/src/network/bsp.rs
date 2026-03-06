@@ -1,6 +1,16 @@
 use crate::network::ring_buffer::SpikeSchedule;
 use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicU32, Ordering};
-
+use std::time::{Instant, Duration};
+use dashmap::DashMap;
+use std::sync::Arc;
+use thiserror::Error;
+ 
+#[derive(Debug, Error)]
+pub enum BspError {
+    #[error("Node Isolated: Network fail or Peer 0x{0:08X} dead")]
+    NodeIsolated(u32),
+}
+ 
 /// BSP Барьер для синхронизации сети и вычислителя (Latency Hiding).
 /// Мы используем Ping-Pong Double Buffering: пока GPU читает из A, сеть пишет в B.
 pub struct BspBarrier {
@@ -10,35 +20,59 @@ pub struct BspBarrier {
     pub writing_to_b: AtomicBool, 
     // [DOD] Сетевая синхронизация
     pub expected_peers: usize,
-    pub current_epoch: AtomicU32,     // [DOD] Global Sync Clock
-    pub completed_peers: AtomicUsize, // [DOD] Count of is_last flags
+    pub expected_peers_hashes: Vec<u32>,
+    pub current_epoch: AtomicU32,      // [DOD] Global Sync Clock
+    pub completed_peers: AtomicUsize,  // [DOD] Count of is_last flags
+    pub peer_last_seen: DashMap<u32, Instant>, // [NEW Phase 49]
 }
-
+ 
 impl BspBarrier {
-    pub fn new(sync_batch_ticks: usize, expected_peers: usize) -> Self {
+    pub fn new(sync_batch_ticks: usize, peers: Vec<u32>) -> Self {
+        let expected_peers = peers.len();
         Self {
             schedule_a: SpikeSchedule::new(sync_batch_ticks),
             schedule_b: SpikeSchedule::new(sync_batch_ticks),
             writing_to_b: AtomicBool::new(true),
             expected_peers,
+            expected_peers_hashes: peers,
             current_epoch: AtomicU32::new(0),
             completed_peers: AtomicUsize::new(0),
+            peer_last_seen: DashMap::new(),
         }
     }
-
-    pub fn wait_for_data_sync(&self) {
-        let start = std::time::Instant::now();
-        let timeout = std::time::Duration::from_millis(50); // Ждем максимум 50мс
-
+ 
+    /// Ожидает данные от соседей с активным мониторингом здоровья (Pulse).
+    pub fn wait_for_data_sync(&self) -> Result<(), BspError> {
+        let start = Instant::now();
+        let timeout = Duration::from_millis(50); // Мягкий таймаут для обычного цикла
+        let liveness_timeout = Duration::from_millis(500); // Жесткий таймаут изоляции ноды
+ 
         // Ждем, пока Ingress UDP-сервер не запишет пакеты от всех соседей
         while self.completed_peers.load(Ordering::Acquire) < self.expected_peers {
-            if start.elapsed() > timeout {
-                println!("⚠️ [BSP] Timeout! Forcing epoch advance. Dropped data will be filtered out.");
-                break;
+            let now = Instant::now();
+            
+            // Проверка здоровья каждого ожидаемого пира
+            for &peer_hash in &self.expected_peers_hashes {
+                let last_seen = self.peer_last_seen.get(&peer_hash)
+                    .map(|v| *v)
+                    .unwrap_or(start); // Если ни разу не видели, считаем от начала барьера
+                
+                if now.duration_since(last_seen) > liveness_timeout {
+                    return Err(BspError::NodeIsolated(peer_hash));
+                }
             }
+ 
+            if start.elapsed() > timeout {
+                // Если мы еще не превысили liveness timeout, но превысили soft timeout, 
+                // мы продолжаем ждать, но можем залогировать задержку.
+                // println!("⚠️ [BSP] Soft Timeout! Waiting for peers. Current: {}/{}", self.completed_peers.load(Ordering::Acquire), self.expected_peers);
+                std::hint::spin_loop(); // Continue spinning, don't break yet
+            }
+            
             // [DOD] Выжигаем токены CPU минимально, не отдавая тред ОС
             std::hint::spin_loop();
         }
+        Ok(())
     }
 
     /// Вызывается ядром Node в конце батча: меняет буферы местами и инкрементирует эпоху.

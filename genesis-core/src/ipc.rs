@@ -341,15 +341,19 @@ impl GhostConnection {
 
 use bytemuck::{Pod, Zeroable};
 
-/// Header for inter-node spike batches.
-/// Exactly 8 bytes.
-#[repr(C)]
+/// Header for inter-node spike batches (Pulse V3).
+/// Exactly 32 bytes for L1/PCIe alignment.
+#[repr(C, align(32))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
-pub struct SpikeBatchHeader {
-    pub magic:    u32, // 0x5350494B ("SPIK")
-    pub batch_id: u32, // Batch counter for ordering
+pub struct SpikeBatchHeaderV3 {
+    pub src_zone_hash: u32,  // 0..4
+    pub dst_zone_hash: u32,  // 4..8
+    pub epoch:         u32,  // 8..12
+    pub is_last:       u32,  // 12..16 (1 = Last, 2 = ACK, 0 = Mid)
+    pub tick:          u64,  // 16..24 [Heartbeat Pulse]
+    pub _padding:      u64,  // 24..32
 }
-const _: () = assert!(std::mem::size_of::<SpikeBatchHeader>() == 8, "SpikeBatchHeader must be 8 bytes");
+const _: () = assert!(std::mem::size_of::<SpikeBatchHeaderV3>() == 32, "SpikeBatchHeaderV3 must be 32 bytes");
 
 /// A single spike event recorded for inter-zone transfer or readout.
 /// Exactly 8 bytes, repr(C) for Coalesced Access on GPU.

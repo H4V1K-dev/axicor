@@ -17,7 +17,7 @@ pub mod egress;
 // Removed bytemuck imports as they are unused here
 
 // Spike contracts now moved to genesis-core::ipc
-pub use genesis_core::ipc::{SpikeEvent, SpikeBatchHeader};
+pub use genesis_core::ipc::{SpikeEvent, SpikeBatchHeaderV3};
 
 #[cfg(test)]
 mod test_intra_gpu;

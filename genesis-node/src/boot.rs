@@ -14,6 +14,7 @@ use crate::network::io_server::ExternalIoServer;
 use crate::network::bsp::BspBarrier;
 use crate::node::NodeRuntime;
 use crate::network::router::RoutingTable;
+use crate::network::replication::ReplicationServer;
 use crate::input::GxiFile;
 use crate::output::GxoFile;
 use crate::network::ghosts::load_ghosts;
@@ -98,7 +99,7 @@ impl Bootloader {
         unsafe { Self::flash_hardware_physics(&first_manifest)? };
 
         // 3. Topology Interconnect: Build local and remote routing channels
-        let (intra_gpu_channels, inter_node_channels, expected_peers) = 
+        let (intra_gpu_channels, inter_node_channels, expected_peer_hashes) = 
             Self::build_routing_channels(&zone_manifest, root_dir, &s2a_maps, &axon_head_ptrs)?;
 
         // [DOD FIX] Прошиваем таблицу маршрутизации для межзонального Egress
@@ -136,9 +137,34 @@ impl Bootloader {
         let (io_server, geometry_server, telemetry_swapchain, egress_pool, inter_node_router) = 
             Self::setup_networking(&first_manifest, io_contexts, routing_table.clone(), queues).await?;
 
-        // 5. Orchestrator Assembly: Glue everything into NodeRuntime
-        let bsp_barrier = Arc::new(BspBarrier::new(sim_config.simulation.sync_batch_ticks as usize, expected_peers));
+        let mut shard_padded_ns = HashMap::new();
+        for shard in &shards {
+            shard_padded_ns.insert(shard.hash, shard.engine.vram.padded_n as usize);
+        }
+ 
+        let bsp_barrier = Arc::new(BspBarrier::new(sim_config.simulation.sync_batch_ticks as usize, expected_peer_hashes));
 
+        let mut replication_targets = HashMap::new();
+        for shard in &shards {
+            let mut targets = Vec::new();
+            if let Some(ref addr) = shard.config.neighbors.x_plus { targets.push(addr.clone()); }
+            if let Some(ref addr) = shard.config.neighbors.x_minus { targets.push(addr.clone()); }
+            if let Some(ref addr) = shard.config.neighbors.y_plus { targets.push(addr.clone()); }
+            if let Some(ref addr) = shard.config.neighbors.y_minus { targets.push(addr.clone()); }
+            if let Some(ref addr) = shard.config.neighbors.z_plus { targets.push(addr.clone()); }
+            if let Some(ref addr) = shard.config.neighbors.z_minus { targets.push(addr.clone()); }
+            
+            // Convert Neighbor IP:FastPathPort to IP:ReplicationPort (FastPath + 3)
+            let mut repl_targets = Vec::new();
+            for addr_str in targets {
+                if let Ok(mut addr) = addr_str.parse::<std::net::SocketAddr>() {
+                    addr.set_port(addr.port() + 3);
+                    repl_targets.push(addr.to_string());
+                }
+            }
+            replication_targets.insert(shard.hash, repl_targets);
+        }
+ 
         let node_runtime = NodeRuntime::boot(
             shards,
             io_server,
@@ -155,6 +181,9 @@ impl Bootloader {
             egress_pool.clone(),
             night_interval,
             reporter,
+            tokio::runtime::Handle::current(),
+            replication_targets,
+            shard_padded_ns,
         );
 
         Ok(BootResult {
@@ -342,11 +371,11 @@ impl Bootloader {
     ) -> Result<(
         Vec<(*mut genesis_core::layout::BurstHeads8, *mut genesis_core::layout::BurstHeads8, IntraGpuChannel)>, 
         Vec<(*mut genesis_core::layout::BurstHeads8, crate::network::inter_node::InterNodeChannel)>, 
-        usize // expected_peers
+        Vec<u32> // expected_peer_hashes
     )> {
         let mut intra_gpu = Vec::new();
         let mut inter_node = Vec::new();
-        let mut expected_peers = 0;
+        let mut expected_peers = std::collections::HashSet::new();
 
         for conn in &zone_manifest.connections {
             let src_hash = genesis_core::hash::fnv1a_32(conn.from.as_bytes());
@@ -357,11 +386,11 @@ impl Bootloader {
 
             if !is_src_local && is_dst_local {
                 println!("[Boot] Peer detected (Ingress): expecting fast-path data from remote zone 0x{:08X}", src_hash);
-                expected_peers += 1;
+                expected_peers.insert(src_hash);
             }
             if is_src_local && !is_dst_local {
                 println!("[Boot] Peer detected (Egress): expecting fast-path ACK from remote zone 0x{:08X}", dst_hash);
-                expected_peers += 1;
+                expected_peers.insert(dst_hash);
             }
 
             if !is_src_local { continue; } // Outbound routing from remote source doesn't concern us
@@ -398,7 +427,7 @@ impl Bootloader {
                 }
             }
         }
-        Ok((intra_gpu, inter_node, expected_peers))
+        Ok((intra_gpu, inter_node, expected_peers.into_iter().collect()))
     }
 
     async fn setup_networking(
@@ -425,6 +454,13 @@ impl Bootloader {
         let inter_node_router = Arc::new(crate::network::inter_node::InterNodeRouter::new(egress_socket, routing_table));
         let egress_pool = Arc::new(crate::network::egress::EgressPool::new(1024));
 
+        let repl_server = ReplicationServer::new(&format!("0.0.0.0:{}", local_port + 3));
+        tokio::spawn(async move {
+            if let Err(e) = repl_server.run().await {
+                eprintln!("[Boot] ReplicationServer failed: {}", e);
+            }
+        });
+ 
         Ok((io_server, geometry_server, telemetry_swapchain, egress_pool, inter_node_router))
     }
 }
