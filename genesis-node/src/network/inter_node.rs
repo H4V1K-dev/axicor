@@ -96,31 +96,7 @@ impl InterNodeRouter {
         Self { socket, routing_table }
     }
 
-    /// Отправляет батч спайков через UDP (Zero-Copy)
-    pub async fn flush_outgoing_batch(
-        &self, 
-        target_zone_hash: u32, 
-        events: &[crate::network::SpikeEvent],
-        epoch: u32,
-    ) {
-        if let Some(target_addr) = self.routing_table.get_address(target_zone_hash) {
-            let header = SpikeBatchHeaderV2 {
-                src_zone_hash: 0, // Не используется для Ingress, заполняем нулем
-                dst_zone_hash: target_zone_hash,
-                epoch,
-                is_last: 1, // Single packet is always the last one
-            };
-            
-            // В сыром виде мы отправляем Header (16 байт) + Slice events (8 байт на ивент)
-            // Избегаем аллокаций - используем std::io::IoSlice или копируем в thread-local буфер
-            // Для упрощения (т.к. UDP отправляет одним пакетом), формируем буфер здесь:
-            let mut packet = Vec::with_capacity(16 + events.len() * std::mem::size_of::<crate::network::SpikeEvent>());
-            packet.extend_from_slice(bytemuck::bytes_of(&header));
-            packet.extend_from_slice(bytemuck::cast_slice(events));
-            
-            let _ = self.socket.send_to(&packet, target_addr).await;
-        }
-    }
+
 
     /// Zero-Cost отправка батча спайков через Lock-Free Egress Pool с L7-фрагментацией.
     pub fn flush_outgoing_batch_pool(

@@ -51,6 +51,7 @@ pub struct NodeServices {
     pub routing_table: Arc<RoutingTable>,
     pub bsp_barrier: Arc<BspBarrier>,
     pub reporter: Arc<crate::simple_reporter::SimpleReporter>,
+    pub telemetry_swapchain: Arc<crate::network::telemetry::TelemetrySwapchain>,
 }
 
 pub struct NodeRuntime {
@@ -81,7 +82,7 @@ impl NodeRuntime {
         io_server: Arc<ExternalIoServer>,
         routing_table: Arc<RoutingTable>,
         bsp_barrier: Arc<BspBarrier>,
-        _telemetry_swapchain: Arc<crate::network::telemetry::TelemetrySwapchain>,
+        telemetry_swapchain: Arc<crate::network::telemetry::TelemetrySwapchain>,
         local_ip: std::net::Ipv4Addr,
         local_port: u16,
         output_routes: HashMap<u32, Vec<(String, u32)>>,
@@ -149,6 +150,7 @@ impl NodeRuntime {
                 routing_table,
                 bsp_barrier,
                 reporter,
+                telemetry_swapchain,
             },
             network: NetworkTopology {
                 intra_gpu_channels,

@@ -203,40 +203,7 @@ impl ExternalIoServer {
         }
     }
 
-    /// Отправка Output_History (Вызывается оркестратором после RecordReadout)
-    pub async fn send_output_batch(
-        &self, 
-        target_addr: &str, 
-        zone_hash: u32, 
-        matrix_hash: u32, 
-        pinned_output_addr: usize, 
-        output_bytes: usize,
-        tx_buffer: &mut [u8] // [DOD] Переиспользуемый буфер от Caller'а
-    ) {
-        let total_size = std::mem::size_of::<ExternalIoHeader>() + output_bytes;
-        if total_size > 65535 || total_size > tx_buffer.len() {
-            panic!("Output batch exceeds UDP MTU or buffer capacity.");
-        }
 
-        unsafe {
-            let header = tx_buffer.as_mut_ptr() as *mut ExternalIoHeader;
-            (*header).magic = GSOO_MAGIC; // Contract §12
-            (*header).zone_hash = zone_hash;
-            (*header).matrix_hash = matrix_hash;
-            (*header).payload_size = output_bytes as u32;
-            (*header).global_reward = self.global_dopamine.load(Ordering::Relaxed) as i16;
-            (*header)._padding = 0;
-
-            std::ptr::copy_nonoverlapping(
-                pinned_output_addr as *const u8,
-                tx_buffer.as_mut_ptr().add(std::mem::size_of::<ExternalIoHeader>()),
-                output_bytes
-            );
-        }
-
-        let _ = self.socket.send_to(&tx_buffer[..total_size], target_addr).await;
-        // println!("[I/O Server] TX Output for zone 0x{:08X}: {} bytes to {}", zone_hash, output_bytes, target_addr);
-    }
     /// O(1) Отправка Output_History через Lock-Free Egress Pool
     pub fn send_output_batch_pool(
         &self, 
@@ -281,18 +248,7 @@ impl ExternalIoServer {
         msg.target = target_addr;
         pool.ready_queue.push(msg).unwrap();
     }
-    /// Main loop for the UDP Input Server (Port 8081).
-    pub async fn run_input_loop(self: Arc<Self>, addr: &str) -> std::io::Result<()> {
-        let socket = UdpSocket::bind(addr).await?;
-        println!("[I/O Server] Listening on UDP {}", addr);
-        
-        let mut buf = vec![0u8; 65536]; // MTU + buffer
-        
-        loop {
-            let (len, _) = socket.recv_from(&mut buf).await?;
-            self.process_incoming_udp(&buf[..len]);
-        }
-    }
+
 }
 
 // NOTE: Integration tests for ExternalIoServer were tied to an older API
