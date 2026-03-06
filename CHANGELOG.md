@@ -8,6 +8,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.143.23] - 2026-03-06 05:23
+
+**CartPole 2E2 Duble Nodes**
+
+### Added
+- Add dendrite_radius_um field to genesis-core/src/config/blueprints.rs for per‑soma radius configuration.
+- Implement per‑soma dynamic radius in connect_dendrites (genesis-baker/src/bake/dendrite_connect.rs) and update its call in topology.rs.
+- Extend blueprint handling in genesis-core/config/blueprints.rs.
+- Modify baking modules (dendrite_connect.rs, input_map.rs, output_map.rs, spatial_grid.rs, topology.rs) to support radius changes and improve baking logic.
+- Overhaul genesis-node/src/network/io_server.rs for improved connection handling.
+- Enhance genesis-node/src/network/inter_node.rs with updated message protocols.
+- Refactor node initialization (boot.rs, node/mod.rs) for streamlined startup.
+- Update I/O server logic in io_server.rs and inter_node.rs for revised communication.
+- Streamline config/brain.toml (significant reduction) and modify config/simulation.toml with updated parameters.
+- Update brain.toml paths to reflect new configuration structure.
+- Extend scripts/cartpole_client.py with new capabilities and set render_mode="human" for direct visualization.
+- Update README.md with baking instructions for environment setup.
+- Remove legacy zone configuration files: anatomy.toml, io.toml, and blueprints.toml from config/zones/CartPoleBrain/.
+- Delete outdated examples/cartpole/client.py and scripts/cartpole_client.py (replaced by updated version).
+- Adjust genesis-baker/src/bake/spatial_grid.rs for dynamic radius changes.
+- Update main baking logic in genesis-baker/src/main.rs.
+- Add new CUDA kernel bindings and definitions to genesis-compute/src/cuda/bindings.cu.
+
+## [0.138.23] - 2026-03-06 02:47
+
+**[Performance] Optimize CUDA kernel and network buffer scaling**
+
+### Added
+- Implement unrolled extraction in `extract_outgoing_spikes_kernel` using `#pragma unroll` to check all 8 heads of a burst in parallel
+- Scale `InterNodeChannel` Pinned RAM allocation by 8x to accommodate burst-mode spike density
+- Add L7 fragmentation in `InterNodeRouter` to split large spike batches (> 8186 events) into multiple UDP packets, avoiding MTU overflow
+- Refine `SpikeBatchHeaderV2` to include `epoch` and `is_last` flags for exact barrier synchronization
+- Re-implement `flush_outgoing_batch_pool` to send at least one packet with `is_last = 1` even if 0 spikes were produced, ensuring a guaranteed heartbeat
+- Implement ingress filtering in `spawn_ghost_listener` to drop packets from mismatched epochs and only trigger the barrier on the `is_last` flag
+- Modernize `BspBarrier` to track `current_epoch` and `completed_peers` for strict synchronization, updating `wait_for_data_sync` and `sync_and_swap`
+- Propagate epoch from the orchestrator loop by passing `batch_counter` to `flush_outgoing_batch_pool` in `mod.rs`
+
+## [0.130.23] - 2026-03-06 02:21
+
+**[Architecture] Implement vectorized axon head layout and pipeline**
+
+### Added
+- Add BurstHeads8 struct (32-byte, align 32) in genesis-core and update ShardStateSoA and VramState
+- Update ShardSoA and topology baking logic in genesis-baker to initialize 8 heads per axon with AXON_SENTINEL
+- Align C-ABI in bindings.cu and physics.cu with explicit h0..h7 fields
+- Implement 1-tick shift register across h0..h7 in inject_inputs, apply_spike_batch, and update_neurons kernels
+- Optimize propagate_axons to unconditionally add v_seg to all 8 heads using branchless logic
+- Replace scalar active tail check with branchless 8-head bitwise OR check in cu_update_neurons_kernel
+- Implement non-linear STDP (GSOP) with nearest head search for min_dist and exponential cooling_shift (min_dist >> 4)
+- Correct total_axons derivation in boot.rs using 32-byte divisor for .axons blob
+- Update NightPhaseContext in daemon.rs to use Vec<BurstHeads8> and initialize with BurstHeads8::empty(AXON_SENTINEL)
+- Vectorize perform_refresh in sentinel.rs to scan and reset all 8 heads per axon burst
+- Update FFI in launch_extract_outgoing_spikes and launch_ghost_sync to accept BurstHeads8 pointers
+- Mark legacy intra-GPU tests with #[ignore] in test_intra_gpu.rs
+
 ## [0.117.23] - 2026-03-05 21:56
 
 **[Documentation] Update GPU runtime and signal physics specs for Burst Ar**
