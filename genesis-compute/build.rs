@@ -1,4 +1,27 @@
 // genesis-runtime/build.rs
+
+/// Detect GPU compute capability via nvidia-smi and return sm_XX arch string.
+/// Returns None if nvidia-smi fails or output is unparseable.
+fn detect_gpu_arch() -> Option<String> {
+    let output = std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=compute_cap", "--format=csv,noheader"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let cap = String::from_utf8_lossy(&output.stdout);
+    let cap = cap.trim().lines().next()?.trim();
+    // Parse "8.9" -> sm_89, "7.5" -> sm_75
+    let parts: Vec<&str> = cap.split('.').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let major: u8 = parts[0].trim().parse().ok()?;
+    let minor: u8 = parts[1].trim().parse().ok()?;
+    Some(format!("sm_{}{}", major, minor))
+}
+
 fn main() {
     // When running with `--features mock-gpu` (CI, CPU-only tests),
     // skip the CUDA compilation entirely. mock_ffi.rs provides all symbols
@@ -9,17 +32,26 @@ fn main() {
 
     println!("cargo:rerun-if-changed=src/cuda/");
 
-    cc::Build::new()
+    // GPU arch: CUDA_ARCH env > nvidia-smi auto-detect > sm_75 fallback
+    let arch = std::env::var("CUDA_ARCH").unwrap_or_else(|_| detect_gpu_arch().unwrap_or_else(|| {
+        println!("cargo:warning=Could not detect GPU via nvidia-smi, using sm_75 (Turing). Set CUDA_ARCH to override.");
+        "sm_75".to_string()
+    }));
+    println!("cargo:warning=Building CUDA for -arch={}", arch);
+
+    let mut build = cc::Build::new();
+    build
         .cuda(true)
         .flag("-O3")
         .flag("-use_fast_math")
-        // [DOD FIX] Per-Thread Default Stream: каждый OS-поток получает свой CUDA-стрим.
         .flag("-default-stream=per-thread")
-        // TODO for 1080ti: Если у тебя архитектура отличная от Ampere (RTX 30xx/A100),
-        // поменяй sm_80 на свою (например, sm_75 для Turing, sm_89 для Ada)
-        .flag("-arch=sm_61")
-        // Жёстко привязываем хост-компилятор, чтобы избежать конфликтов с GCC 14
-        .flag("-ccbin=g++-12")
+        .flag(&format!("-arch={}", arch));
+
+    // Host compiler: Linux uses g++-12, Windows uses MSVC (cl.exe) by default
+    #[cfg(unix)]
+    build.flag("-ccbin=g++-12");
+
+    build
         .file("src/cuda/bindings.cu")
         .file("src/cuda/physics.cu")
         .compile("genesis_cuda");
