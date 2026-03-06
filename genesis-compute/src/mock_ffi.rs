@@ -184,10 +184,10 @@ pub extern "C" fn launch_record_readout(
 
 #[no_mangle]
 pub extern "C" fn launch_sort_and_prune(
-    _vram: VramState,
-    prune_threshold: i16,
+    _ptrs: *const crate::ffi::ShardVramPtrs,
+    _padded_n: u32,
 ) {
-    log_call("SortAndPrune", prune_threshold as usize);
+    log_call("SortAndPrune", 0);
 }
 
 #[no_mangle]

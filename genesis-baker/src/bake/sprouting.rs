@@ -10,12 +10,22 @@ pub fn compute_sprouting_score(
     distance: f32,
     power_index: f32,
     noise: f32,
+    owner_type_id: u8,
+    target_type_id: u8,
 ) -> f32 {
     let dist_score = 1.0 / (distance + 1.0);
     
-    dist_score * target_type.sprouting_weight_distance 
+    // [DOD] Branchless Affinity
+    let is_same = (owner_type_id == target_type_id) as i32 as f32;
+    let affinity_mod = (is_same * target_type.type_affinity 
+                      + (1.0 - is_same) * (1.0 - target_type.type_affinity)) * 2.0;
+
+    let mut score = dist_score * target_type.sprouting_weight_distance 
         + power_index * target_type.sprouting_weight_power 
-        + noise * target_type.sprouting_weight_explore
+        + noise * target_type.sprouting_weight_explore;
+        
+    score *= affinity_mod;
+    score
 }
 
 /// Евклидово расстояние в вокселях между двумя точками.
@@ -38,6 +48,8 @@ pub fn run_sprouting_pass(
     padded_n: usize,
     blueprints: Option<&BlueprintsConfig>,
     epoch: u64,
+    axon_types: &[u8],
+    whitelist_masks: &[u16; 16],
 ) -> usize {
     let mut new_synapses = 0;
 
@@ -66,6 +78,20 @@ pub fn run_sprouting_pass(
 
             // Распаковываем axon_id из существующего target (отменяем +1 Zero-Index смещение)
             let candidate_axon_id = (candidate_packed & 0x00FF_FFFF).saturating_sub(1);
+
+            // [Phase 41.3] Типы и фильтрация
+            let owner_type_id = if axon_types.len() > i { axon_types[i] } else { 0 };
+            let target_type_id = if axon_types.len() > candidate_axon_id as usize {
+                axon_types[candidate_axon_id as usize]
+            } else {
+                0
+            };
+
+            // Hard Filter via Bitmask
+            let mask = whitelist_masks[(owner_type_id % 16) as usize];
+            if mask != 0xFFFF && (mask & (1 << (target_type_id % 16))) == 0 {
+                continue; // Cannot connect due to whitelist restrictions
+            }
 
             // [DOD FIX 1] Правильная упаковка через контрактный API
             let new_target = pack_dendrite_target(candidate_axon_id, 0);

@@ -36,6 +36,10 @@ struct NightPhaseContext {
     // [Шаг 4] soma_to_axon маппинг для интеграции новых ghost axons 
     /// soma_to_axon: Vec<u32> — маппинг soma_idx → axon_idx
     _soma_to_axon: Vec<u32>,
+
+    // [Phase 41.2] Types Cache (1 byte per axon) and Whitelist bitmasks
+    _neuron_types_cache: Vec<u8>,
+    _whitelist_masks: [u16; 16],
 }
 
 #[derive(Parser)]
@@ -269,6 +273,37 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
         }
     };
 
+    // [Phase 41.2] Извлечение типов (сдвиг >> 4) из shard.state
+    let neuron_types_cache = {
+        let state_path = baked_dir.join("shard.state");
+        if state_path.exists() {
+            let data = std::fs::read(&state_path).unwrap_or_default();
+            // Структура: [u32 voltages: 4*N] + [u8 flags: N]
+            let flags_offset = 4 * (padded_n as usize);
+            let flags_end = flags_offset + (padded_n as usize);
+            if data.len() >= flags_end {
+                data[flags_offset..flags_end].iter().map(|f| (f >> 4) & 0x0F).collect()
+            } else { vec![0; padded_n as usize] }
+        } else { vec![0; padded_n as usize] }
+    };
+
+    let mut whitelist_masks = [0u16; 16];
+    for (i, nt) in neuron_types.iter().enumerate().take(16) {
+        let mut mask = 0u16;
+        if nt.dendrite_whitelist.is_empty() {
+            mask = 0xFFFF; // All types allowed if whitelist is empty
+        } else {
+            for allowed_name in &nt.dendrite_whitelist {
+                for (j, other_nt) in neuron_types.iter().enumerate().take(16) {
+                    if &other_nt.name == allowed_name {
+                        mask |= 1 << j;
+                    }
+                }
+            }
+        }
+        whitelist_masks[i] = mask;
+    }
+
     Some(NightPhaseContext {
         _baked_dir: baked_dir.clone(),
         _layer_ranges: layer_ranges,
@@ -282,6 +317,8 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
         _axon_dirs_xyz: axon_dirs_xyz,
         _axon_heads: axon_heads,
         _soma_to_axon: soma_to_axon,
+        _neuron_types_cache: neuron_types_cache,
+        _whitelist_masks: whitelist_masks,
     })
 }
 
@@ -289,7 +326,7 @@ fn handle_night_phase(
     mut stream: UnixStream,
     _zone_hash: u32,
     blueprints: Option<&BlueprintsConfig>,
-    _ctx: Option<&NightPhaseContext>,
+    ctx: Option<&NightPhaseContext>,
     shm_ptr: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Read binary BakeRequest (16 bytes)
@@ -328,12 +365,22 @@ fn handle_night_phase(
     };
 
     // 4. CPU Sprouting (Zero-Copy)
+    let empty_cache: &[u8] = &[];
+    let default_masks = [0xFFFF; 16];
+    let (axon_types_cache, whitelist_masks) = if let Some(c) = ctx {
+        (c._neuron_types_cache.as_slice(), &c._whitelist_masks)
+    } else {
+        (empty_cache, &default_masks)
+    };
+
     let new_synapses = genesis_baker::bake::sprouting::run_sprouting_pass(
         targets,
         weights,
         padded_n,
         blueprints,
         hdr.epoch,
+        axon_types_cache,
+        whitelist_masks,
     );
 
     println!("   ↳ Sprouted {} new synapses", new_synapses);
