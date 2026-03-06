@@ -48,8 +48,8 @@ fn main() -> Result<()> {
             200_000, // DEFAULT_GHOST_CAPACITY (§3.1)
         )?;
 
-        let (shard_soa, compiled_shard, v_seg, num_virtual) = build_local_topology(&workspace);
-        serialize_artifacts(&shard_soa, &workspace, num_virtual, v_seg)?;
+        let (shard_soa, compiled_shard, v_seg, num_virtual, gxis, gxos) = build_local_topology(&workspace);
+        serialize_artifacts(&shard_soa, &workspace, num_virtual, v_seg, &gxis, &gxos)?;
 
         compiled_zones.insert(zone.name.clone(), compiled_shard);
     }
@@ -185,7 +185,7 @@ fn parse_and_validate(brain_config: &genesis_core::config::brain::BrainConfig, s
     })
 }
 
-fn build_local_topology(workspace: &BakeWorkspace) -> (bake::layout::ShardSoA, bake::layout::CompiledShard, u32, usize) {
+fn build_local_topology(workspace: &BakeWorkspace) -> (bake::layout::ShardSoA, bake::layout::CompiledShard, u32, usize, Vec<crate::bake::input_map::BakedGxi>, Vec<crate::bake::output_map::BakedGxo>) {
     bake::topology::build_local_topology_internal(
         &workspace.sim,
         &workspace.anatomy,
@@ -200,12 +200,28 @@ fn build_local_topology(workspace: &BakeWorkspace) -> (bake::layout::ShardSoA, b
     )
 }
 
-fn serialize_artifacts(shard: &bake::layout::ShardSoA, workspace: &BakeWorkspace, num_virtual: usize, v_seg: u32) -> Result<()> {
+fn serialize_artifacts(
+    shard: &bake::layout::ShardSoA, 
+    workspace: &BakeWorkspace, 
+    num_virtual: usize, 
+    v_seg: u32,
+    gxis: &[crate::bake::input_map::BakedGxi],
+    gxos: &[crate::bake::output_map::BakedGxo],
+) -> Result<()> {
     std::fs::create_dir_all(&workspace.out_dir)
         .with_context(|| format!("Cannot create output dir: {}", workspace.out_dir.display()))?;
 
     shard.dump_to_disk(&workspace.out_dir);
     println!("[baker] ✓ Written: shard.state + shard.axons");
+
+    if !gxis.is_empty() {
+        crate::bake::input_map::write_gxi_file(&workspace.out_dir, gxis);
+        println!("[baker] ✓ Written: shard.gxi");
+    }
+    if !gxos.is_empty() {
+        crate::bake::output_map::write_gxo_file(&workspace.out_dir, gxos);
+        println!("[baker] ✓ Written: shard.gxo");
+    }
 
     let zone_hash_fnv = genesis_core::hash::fnv1a_32(workspace.zone_name.as_bytes());
     let manifest = genesis_core::config::manifest::ZoneManifest {

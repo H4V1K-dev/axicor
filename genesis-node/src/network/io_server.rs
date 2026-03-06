@@ -130,77 +130,71 @@ impl ExternalIoServer {
 
     /// Processes a raw UDP payload according to Spec §12.
     pub fn process_incoming_udp(&self, payload: &[u8]) {
-
         // [Contract §12.3] Biological Drop
         if self.is_sleeping.load(Ordering::Acquire) {
             return;
         }
 
         // [Contract §12.2] EMSGSIZE Protection
-        if payload.len() > MAX_UDP_PAYLOAD {
+        if payload.len() > genesis_core::constants::MAX_UDP_PAYLOAD {
             self.oversized_skips.fetch_add(1, Ordering::Relaxed);
             return;
         }
 
         // [Contract §12.1] Header Validation
-        if payload.len() < 4 {
-            return;
-        }
-
-        let magic = u32::from_le_bytes(payload[0..4].try_into().unwrap());
-
-        // [Step 19] RouteUpdate check
-        if magic == ROUT_MAGIC {
-            if payload.len() >= std::mem::size_of::<RouteUpdate>() {
-                let update = unsafe { &*(payload.as_ptr() as *const RouteUpdate) };
-                
-                // Nuclear RCU update: Atomic swap of the entire table
-                let mut new_map = unsafe { (*self.routing_table.get_map_ptr()).clone() };
-                let ipv4 = std::net::Ipv4Addr::from(update.new_ipv4);
-                let new_addr = SocketAddr::from((ipv4, update.new_port));
-                
-                new_map.insert(update.zone_hash, new_addr);
-                unsafe { self.routing_table.update_routes(new_map); }
-                
-                println!("[I/O Server] Route updated for zone 0x{:08X} -> {}", update.zone_hash, new_addr);
-            }
-            return;
-        }
-
         if payload.len() < std::mem::size_of::<ExternalIoHeader>() {
             return;
         }
 
         let header = unsafe { &*(payload.as_ptr() as *const ExternalIoHeader) };
 
-        // Magic number check (GSIO for Input)
-        if header.magic != GSIO_MAGIC {
+        // [Step 19] RouteUpdate check
+        if header.magic == genesis_core::ipc::ROUT_MAGIC {
+            if payload.len() >= std::mem::size_of::<RouteUpdate>() {
+                let update = unsafe { &*(payload.as_ptr() as *const RouteUpdate) };
+                let mut new_map = unsafe { (*self.routing_table.get_map_ptr()).clone() };
+                let ipv4 = std::net::Ipv4Addr::from(update.new_ipv4);
+                let new_addr = SocketAddr::from((ipv4, update.new_port));
+
+                new_map.insert(update.zone_hash, new_addr);
+                unsafe { self.routing_table.update_routes(new_map); }
+                println!("[I/O Server] Route updated for zone 0x{:08X} -> {}", update.zone_hash, new_addr);
+            }
             return;
         }
 
-        // [DOD] Zero-Cost Routing (Linear search is optimal for small arrays)
-        // Ищем контекст зоны в плоском массиве, который уже в L1
+        // Magic number check (GSIO for Input)
+        if header.magic != GSIO_MAGIC {
+            return; // Игнорируем чужой мусор
+        }
+
+        // [DOD FIX] Zero-Cost Routing с диагностикой
         let ctx = match self.io_contexts.iter().find(|(h, _)| *h == header.zone_hash) {
             Some((_, ctx)) => ctx,
-            None => return, // Drop packet for unknown zone
+            None => {
+                println!("⚠️ [I/O Drop] Unknown zone hash 0x{:08X}", header.zone_hash);
+                return;
+            }
         };
 
-        // Проверка матрицы внутри контекста зоны
         let offset = match ctx.matrix_offsets.get(&header.matrix_hash) {
             Some(&off) => off as usize,
-            None => return, // Unknown matrix for this zone
+            None => {
+                println!("⚠️ [I/O Drop] Unknown matrix hash 0x{:08X} for zone 0x{:08X}", header.matrix_hash, header.zone_hash);
+                return;
+            }
         };
 
         let payload_start = std::mem::size_of::<ExternalIoHeader>();
         let payload_data = &payload[payload_start..];
-        
+
         if payload_data.len() != header.payload_size as usize {
-            return; // Corrupt size field
+            println!("⚠️ [I/O Drop] Size mismatch. Header expects {}, actual payload is {}", header.payload_size, payload_data.len());
+            return;
         }
 
-        // [Contract §12.3] Lock-Free Zero-Copy Transfer (Personalized per Zone)
+        // [Contract §12.3] Lock-Free Zero-Copy Transfer
         ctx.swapchain.write_incoming_at(offset, payload_data);
-        // println!("[I/O Server] RX Input for zone 0x{:08X}: {} bytes", header.zone_hash, payload_data.len());
 
         // Update global dopamine reward for R-STDP
         self.global_dopamine.store(header.global_reward as i32, Ordering::Relaxed);

@@ -20,7 +20,7 @@ pub fn build_local_topology_internal(
     zone_name: &str,
     master_seed: u64,
     ghost_capacity: usize,
-) -> (ShardSoA, CompiledShard, u32, usize) {
+) -> (ShardSoA, CompiledShard, u32, usize, Vec<crate::bake::input_map::BakedGxi>, Vec<crate::bake::output_map::BakedGxo>) {
     println!("[baker] Placing neurons...");
     let mut type_name_pairs: Vec<(&String, &u8)> = name_map.iter().collect();
     type_name_pairs.sort_by_key(|(_, &idx)| idx);
@@ -49,7 +49,9 @@ pub fn build_local_topology_internal(
     let local_axons_count = axons.len();
 
     let mut num_virtual = 0;
+    let mut gxi_matrices = Vec::new();
     if !io.inputs.is_empty() {
+        println!("[baker] Processing Input Maps for {}...", zone_name);
         for matrix in &io.inputs {
             let gxi = build_gxi_mapping(
                 &matrix.name,
@@ -60,21 +62,63 @@ pub fn build_local_topology_internal(
                 matrix.stride as u8,
             );
             num_virtual += gxi.axon_ids.len();
-            
-            for _ in &gxi.axon_ids {
-                axons.push(GrownAxon {
-                    soma_idx: usize::MAX,
-                    type_idx: 0,
-                    tip_x: 0, tip_y: 0, tip_z: 0,
-                    length_segments: 0,
-                    segments: vec![],
-                    last_dir: glam::Vec3::ZERO,
-                });
+
+            let zone_w = shard_cfg.dimensions.w;
+            let zone_d = shard_cfg.dimensions.d;
+            let zone_h = shard_cfg.dimensions.h;
+
+            for py in 0..matrix.height {
+                for px in 0..matrix.width {
+                    // Центр пикселя с защитой от выхода за границы
+                    let start_x = ((px as u32 * zone_w) / matrix.width as u32).min(zone_w.saturating_sub(1));
+                    let start_y = ((py as u32 * zone_d) / matrix.height as u32).min(zone_d.saturating_sub(1));
+                    let start_z = zone_h.saturating_sub(1);
+
+                    // Проращиваем кабель вертикально вниз на 15 вокселей
+                    let mut segments = Vec::new();
+                    let length = 15.min(start_z + 1);
+                    for i in 0..length {
+                        let z = start_z.saturating_sub(i);
+                        segments.push(PackedPosition::pack_raw(start_x, start_y, z, 0).0);
+                    }
+
+                    axons.push(GrownAxon {
+                        soma_idx: usize::MAX,
+                        type_idx: 0, // Virtual Type mask
+                        tip_x: start_x,
+                        tip_y: start_y,
+                        tip_z: start_z.saturating_sub(length),
+                        length_segments: segments.len() as u32,
+                        segments,
+                        last_dir: glam::Vec3::NEG_Z,
+                    });
+                }
             }
+            gxi_matrices.push(gxi);
         }
+        println!("[baker] ✓ Processed {} virtual axons across {} input matrices", num_virtual, gxi_matrices.len());
     }
 
     let packed_positions: Vec<u32> = positions.iter().map(|p| p.0).collect();
+
+    let mut gxo_matrices = Vec::new();
+    if !io.outputs.is_empty() {
+        println!("[baker] Processing Output Maps for {}...", zone_name);
+        for matrix in &io.outputs {
+            let gxo = build_gxo_mapping(
+                &matrix.name,
+                zone_name,
+                matrix.width as u32,
+                matrix.height as u32,
+                shard_cfg.dimensions.w,
+                shard_cfg.dimensions.d,
+                &packed_positions,
+                matrix.stride as u8,
+            );
+            gxo_matrices.push(gxo);
+        }
+        println!("[baker] ✓ Processed {} output matrices", gxo_matrices.len());
+    }
 
     if !ghost_packets.is_empty() {
         let (mut ghost_axons, _) = inject_ghost_axons(
@@ -88,6 +132,10 @@ pub fn build_local_topology_internal(
         axons.append(&mut ghost_axons);
     }
 
+    let total_ghosts = axons.len() - local_axons_count - num_virtual;
+    println!("[baker] ✓ Total Grown: {} axons ({} local, {} virtual, {} ghosts)", 
+        axons.len(), local_axons_count, num_virtual, total_ghosts);
+
     let total_capacity = axons.len() + ghost_capacity;
     let mut shard = ShardSoA::new(positions.len(), total_capacity);
 
@@ -96,7 +144,7 @@ pub fn build_local_topology_internal(
         let type_idx = pos.type_id();
         let variant = &const_mem.variants[type_idx as usize];
         shard.voltage[i] = variant.rest_potential;
-        shard.flags[i] = type_idx << 4; 
+        shard.flags[i] = type_idx << 4;
     }
 
     for (axon_id, axon) in axons.iter().enumerate() {
@@ -105,15 +153,21 @@ pub fn build_local_topology_internal(
         }
     }
 
-    connect_dendrites(
+    println!("[baker] Connecting dendrites (dynamic per-type radius)...");
+
+    let total_synapses = connect_dendrites(
         &mut shard,
         &positions,
         &axons,
         neuron_types,
         master_seed,
-        2, 
+        sim.simulation.voxel_size_um as f32, // Передаем размер вокселя
     );
-    
+    println!("[baker] ✓ Synapses established: {} (avg: {:.1}/soma)", 
+        total_synapses, 
+        total_synapses as f64 / positions.len() as f64
+    );
+
     let physics = genesis_core::physics::compute_derived_physics(
         sim.simulation.signal_speed_m_s,
         sim.simulation.tick_duration_us,
@@ -136,7 +190,8 @@ pub fn build_local_topology_internal(
             shard.axon_dirs_xyz[i] = (dz << 16) | (dy << 8) | dx;
         }
     }
-    
+    println!("[baker] ✓ Axon heads initialized (v_seg={})", v_seg);
+
     shard.soma_positions.copy_from_slice(&packed_positions[..positions.len()]);
 
     let voxel_um = sim.simulation.voxel_size_um;
@@ -152,5 +207,5 @@ pub fn build_local_topology_internal(
         bounds_um,
     };
 
-    (shard, compiled_shard, v_seg, num_virtual)
+    (shard, compiled_shard, v_seg, num_virtual, gxi_matrices, gxo_matrices)
 }

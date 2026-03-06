@@ -1,7 +1,7 @@
 [[layer]]
-name = "L1"
+name = "Nuclear"
 height_pct = 1.0
 population_pct = 1.0
 
 [layer.composition]
-"CartPole_Excitatory" = 1.0
+"Excitatory" = 1.0

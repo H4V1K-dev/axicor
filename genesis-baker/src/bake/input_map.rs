@@ -27,6 +27,7 @@ pub struct GxiMatrixDescriptor {
 }
 
 /// Результат запекания одной матрицы входа.
+#[derive(Clone)]
 pub struct BakedGxi {
     pub name_hash: u32,
     pub width: u16,

@@ -19,10 +19,12 @@ pub fn connect_dendrites(
     axons: &[GrownAxon],
     types: &[NeuronType],
     _master_seed: u64,
-    cell_size: u32,
+    voxel_size_um: f32, // [DOD] Вместо хардкод cell_size берем размер вокселя
 ) -> usize {
     // 1. ИНВЕРСИЯ: Строим SpatialGrid из СЕГМЕНТОВ аксонов.
-    let segment_grid = AxonSegmentGrid::build_from_axons(axons, cell_size);
+    // Оптимальный размер чанка для хэш-сетки = 2 вокселя (~50 мкм)
+    let cell_size_vox = 2u32;
+    let segment_grid = AxonSegmentGrid::build_from_axons(axons, cell_size_vox);
 
     // 2. Локальные AoS буферы для каждой сомы (Zero Lock Contention)
     let mut aos_dendrites = vec![[TempSlot::default(); genesis_core::constants::MAX_DENDRITE_SLOTS]; shard.padded_n];
@@ -36,9 +38,13 @@ pub fn connect_dendrites(
         .map(|(soma_id, (slots, count))| {
             let my_pos = positions[soma_id];
             let my_type = &types[my_pos.type_id() as usize];
-            
+
+            // [DOD FIX] Динамический радиус дендритов из Бланка (blueprints.toml)
+            let radius_vox = (my_type.dendrite_radius_um / voxel_size_um).ceil() as u32;
+            let radius_cells = (radius_vox as f32 / cell_size_vox as f32).ceil() as i32;
+
             // Сома сканирует пространство вокруг себя
-            segment_grid.for_each_in_radius(&my_pos, 1, |seg_ref: &SegmentRef| {
+            segment_grid.for_each_in_radius(&my_pos, radius_cells, |seg_ref: &SegmentRef| {
                 if *count >= genesis_core::constants::MAX_DENDRITE_SLOTS { return; }
                 
                 let axon_id = seg_ref.axon_id as usize;
@@ -145,8 +151,8 @@ mod tests {
 
         let axons = vec![axon];
         
-        let cell_size = 1;
-        let connections = connect_dendrites(&mut shard, &positions, &axons, &types, 0, cell_size);
+        let voxel_size_um = 25.0;
+        let connections = connect_dendrites(&mut shard, &positions, &axons, &types, 0, voxel_size_um);
 
         // Since both soma A and soma B scan through space, they both read the same axon.
         // Because data races are eliminated with TempSlot buffers per soma, both must connect safely.

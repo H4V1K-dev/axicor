@@ -356,6 +356,12 @@ __global__ void extract_outgoing_spikes_kernel(
   if (tid >= count) return;
 
   uint32_t local_axon = src_indices[tid];
+
+  // [DOD FIX] Hardware Memory Protection
+  // 0x80000000 = AXON_SENTINEL (empty pixel)
+  // 0xFFFFFFFF = u32::MAX (soma without axon)
+  if (local_axon >= 0x80000000u) return;
+
   BurstHeads8 h = axon_heads[local_axon];
   uint32_t ghost_id = dst_ghost_ids[tid];
 

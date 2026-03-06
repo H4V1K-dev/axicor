@@ -187,23 +187,39 @@ impl InterNodeRouter {
     pub async fn spawn_ghost_listener(
         port: u16,
         bsp_barrier: std::sync::Arc<crate::network::bsp::BspBarrier>,
+        routing_table: std::sync::Arc<crate::network::router::RoutingTable>,
     ) {
         let sock = tokio::net::UdpSocket::bind(("0.0.0.0", port)).await.expect("FATAL: Ghost Bind failed");
         
         tokio::spawn(async move {
             let mut buf = vec![0u8; 65507];
             loop {
-                if let Ok((size, _addr)) = sock.recv_from(&mut buf).await {
+                if let Ok((size, _)) = sock.recv_from(&mut buf).await {
                     if size < 16 { continue; }
 
                     let header: SpikeBatchHeaderV2 = *bytemuck::from_bytes(&buf[0..16]);
                     let current_epoch = bsp_barrier.current_epoch.load(std::sync::atomic::Ordering::Acquire);
 
-                    // [DOD] Strict Epoch Filtering: Игнорируем прошлое и будущее
-                    if header.epoch != current_epoch {
+                    // 1. Biological Amnesia: Игнорируем пакеты из прошлого
+                    if header.epoch < current_epoch {
                         continue;
                     }
 
+                    // 2. Self-Healing: Прыжок в будущее, если мы отстали (или пропустили пакет)
+                    if header.epoch > current_epoch {
+                        println!("⚠️ [BSP] Self-Healing: Fast-forwarding epoch {} -> {} to catch up", current_epoch, header.epoch);
+                        bsp_barrier.current_epoch.store(header.epoch, std::sync::atomic::Ordering::Release);
+                        bsp_barrier.completed_peers.store(0, std::sync::atomic::Ordering::Release);
+                        bsp_barrier.get_write_schedule().clear();
+                    }
+
+                    // 3. Обработка ACK-пакета
+                    if header.is_last == 2 {
+                        bsp_barrier.completed_peers.fetch_add(1, std::sync::atomic::Ordering::Release);
+                        continue;
+                    }
+
+                    // 4. Обработка спайков
                     let payload_bytes = &buf[16..size];
                     if payload_bytes.len() % 8 == 0 && !payload_bytes.is_empty() {
                         let events: &[SpikeEventV2] = bytemuck::cast_slice(payload_bytes);
@@ -213,9 +229,20 @@ impl InterNodeRouter {
                         }
                     }
 
-                    // Барьер пробивается ТОЛЬКО когда получен последний чанк
+                    // 5. Триггер барьера и отправка ACK
                     if header.is_last == 1 {
                         bsp_barrier.completed_peers.fetch_add(1, std::sync::atomic::Ordering::Release);
+
+                        // Отправляем ACK отправителю
+                        if let Some(src_addr) = routing_table.get_address(header.src_zone_hash) {
+                            let ack = SpikeBatchHeaderV2 {
+                                src_zone_hash: header.dst_zone_hash, // Меняем местами для обратного роутинга
+                                dst_zone_hash: header.src_zone_hash,
+                                epoch: header.epoch,
+                                is_last: 2, // 2 = ACK
+                            };
+                            let _ = sock.send_to(bytemuck::bytes_of(&ack), src_addr).await;
+                        }
                     }
                 }
             }

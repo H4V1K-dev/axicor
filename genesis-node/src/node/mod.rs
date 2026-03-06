@@ -98,7 +98,7 @@ impl NodeRuntime {
         let total_ticks = Arc::new(AtomicU32::new(0));
 
         let bsp_listener_clone = bsp_barrier.clone();
-        tokio::spawn(InterNodeRouter::spawn_ghost_listener(local_port, bsp_listener_clone));
+        tokio::spawn(InterNodeRouter::spawn_ghost_listener(local_port, bsp_listener_clone, routing_table.clone()));
 
         // [DOD] Structured Concurrency: Оркестратор спавнит демонов сам
         let daemons = Self::spawn_baker_daemons(&shards);
@@ -199,7 +199,7 @@ impl NodeRuntime {
         daemons
     }
 
-    // [DOD] Оркестратор изолирован от асинхронного Tokio-контекста
+    // [DOD FIX] The correct Pipeline Order: Compute -> Network Tx -> Network Rx Wait
     pub fn run_node_loop(&self, batch_size: u32) {
         let mut current_tick = 0;
         let mut batch_counter: u64 = 0;
@@ -207,25 +207,18 @@ impl NodeRuntime {
         // [DOD FIX] Жесткая привязка OS-потока оркестратора к аппаратному контексту
         unsafe { genesis_compute::ffi::gpu_set_device(0); }
 
-        // [DOD] Pre-allocate outbound buffers to avoid heap thrashing (Invariant #3)
+        // [DOD] Pre-allocate outbound buffers to avoid heap thrashing
         let mut _io_tx_buffer = vec![0u8; genesis_core::constants::MAX_UDP_PAYLOAD];
-        let mut _bsp_tx_buffer: Vec<u8> = Vec::with_capacity(genesis_core::constants::MAX_UDP_PAYLOAD);
 
         println!("[Node] Entering main loop (Batch size: {})", batch_size);
 
         loop {
-            // 1. Wait for Ingress data (Strict BSP network sync)
-            self.services.bsp_barrier.wait_for_data_sync();
-            
-            // 2. Synchronize BSP and consume Ghost events
-            self.services.bsp_barrier.sync_and_swap();
-
-            // 3. Swap IO Buffers (Acquire semantics)
+            // 1. Swap IO Buffers (Acquire semantics)
             for (_, io_ctx) in &self.services.io_server.io_contexts {
                 io_ctx.swapchain.swap();
             }
 
-            // 4. Dispatch batches to compute shards
+            // 2. Dispatch batches to compute shards
             let current_dopamine = self.services.io_server.global_dopamine.load(Ordering::Relaxed) as i16;
             if current_dopamine != 0 && batch_counter % 100 == 0 {
                 println!("💉 [Node] Dopamine: {}", current_dopamine);
@@ -243,7 +236,7 @@ impl NodeRuntime {
                 });
             }
 
-            // 5. Collect feedback
+            // 3. Collect feedback
             for _ in 0..num_dispatchers {
                 if let Ok(feedback) = self.feedback_receiver.recv() {
                     match feedback {
@@ -254,7 +247,7 @@ impl NodeRuntime {
                                     for (addr, m_hash) in routes {
                                         self.services.io_server.send_output_batch_pool(
                                             &self.network.egress_pool,
-                                            &addr, 
+                                            &addr,
                                             zone_hash,
                                             *m_hash,
                                             pinned_out_ptr,
@@ -268,42 +261,47 @@ impl NodeRuntime {
                 }
             }
 
-            // [DOD] 6. Intra-GPU Ghost Sync + Inter-Node Extraction
+            // [DOD] 4. Intra-GPU Ghost Sync + Inter-Node Extraction
             for (src_ptr, dst_ptr, channel) in &self.network.intra_gpu_channels {
                 unsafe { channel.sync_ghosts(*src_ptr, *dst_ptr, std::ptr::null_mut()); }
             }
 
             for (src_ptr, channel) in &self.network.inter_node_channels {
-                // [DOD] v_seg must be passed for accurate spike timing extraction
+                // v_seg must be passed for accurate spike timing extraction
                 let v_seg = self.zone_v_segs.get(&channel.src_zone_hash).copied().unwrap_or(1);
                 unsafe { channel.extract_spikes(*src_ptr, batch_size, v_seg, std::ptr::null_mut()); }
             }
-            
-            // [DOD] 7. GPU Barrier Sync (дожидаемся завершения физики, sync_ghosts и экстракции)
+
+            // [DOD] 5. GPU Barrier Sync (дожидаемся завершения физики, sync_ghosts и экстракции)
             unsafe { genesis_compute::ffi::gpu_stream_synchronize(std::ptr::null_mut()); }
 
-            // [DOD] 8. Inter-Node Fast Path (Egress)
+            // [DOD] 6. Inter-Node Fast Path (Egress)
             for (_, channel) in &self.network.inter_node_channels {
                 let out_count = unsafe { std::ptr::read_volatile(channel.out_count_pinned) };
-                
+
                 if out_count > 0 {
                     println!("🚀 [Egress] Extracted {} spikes for zone 0x{:08X}", out_count, channel.target_zone_hash);
                     self.services.reporter.udp_out_packets.fetch_add(1, Ordering::Relaxed);
                 }
 
-                // [DOD FIX] BSP Heartbeat: ВСЕГДА формируем и отправляем пакет, даже если out_count == 0.
-                // Это пробивает барьер wait_for_data_sync на принимающей стороне.
-                let events_slice = unsafe { 
-                    std::slice::from_raw_parts(channel.out_events_pinned, out_count as usize) 
+                // BSP Heartbeat: ВСЕГДА формируем и отправляем пакет
+                let events_slice = unsafe {
+                    std::slice::from_raw_parts(channel.out_events_pinned, out_count as usize)
                 };
                 self.network.inter_node_router.flush_outgoing_batch_pool(
-                    &self.network.egress_pool, 
+                    &self.network.egress_pool,
                     channel.src_zone_hash,
-                    channel.target_zone_hash, 
+                    channel.target_zone_hash,
                     events_slice,
                     (batch_counter & 0xFFFFFFFF) as u32
                 );
             }
+
+            // [DOD] 7. Wait for Ingress data (Strict BSP network sync)
+            self.services.bsp_barrier.wait_for_data_sync();
+
+            // [DOD] 8. Synchronize BSP and consume Ghost events
+            self.services.bsp_barrier.sync_and_swap();
 
             current_tick += batch_size;
             batch_counter += 1;

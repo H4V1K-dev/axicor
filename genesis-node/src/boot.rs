@@ -108,14 +108,20 @@ impl Bootloader {
         for conn in &first_manifest.connections {
             let src_hash = genesis_core::hash::fnv1a_32(conn.from.as_bytes());
             let dst_hash = genesis_core::hash::fnv1a_32(conn.to.as_bytes());
-            
-            // Если мы являемся отправителем в этой связи
+
             if src_hash == first_manifest.zone_hash {
-                // Берем первый доступный IP пира из манифеста (сгенерированный Baker'ом)
+                // Мы Отправитель. Запоминаем куда слать данные.
                 if let Some(peer_addr) = first_manifest.network.fast_path_peers.first() {
-                    let addr: std::net::SocketAddr = peer_addr.parse().expect("FATAL: Invalid peer IP in manifest");
+                    let addr: std::net::SocketAddr = peer_addr.parse().expect("FATAL: Invalid peer IP");
                     initial_routes.insert(dst_hash, addr);
-                    println!("[Boot] Statically mapped route: 0x{:08X} -> {}", dst_hash, addr);
+                    println!("[Boot] Route (Egress): 0x{:08X} -> {}", dst_hash, addr);
+                }
+            } else if dst_hash == first_manifest.zone_hash {
+                // Мы Получатель. Запоминаем куда слать ACK.
+                if let Some(peer_addr) = first_manifest.network.fast_path_peers.first() {
+                    let addr: std::net::SocketAddr = peer_addr.parse().expect("FATAL: Invalid peer IP");
+                    initial_routes.insert(src_hash, addr);
+                    println!("[Boot] Route (ACK): 0x{:08X} -> {}", src_hash, addr);
                 }
             }
         }
@@ -344,7 +350,11 @@ impl Bootloader {
             let is_dst_local = axon_head_ptrs.contains_key(&dst_hash);
 
             if !is_src_local && is_dst_local {
-                println!("[Boot] Peer detected: expecting fast-path data from remote zone for target 0x{:08X}", dst_hash);
+                println!("[Boot] Peer detected (Ingress): expecting fast-path data from remote zone 0x{:08X}", src_hash);
+                expected_peers += 1;
+            }
+            if is_src_local && !is_dst_local {
+                println!("[Boot] Peer detected (Egress): expecting fast-path ACK from remote zone 0x{:08X}", dst_hash);
                 expected_peers += 1;
             }
 

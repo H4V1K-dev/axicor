@@ -21,7 +21,7 @@ GENESIS_IP  = "127.0.0.1"
 PORT_OUT    = 8081   # Node receives input here
 PORT_IN     = 8092   # Node sends output here (MotorCortex)
 BATCH_TICKS = 100
-NUM_NEURONS = 16     # neurons per variable
+NUM_NEURONS = 64     # neurons per variable
 
 
 def fnv1a_32(data: bytes) -> int:
@@ -33,7 +33,7 @@ def fnv1a_32(data: bytes) -> int:
 
 
 ZONE_IN  = fnv1a_32(b"SensoryCortex")
-MAT_IN   = fnv1a_32(b"cartpole_sensors")
+MAT_IN   = fnv1a_32(b"env_sensors")
 ZONE_OUT = fnv1a_32(b"MotorCortex")
 
 
@@ -83,16 +83,16 @@ def decode_output(payload: bytes) -> tuple[int, int]:
 
 
 def main() -> None:
-    env  = gym.make("CartPole-v1", render_mode=None)
+    env  = gym.make("CartPole-v1", render_mode="human")
     obs, _ = env.reset()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("0.0.0.0", PORT_IN))
-    sock.settimeout(0.01)
+    sock.settimeout(0.5)
 
     print("🧠 [Genesis] CartPole I/O Loop Started")
     print(f"   TX → {GENESIS_IP}:{PORT_OUT}  |  RX ← 0.0.0.0:{PORT_IN}")
-    print(f"   Batch: {BATCH_TICKS} ticks | Input: 64 virt-axons | Output: 128 neurons\n")
+    print(f"   Batch: {BATCH_TICKS} ticks | Input: 256 virt-axons | Output: 64 neurons\n")
 
     action       = 0
     episode      = 1
@@ -115,7 +115,15 @@ def main() -> None:
         dopamine = max(-32768, min(32767, dopamine))
 
         # ── 3. Encode & send ─────────────────────────────────────
-        payload = build_input_batch(cart_x, cart_v, pole_a, pole_av)
+        # 4 variables * 64 bits = 256 bits = 32 bytes per tick
+        v0 = encode_population(cart_x,  -2.4, 2.4, n=64)
+        v1 = encode_population(cart_v,  -3.0, 3.0, n=64)
+        v2 = encode_population(pole_a,  -0.41, 0.41, n=64)
+        v3 = encode_population(pole_av, -2.0, 2.0, n=64)
+        
+        tick = struct.pack("<QQQQ", v0, v1, v2, v3)
+        payload = tick * BATCH_TICKS  # 3200 bytes total
+
         header  = struct.pack(HEADER_FMT,
                               GSIO_MAGIC, ZONE_IN, MAT_IN,
                               len(payload), dopamine, 0)
@@ -130,8 +138,12 @@ def main() -> None:
 
                 if magic == GSOO_MAGIC and z_hash == ZONE_OUT:
                     out_payload = data[HEADER_SIZE : HEADER_SIZE + p_size]
-                    if len(out_payload) == BATCH_TICKS * 128:
-                        left_power, right_power = decode_output(out_payload)
+                    if len(out_payload) == BATCH_TICKS * 64:
+                        # Decode 64 neurons (1 byte per neuron)
+                        spikes = np.frombuffer(out_payload, dtype=np.uint8).reshape((BATCH_TICKS, 64))
+                        total  = np.sum(spikes, axis=0) # shape: (64,)
+                        left_power  = int(np.sum(total[0:32]))
+                        right_power = int(np.sum(total[32:64]))
                         action = 0 if left_power >= right_power else 1
 
         except socket.timeout:

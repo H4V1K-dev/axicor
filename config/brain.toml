@@ -1,114 +1,26 @@
-# ═══════════════════════════════════════════════════════════════
-# Genesis Brain Manifest — RobotBrain (5 зон, замедленный коннектом)
-# ═══════════════════════════════════════════════════════════════
-#
-# Архитектура сигнала (5 хопов + feedback loop):
-#
-#   Sensory → Thalamus → Parietal → Prefrontal → Motor
-#                ↑            ↓                      |
-#                └── feedback ←──────────────────────┘
-#
-# ═══════════════════════════════════════════════════════════════
-
 [simulation]
 config = "config/simulation.toml"
 
-# ─── Зона 1: Сенсорная Кора (S1) — Вход ──────────────────────
 [[zone]]
 name = "SensoryCortex"
-blueprints = "config/brains/RobotBrain/blueprints.toml"
-anatomy = "config/brains/RobotBrain/SensoryCortex/anatomy.toml"
-io = "config/brains/RobotBrain/SensoryCortex/io.toml"
-baked_dir = "baked/SensoryCortex"
+blueprints = "config/zones/SensoryCortex/blueprints.toml"
+anatomy = "config/zones/SensoryCortex/anatomy.toml"
+io = "config/zones/SensoryCortex/io.toml"
+baked_dir = "baked/SensoryCortex/"
 
-# ─── Зона 2: Таламус — Ворота / Внимание ─────────────────────
-[[zone]]
-name = "Thalamus"
-blueprints = "config/brains/RobotBrain/blueprints.toml"
-anatomy = "config/brains/RobotBrain/HiddenCortex/anatomy.toml"
-io = "config/brains/RobotBrain/HiddenCortex/io.toml"
-baked_dir = "baked/Thalamus"
-
-# ─── Зона 3: Теменная Кора (PPC) — Пространственная интеграция
-[[zone]]
-name = "ParietalCortex"
-blueprints = "config/brains/RobotBrain/blueprints.toml"
-anatomy = "config/brains/RobotBrain/ParietalCortex/anatomy.toml"
-io = "config/brains/RobotBrain/ParietalCortex/io.toml"
-baked_dir = "baked/ParietalCortex"
-
-# ─── Зона 4: Префронтальная Кора (PFC) — Решения ─────────────
-[[zone]]
-name = "PrefrontalCortex"
-blueprints = "config/brains/RobotBrain/blueprints.toml"
-anatomy = "config/brains/RobotBrain/PrefrontalCortex/anatomy.toml"
-io = "config/brains/RobotBrain/PrefrontalCortex/io.toml"
-baked_dir = "baked/PrefrontalCortex"
-
-# ─── Зона 5: Моторная Кора (M1) — Выход ──────────────────────
 [[zone]]
 name = "MotorCortex"
-blueprints = "config/brains/RobotBrain/blueprints.toml"
-anatomy = "config/brains/RobotBrain/MotorCortex/anatomy.toml"
-io = "config/brains/RobotBrain/MotorCortex/io.toml"
-baked_dir = "baked/MotorCortex"
+blueprints = "config/zones/MotorCortex/blueprints.toml"
+anatomy = "config/zones/MotorCortex/anatomy.toml"
+io = "config/zones/MotorCortex/io.toml"
+baked_dir = "baked/MotorCortex/"
 
-
-# ═══════════════════════════════════════════════════════════════
-# КОННЕКТОМ (замедленный, многоступенчатый)
-# ═══════════════════════════════════════════════════════════════
-
-# 1. Сенсорная кора → Таламус (сенсорный relay)
 [[connection]]
 from = "SensoryCortex"
-to = "Thalamus"
-target_type = "All"
-width = 24
-height = 24
-growth_steps = 750
-
-# 2. Таламус → Теменная кора (пространственная обработка)
-[[connection]]
-from = "Thalamus"
-to = "ParietalCortex"
-target_type = "All"
-width = 20
-height = 20
-growth_steps = 750
-
-# 3. Таламус → Префронтальная кора (прямой канал для быстрых решений)
-[[connection]]
-from = "Thalamus"
-to = "PrefrontalCortex"
-target_type = "All"
-width = 16
-height = 16
-growth_steps = 750
-
-# 4. Теменная → Префронтальная (интегрированная пространственная карта)
-[[connection]]
-from = "ParietalCortex"
-to = "PrefrontalCortex"
-target_type = "All"
-width = 20
-height = 20
-growth_steps = 750
-
-# 5. Префронтальная → Моторная (волевая команда)
-[[connection]]
-from = "PrefrontalCortex"
 to = "MotorCortex"
-target_type = "All"
-width = 24
-height = 24
-growth_steps = 750
-
-# 6. Моторная → Таламус (эфферентная копия — feedback loop!)
-#    Мотор сообщает таламусу ЧТО он сделал, таламус корректирует внимание.
-[[connection]]
-from = "MotorCortex"
-to = "Thalamus"
-target_type = "All"
+output_matrix = "sensory_out"
 width = 16
 height = 16
-growth_steps = 750
+entry_z = "top"
+target_type = "All"
+growth_steps = 500

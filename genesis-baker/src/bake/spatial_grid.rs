@@ -101,7 +101,9 @@ impl AxonSegmentGrid {
         let est_segs: usize = axons.iter().map(|a| a.segments.len()).sum();
         let mut cells: HashMap<u64, Vec<SegmentRef>> = HashMap::with_capacity(est_segs / 10 + 1);
         
-        for (axon_id, axon) in axons.iter().enumerate() {
+        // [DOD FIX] Reverse iteration. Внешние аксоны (находящиеся в хвосте массива) 
+        // попадают в Spatial Grid первыми и гарантированно забирают дефицитные дендритные слоты.
+        for (axon_id, axon) in axons.iter().enumerate().rev() {
             let type_idx = axon.type_idx as u8;
             for (seg_idx, &packed) in axon.segments.iter().enumerate() {
                 let pos = PackedPosition(packed);

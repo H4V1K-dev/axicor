@@ -1,0 +1,18 @@
+[[input]]
+name = "env_sensors"
+zone = "SensoryCortex"
+width = 16
+height = 16
+entry_z = "top"
+target_type = "Excitatory"
+growth_steps = 200
+empty_pixel = "nearest"
+stride = 1
+
+[[output]]
+name = "sensory_out"
+zone = "SensoryCortex"
+width = 16
+height = 16
+target_type = "Excitatory"
+stride = 1

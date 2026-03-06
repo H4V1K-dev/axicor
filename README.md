@@ -20,6 +20,11 @@
   <a href="./docs/specs/01_foundations.md">Specs</a> · <a href="#-быстрый-старт-e2e-cartpole-benchmark">Quick Start</a> · <a href="./CHANGELOG.md">Changelog</a> · <a href="./CONTRIBUTING.md">Contributing</a>
 </p>
 
+<p align="center">
+  🏆 <strong>CartPole Рекорд: 19 очков</strong> (@H4V1K-dev) &nbsp;|&nbsp; 
+  <a href="examples/cartpole/readme.md">🏎 Попробовать побить рекорд!</a>
+</p>
+
 ---
 
 Genesis — это не очередной Python-фреймворк для перемножения плотных матриц. Это жёстко оптимизированный, распределённый симулятор биологической нейросети, построенный на принципах **Data-Oriented Design (DOD)** и **Механической Симпатии** к архитектуре GPU.

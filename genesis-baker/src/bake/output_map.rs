@@ -26,6 +26,7 @@ pub struct GxoMatrixDescriptor {
 }
 
 /// Результат запекания одной матрицы выхода.
+#[derive(Clone)]
 pub struct BakedGxo {
     pub name_hash: u32,
     pub width: u16,
