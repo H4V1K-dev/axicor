@@ -324,6 +324,47 @@ __global__ void cu_record_readout_kernel(const uint8_t* __restrict__ soma_flags,
   output_history[tid] = is_spiking;
 }
 
+// ============================================================================
+// 7. Telemetry Extraction Kernel (Warp-Aggregated Atomics via PCIe)
+// ============================================================================
+__global__ void cu_extract_telemetry_kernel(
+    const uint8_t* __restrict__ flags,
+    uint32_t* __restrict__ out_ids,
+    uint32_t* __restrict__ out_count,
+    uint32_t padded_n
+) {
+    uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t lane_id = threadIdx.x % 32;
+
+    bool is_spiking = false;
+    if (tid < padded_n) {
+        is_spiking = (flags[tid] & 0x01) != 0;
+    }
+
+    // 1. Узнаем, кто в варпе спайкует (1 такт ALU)
+    uint32_t mask = __ballot_sync(0xFFFFFFFF, is_spiking);
+    if (mask == 0) return; // Early Exit: шина PCIe свободна
+
+    // 2. Считаем общее количество спайков в варпе (1 такт ALU)
+    uint32_t warp_count = __popc(mask);
+    uint32_t leader = __ffs(mask) - 1; 
+
+    // 3. Лидер делает ОДНУ атомарную транзакцию по PCIe
+    uint32_t base_idx;
+    if (lane_id == leader) {
+        base_idx = atomicAdd(out_count, warp_count);
+    }
+
+    // 4. Лидер раздает базовый индекс всему варпу (1 такт)
+    base_idx = __shfl_sync(mask, base_idx, leader);
+
+    // 5. Каждый поток вычисляет свое смещение и пишет в массив 1 раз
+    if (is_spiking) {
+        uint32_t my_offset = __popc(mask & ((1 << lane_id) - 1));
+        out_ids[base_idx + my_offset] = tid;
+    }
+}
+
 extern "C" {
 
 // ============================================================================
@@ -382,6 +423,14 @@ int32_t cu_step_day_phase(const ShardVramPtrs *vram, uint32_t padded_n,
 // Позволяет заливать параметры вариантов в константную память GPU
 int32_t cu_upload_constant_memory(const VariantParameters *lut) {
   return cudaMemcpyToSymbol(VARIANT_LUT, lut, sizeof(VariantParameters) * 16);
+}
+
+void launch_extract_telemetry(const ShardVramPtrs* vram, uint32_t padded_n, uint32_t* out_ids, uint32_t* out_count_pinned, cudaStream_t stream) {
+    int threads = 256;
+    int blocks = (padded_n + threads - 1) / threads;
+    cu_extract_telemetry_kernel<<<blocks, threads, 0, stream>>>(
+        vram->soma_flags, out_ids, out_count_pinned, padded_n
+    );
 }
 
 } // extern "C"

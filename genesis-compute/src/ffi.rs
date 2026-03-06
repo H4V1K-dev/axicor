@@ -243,13 +243,9 @@ extern "C" {
         total_pixels: u32,
     );
 
-    pub fn gpu_reset_telemetry_count(
-        vram: VramState,
-        stream: CudaStream,
-    );
-
     pub fn launch_extract_telemetry(
-        vram: VramState,
+        vram: *const ShardVramPtrs,
+        padded_n: u32,
         out_ids: *mut u32,
         out_count_pinned: *mut u32,
         stream: CudaStream,

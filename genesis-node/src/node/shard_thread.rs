@@ -465,12 +465,25 @@ pub fn spawn_shard_thread(
             // 2. Плоский горячий цикл
             while let Ok(cmd) = rx.recv() {
                 match cmd {
-                    ComputeCommand::RunBatch { tick_base: _, batch_size, global_dopamine } => {
+                    ComputeCommand::RunBatch { tick_base: _, batch_size, global_dopamine, telemetry_ptrs } => {
                         // ФАЗА 1: Выполнение GPU батча (Day Phase)
                         execute_day_phase(
                             &mut desc.engine, batch_size, global_dopamine, &ctx.bsp_barrier,
                             &ctx.io_ctx, &io_buffers, desc.virtual_offset, desc.num_virtual_axons, mapped_soma_ids, desc.v_seg, batch_counter
                         );
+
+                        if let Some((ids_ptr, count_ptr)) = telemetry_ptrs {
+                            unsafe {
+                                std::ptr::write_volatile(count_ptr as *mut u32, 0);
+                                genesis_compute::ffi::launch_extract_telemetry(
+                                    &desc.engine.vram.ptrs,
+                                    desc.engine.vram.padded_n,
+                                    ids_ptr as *mut u32,
+                                    count_ptr as *mut u32,
+                                    std::ptr::null_mut(), // stream 0
+                                );
+                            }
+                        }
 
                         // ФАЗА 2: Чтение выходов
                         download_outputs(desc.num_outputs, &mut pinned_out, &io_buffers, output_bytes);
