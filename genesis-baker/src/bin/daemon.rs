@@ -13,6 +13,7 @@ use genesis_core::types::PackedPosition;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use glam::Vec3;
+use fixedbitset::FixedBitSet;
 use genesis_baker::bake::axon_growth::{step_and_pack, SteeringWeights};
 struct NightPhaseContext {
     _baked_dir: PathBuf,
@@ -52,6 +53,7 @@ struct NightPhaseContext {
 
     _v_seg: u16,
     _voxel_size_um: f32,
+    _gxos: Vec<genesis_baker::bake::output_map::BakedGxo>,
 }
 
 #[derive(Parser)]
@@ -329,7 +331,7 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
         _layer_ranges: layer_ranges,
         _neuron_types: neuron_types,
         _sim_config: sim_config,
-        _shard_bounds: shard_bounds,
+        _shard_bounds: shard_bounds.clone(),
         _master_seed: master_seed,
         _next_ghost_slot_base: padded_n,
         _total_axons_max: total_axons_max,
@@ -345,10 +347,32 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
         _soma_to_axon: soma_to_axon,
         _neuron_types_cache: neuron_types_cache,
         _whitelist_masks: whitelist_masks,
-        _soma_positions: soma_positions,
+        _soma_positions: soma_positions.clone(),
         _axon_remaining_steps: vec![0; total_axons_max as usize],
         _v_seg: manifest.memory.v_seg,
         _voxel_size_um: manifest.memory.voxel_size_um,
+        _gxos: {
+            let gxo_path = baked_dir.join("shard.gxo");
+            if gxo_path.exists() {
+                if let Ok(io) = genesis_baker::parser::io::parse(&std::fs::read_to_string(dna_dir.join("io.toml")).unwrap_or_default()) {
+                    let mut gxos = Vec::new();
+                    for m in &io.outputs {
+                        let gxo = genesis_baker::bake::output_map::build_gxo_mapping(
+                            &m.name,
+                            "", // zone_name unused
+                            m.width,
+                            m.height,
+                            (shard_bounds.x_end - shard_bounds.x_start) as u32,
+                            (shard_bounds.y_end - shard_bounds.y_start) as u32,
+                            &soma_positions,
+                            m.stride as u8,
+                        );
+                        gxos.push(gxo);
+                    }
+                    gxos
+                } else { vec![] }
+            } else { vec![] }
+        },
     })
 }
 
@@ -398,37 +422,45 @@ fn handle_night_phase(
     // The context `ctx` is now mandatory for sprouting
     let c = ctx.as_mut().ok_or("NightPhaseContext not available for sprouting")?;
 
-    // [DOD Stage 47.3] Ghost Axon Reclamation (Atomic Wipe)
-    // Runs before Defragmenter so we can "collapse" the holes.
-    let mut current_ghosts_pruned = 0;
+    // [DOD Stage 48.1] Linear GC Wipe (FixedBitSet + Parallel)
     if hdr.incoming_prunes_count > 0 {
-        println!("   👻 Reclaiming {} ghost axons...", hdr.incoming_prunes_count);
-        let prunes_ptr = unsafe { shm_ptr.add(hdr.prunes_offset as usize) as *const u32 };
         let count = hdr.incoming_prunes_count as usize;
+        println!("   👻 Reclaiming {} ghost axons (Linear Wipe)...", count);
+        let prunes_ptr = unsafe { shm_ptr.add(hdr.prunes_offset as usize) as *const u32 };
         
+        let mut bitset = FixedBitSet::with_capacity(c._axon_heads.len());
         for p_idx in 0..count {
             let ghost_id = unsafe { *prunes_ptr.add(p_idx) } as usize;
             if ghost_id < c._axon_heads.len() {
-                // Wipe all synapses that target this ghost
-                // Parallel search is better for N*128, but for now we do it sequentially 
-                // as part of the Ghost Reclamation pass.
-                for slot in 0..128 {
-                    for i in 0..padded_n {
-                        let idx = slot * padded_n + (i as usize);
-                        let target = targets[idx];
-                        // target has axon_id + 1
-                        if (target & 0x00FF_FFFF).saturating_sub(1) == ghost_id as u32 {
-                            targets[idx] = 0;
-                            weights[idx] = 0;
+                bitset.insert(ghost_id);
+                // Reset axon head (sequential)
+                c._axon_heads[ghost_id] = genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL);
+            }
+        }
+
+        // Parallel wipe of synapses targeting these axons
+        let t_ptr = targets.as_mut_ptr() as usize;
+        let w_ptr = weights.as_mut_ptr() as usize;
+        let bs_ref = &bitset;
+
+        (0..padded_n).into_par_iter().for_each(|i| {
+            let targets_raw = t_ptr as *mut u32;
+            let weights_raw = w_ptr as *mut i16;
+            for slot in 0..128 {
+                let idx = slot * padded_n + i;
+                unsafe {
+                    let target = *targets_raw.add(idx);
+                    if target != 0 {
+                        let axon_id = (target & 0x00FF_FFFF).saturating_sub(1) as usize;
+                        if bs_ref.contains(axon_id) {
+                            *targets_raw.add(idx) = 0;
+                            *weights_raw.add(idx) = 0;
                         }
                     }
                 }
-                // Reset axon head
-                c._axon_heads[ghost_id] = genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL);
-                current_ghosts_pruned += 1;
             }
-        }
-        println!("   ↳ Reclaimed {} ghost axons", current_ghosts_pruned);
+        });
+        println!("   ↳ Reclamation complete.");
     }
 
     println!("   🌱 Sprouting new synapses...");
@@ -446,7 +478,7 @@ fn handle_night_phase(
         &c._neuron_types,
         &segment_grid,
         &soma_positions_packed,
-        hdr.epoch,
+        req.current_tick as u64,
         &c._neuron_types_cache,
         &c._whitelist_masks,
         c._voxel_size_um,
@@ -672,12 +704,9 @@ fn handle_night_phase(
         // ... (existing parallel pruning code stays here) ...
 
         // [DOD Stage 47.2] Distributed GC: Detect dead local axons
-        println!("   🔭 Detecting dead local axons...");
-        let prunes_off = hdr.handovers_offset as usize + (MAX_HANDOVERS_PER_NIGHT * 16);
-        hdr.prunes_offset = prunes_off as u32;
-        let prunes_ptr = unsafe { shm_ptr.add(prunes_off) as *mut u32 };
-        
         let mut dead_count = 0;
+        let prunes_ptr = unsafe { shm_ptr.add(hdr.prunes_offset as usize) as *mut u32 };
+        
         // Search only local axons (0..padded_n)
         for axon_id in 0..padded_n {
             // Check if ANY synapse in the WHOLE matrix targets this axon_id
@@ -797,6 +826,29 @@ fn handle_night_phase(
         use bytemuck::cast_slice;
         geom_file.write_all(cast_slice(&c._axon_tips_uvw)).unwrap();
         geom_file.write_all(cast_slice(&c._axon_dirs_xyz)).unwrap();
+
+        // [DOD Stage 48.2] 7.2. Write S2A mapping to SHM (Zero-Copy)
+        let s2a_ptr = unsafe { shm_ptr.add(hdr.s2a_offset as usize) as *mut u32 };
+        unsafe {
+            std::ptr::copy_nonoverlapping(c._soma_to_axon.as_ptr(), s2a_ptr, padded_n);
+        }
+
+        // [DOD Stage 48.3] 7.3. Write GXO mapping to SHM (Zero-Copy)
+        let mut gxo_write_ptr = unsafe { shm_ptr.add(hdr.gxo_offset as usize) as *mut u32 };
+        let mut total_gxo_count = 0;
+        for gxo in &c._gxos {
+            let count = gxo.mapped_soma_ids.len();
+            if total_gxo_count + count <= genesis_core::ipc::MAX_GXO_PIXELS {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(gxo.mapped_soma_ids.as_ptr(), gxo_write_ptr, count);
+                    gxo_write_ptr = gxo_write_ptr.add(count);
+                    total_gxo_count += count;
+                }
+            } else {
+                eprintln!("⚠️ [Daemon] GXO capacity exceeded! Max={}, Dropping matrix={}", genesis_core::ipc::MAX_GXO_PIXELS, gxo.name_hash);
+            }
+        }
+        hdr.gxo_count = total_gxo_count as u32;
     }
 
     // 8. Signal Done via Shared Memory state

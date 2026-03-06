@@ -29,4 +29,5 @@ rand = "0.8"
 rand_chacha = "0.3"
 bytemuck = "1.14"
 memmap2 = "0.9"
+fixedbitset = "0.4"
 genesis-compute = { path = "../genesis-compute" }

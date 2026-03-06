@@ -18,9 +18,10 @@
 pub const SHM_MAGIC: u32 = 0x47454E53; // "GENS"
 
 /// IPC protocol version. Bump on incompatible ShmHeader changes.
-pub const SHM_VERSION: u8 = 2;
+pub const SHM_VERSION: u8 = 4;
 
 pub const MAX_HANDOVERS_PER_NIGHT: usize = 10_000;
+pub const MAX_GXO_PIXELS: usize = 1_048_576; // 1M pixels (4MB)
 
 use serde::{Serialize, Deserialize};
 
@@ -52,13 +53,21 @@ pub fn default_socket_path(zone_hash: u32) -> String {
     format!("/tmp/genesis_baker_{:08X}.sock", zone_hash)
 }
 
+#[inline(always)]
+const fn align_to_64(val: usize) -> usize {
+    (val + 63) & !63
+}
+
 pub const fn shm_size(padded_n: usize) -> usize {
-    let weights_bytes = padded_n * 128 * 2;
-    let targets_bytes = padded_n * 128 * 4;
-    let handovers_bytes = MAX_HANDOVERS_PER_NIGHT * 16;
-    let prunes_bytes = MAX_HANDOVERS_PER_NIGHT * 4; // u32 pruned_axon_ids
-    let flags_bytes = padded_n;
-    64 + weights_bytes + targets_bytes + handovers_bytes + prunes_bytes + flags_bytes
+    let mut off = 64; // Header
+    off = align_to_64(off + padded_n * 128 * 2); // weights
+    off = align_to_64(off + padded_n * 128 * 4); // targets
+    off = align_to_64(off + padded_n * 4);       // s2a
+    off = align_to_64(off + MAX_GXO_PIXELS * 4); // gxo
+    off = align_to_64(off + MAX_HANDOVERS_PER_NIGHT * 16); // handovers
+    off = align_to_64(off + MAX_HANDOVERS_PER_NIGHT * 4);  // prunes (Dead Axons)
+    off = align_to_64(off + padded_n * 1);       // flags
+    off
 }
 
 #[repr(C)]
@@ -67,51 +76,69 @@ pub struct ShmHeader {
     pub magic: u32,             // 0..4
     pub version: u8,            // 4..5
     pub state: u8,              // 5..6
-    pub _pad: u16,              // 6..8 (бывший zone_id)
+    pub _pad: u16,              // 6..8
     pub padded_n: u32,          // 8..12
-    pub dendrite_slots: u32,    // 12..16
-    pub weights_offset: u32,    // 16..20
-    pub targets_offset: u32,    // 20..24
-    pub epoch: u64,             // 24..32
-    pub total_axons: u32,       // 32..36
-    pub handovers_offset: u32,  // 36..40
-    pub handovers_count: u32,   // 40..44
-    pub zone_hash: u32,         // 44..48 [DOD FIX: Уникальный ID]
-    pub flags_offset: u32,      // 48..52
-    pub prunes_offset: u32,     // 52..56 (Outgoing: Baker -> Node)
-    pub prunes_count: u32,      // 56..60
-    pub incoming_prunes_count: u32, // 60..64 (Incoming: Node -> Baker)
+    pub weights_offset: u32,    // 12..16
+    pub targets_offset: u32,    // 16..20
+    pub s2a_offset: u32,        // 20..24
+    pub gxo_offset: u32,        // 24..28
+    pub gxo_count: u32,         // 28..32
+    pub handovers_offset: u32,  // 32..36
+    pub handovers_count: u32,   // 36..40
+    pub zone_hash: u32,         // 40..44
+    pub flags_offset: u32,      // 44..48
+    pub prunes_offset: u32,     // 48..52
+    pub prunes_count: u32,      // 52..56
+    pub incoming_prunes_count: u32, // 56..60
+    pub _reserved: u32,         // 60..64
 }
-
 
 const _: () = assert!(std::mem::size_of::<ShmHeader>() == 64, "ShmHeader MUST be 64 bytes");
 
 impl ShmHeader {
-    pub fn new(zone_hash: u32, padded_n: u32, total_axons: u32) -> Self {
-        let weights_offset = std::mem::size_of::<ShmHeader>() as u32;
-        let weights_bytes = padded_n * 128 * 2;
-        let targets_offset = weights_offset + weights_bytes;
-        let targets_bytes = padded_n * 128 * 4;
-        let handovers_offset = targets_offset + targets_bytes;
+    pub fn new(zone_hash: u32, padded_n: u32, _total_axons: u32) -> Self {
+        let mut off = 64usize;
+        
+        let weights_offset = off as u32; 
+        off = align_to_64(off + padded_n as usize * 128 * 2);
+        
+        let targets_offset = off as u32;
+        off = align_to_64(off + padded_n as usize * 128 * 4);
+        
+        let s2a_offset = off as u32;
+        off = align_to_64(off + padded_n as usize * 4);
+        
+        let gxo_offset = off as u32;
+        off = align_to_64(off + MAX_GXO_PIXELS * 4);
+        
+        let handovers_offset = off as u32;
+        off = align_to_64(off + MAX_HANDOVERS_PER_NIGHT * 16);
 
+        let prunes_offset = off as u32;
+        off = align_to_64(off + MAX_HANDOVERS_PER_NIGHT * 4);
+
+        let flags_offset = off as u32;
+        // flags_size = padded_n
+        
         Self {
             magic: SHM_MAGIC,
             version: SHM_VERSION,
             state: ShmState::Idle as u8,
             _pad: 0,
             padded_n,
-            dendrite_slots: 128,
             weights_offset,
             targets_offset,
-            epoch: 0,
-            total_axons,
+            s2a_offset,
+            gxo_offset,
+            gxo_count: 0,
             handovers_offset,
             handovers_count: 0,
             zone_hash,
-            flags_offset: 0,
-            prunes_offset: 0,
+            flags_offset,
+            prunes_offset,
             prunes_count: 0,
             incoming_prunes_count: 0,
+            _reserved: 0,
         }
     }
 
@@ -122,9 +149,6 @@ impl ShmHeader {
         }
         if self.version != SHM_VERSION {
             return Err("SHM version mismatch");
-        }
-        if self.dendrite_slots != 128 {
-            return Err("SHM dendrite_slots != 128");
         }
         Ok(())
     }

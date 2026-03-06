@@ -8,6 +8,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.220.28] - 2026-03-06 21:36:44
+
+**Structural Reclamation & Unit Fix**
+
+### Added
+- Add `voxel_size_um: f32` to `ManifestMemory` in `manifest.rs`
+- Initialize and maintain `_axon_tips_f32` in micrometers (um) within `NightPhaseContext` in `daemon.rs`
+- Update `run_sprouting_pass` in `sprouting.rs` to use dynamic `voxel_size_um` instead of hardcoded constant
+- Correct spatial distance checks in pruning logic to use consistent units
+- Extend `ShmHeader` in `ipc.rs` with `prunes_offset`, `prunes_count`, and `incoming_prunes_count` fields, bumping `SHM_VERSION` to 2
+- Detect local axons with zero synapses and write their IDs to SHM in `daemon.rs` (`dispatch_prunes`)
+- Read prune IDs from SHM and broadcast `GeometryRequest::Prune` to neighbor shards in `shard_thread.rs`
+- Handle incoming `GeometryRequest::Prune` in `GeometryServer` and queue for the Baker in `geometry_client.rs`
+- Process incoming prune requests in `daemon.rs` by zeroing all synapses where `axon_id == ghost_id` in the `targets` array
+- Reset `_axon_heads[ghost_id]` to `AXON_SENTINEL` to allow defragmenter reclamation
+- Pass `incoming_prunes` vector from `ShardThread` to `BakerClient::run_night` in `shard_thread.rs`
+- Implement local candidate search using `AxonSegmentGrid` in `sprouting.rs`
+- Rebuild `AxonSegmentGrid` from axon tips in `daemon.rs` for consistent dual-representation
+- Use `rayon` for parallel distance-based synapse pruning in `daemon.rs`
+- Enforce Dale's Law during sprouting based on axon owner neuron type
+
+## [0.216.28] - 2026-03-06 21:14:29
+
+**Living Axons**
+
+### Added
+- Implement soma activity-based tip nudging in `daemon.rs` by checking `flags & 0x01` and calling `axon_growth::step_and_pack`
+- Implement inertial nudging for Ghost axons using `remaining_steps` in `daemon.rs`
+- Implement inertial growth fallback in `axon_growth.rs` when `target_layer` is missing, using `forward_dir` for guidance
+- Update `.geom` persistence in `handle_night_phase` to overwrite `shard.geom` with updated `axon_tips_uvw` and `axon_dirs_xyz`
+- Only nudge local axons for neurons with spiking activity (`flags & 0x01`), minimizing CPU cycles during Night Phase
+- Maintain axon head invariants, ensuring `initial_axon_head(L)` never hits `AXON_SENTINEL` for L > 0
+
+## [0.210.28] - 2026-03-06 20:53:14
+
+**Phase 44 Night Phase Closure: Baker Defragmentation & Orchestrator Hot R**
+
+### Added
+- Implement parallel synaptic column compaction in `daemon.rs` using `rayon` for CPU defragmentation
+- Integrate Ghost axons from `AxonHandoverEvent` and reset local axons for active somas in Axon Head Regeneration
+- Update `.state` and `.axons` files on disk using `dump_to_disk` layout write helpers
+- Add Zero-Copy VRAM Refresh in `shard_thread.rs` to reload `.state` and `.axons` binaries directly into VRAM via DMA
+- Ensure explicit GPU synchronization after hot reload for consistent connectome state
+- Update `ShmHeader` with `flags_offset` using 4 bytes of padding for baker spiking status reads
+- Correct `shm_size` calculation to account for additional `padded_n` bytes for spike flags
+- Modify `NightPhaseContext` to be mutable during phase execution in `daemon.rs`
+
 ## [0.202.28] - 2026-03-06 19:10
 
 **Homeostatic Stabilization & Global Reward**

@@ -41,6 +41,8 @@ pub struct ThreadWorkspace {
     pub shm_buffer: MmapMut,
     pub weights_offset: usize,
     pub targets_offset: usize,
+    pub s2a_offset: usize,
+    pub gxo_offset: usize,
     pub handovers_offset: usize,
     pub checkpoint_state_buffer: Vec<u8>,
     pub checkpoint_axons_buffer: Vec<u8>, // [DOD FIX] Буфер для Active Tails
@@ -73,6 +75,8 @@ impl ThreadWorkspace {
         Self {
             weights_offset: header.weights_offset as usize,
             targets_offset: header.targets_offset as usize,
+            s2a_offset: header.s2a_offset as usize,
+            gxo_offset: header.gxo_offset as usize,
             handovers_offset: header.handovers_offset as usize,
             shm_buffer: mmap,
             checkpoint_state_buffer: vec![0u8; 0], // Will be resized in spawn
@@ -241,6 +245,7 @@ fn execute_night_phase(
     workspace: &mut ThreadWorkspace,
     baked_dir: &std::path::Path,
     incoming_prune: &Arc<crossbeam::queue::SegQueue<crate::network::slow_path::AxonHandoverPrune>>,
+    mapped_soma_ids: *const u32,
 ) {
     let padded_n = shard.vram.padded_n as usize;
     let dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
@@ -269,11 +274,8 @@ fn execute_night_phase(
         let hdr = &mut *hdr_ptr;
 
         // 2.1 Flags D2H (Required for Night Phase Axon Reset)
-        let flags_off = hdr.handovers_offset as usize + (genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT * 16);
-        hdr.flags_offset = flags_off as u32;
-        
         genesis_compute::ffi::gpu_memcpy_device_to_host(
-            workspace.shm_buffer.as_mut_ptr().add(flags_off) as *mut _,
+            workspace.shm_buffer.as_mut_ptr().add(hdr.flags_offset as usize) as *mut _,
             shard.vram.ptrs.soma_flags as *const _,
             padded_n * std::mem::size_of::<u8>(),
         );
@@ -322,11 +324,26 @@ fn execute_night_phase(
                         dendrites_count * std::mem::size_of::<i16>(),
                     );
                     
-                    // [DOD] Stage 44.3: Hot Reload Refresh
-                    // After the baker has updated the files on disk, we must re-sync VRAM.
-                    if let Ok(state_blob) = std::fs::read(baked_dir.join("shard.state")) {
-                        shard.vram.upload_state(&state_blob);
+                    // [DOD Stage 48.2] S2A Zero-Copy Sync
+                    genesis_compute::ffi::gpu_memcpy_host_to_device(
+                        shard.vram.ptrs.soma_to_axon as *mut _,
+                        workspace.shm_buffer.as_ptr().add(workspace.s2a_offset) as *const _,
+                        padded_n * std::mem::size_of::<u32>(),
+                    );
+
+                    // [DOD Stage 48.3] GXO (Readout) Zero-Copy Sync
+                    if let Some(gxo_ptr) = (mapped_soma_ids as *mut u32).as_mut() {
+                        let shm_hdr = &*(workspace.shm_buffer.as_ptr() as *const genesis_core::ipc::ShmHeader);
+                        if shm_hdr.gxo_count > 0 {
+                            genesis_compute::ffi::gpu_memcpy_host_to_device(
+                                gxo_ptr as *mut _ as *mut _,
+                                workspace.shm_buffer.as_ptr().add(workspace.gxo_offset) as *const _,
+                                shm_hdr.gxo_count as usize * std::mem::size_of::<u32>(),
+                            );
+                        }
                     }
+                    
+                    // [DOD] Stage 44.3: Hot Reload Refresh (Only .axons as they are not in SHM yet)
                     if let Ok(axons_blob) = std::fs::read(baked_dir.join("shard.axons")) {
                         shard.vram.upload_axon_heads(&axons_blob);
                     }
@@ -596,7 +613,7 @@ pub fn spawn_shard_thread(
                             execute_night_phase(
                                 &mut desc.engine, hash, std::path::Path::new(&socket_path), &mut baker_client,
                                 &ctx.incoming_grow, &desc.config, &ctx.rt_handle, &mut workspace, &desc.baked_dir,
-                                &desc.incoming_prune,
+                                &desc.incoming_prune, mapped_soma_ids,
                             );
                         }
 
