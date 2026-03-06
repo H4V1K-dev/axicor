@@ -11,8 +11,12 @@ use genesis_core::config::manifest::ZoneManifest;
 use genesis_core::config::blueprints::BlueprintsConfig;
 use genesis_core::constants::MAX_DENDRITE_SLOTS;
 use rayon::prelude::*;
-use genesis_core::constants::{AXON_SENTINEL, V_SEG};
 use genesis_core::signal::initial_axon_head;
+use genesis_core::types::PackedPosition;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
+use glam::Vec3;
+use genesis_baker::bake::axon_growth::{step_and_pack, SteeringWeights};
 struct NightPhaseContext {
     _baked_dir: PathBuf,
     _layer_ranges: Vec<genesis_baker::bake::axon_growth::LayerZRange>,
@@ -43,6 +47,9 @@ struct NightPhaseContext {
     // [Phase 41.2] Types Cache (1 byte per axon) and Whitelist bitmasks
     _neuron_types_cache: Vec<u8>,
     _whitelist_masks: [u16; 16],
+
+    _soma_positions: Vec<u32>,
+    _axon_remaining_steps: Vec<u32>,
 
     _v_seg: u16,
 }
@@ -280,6 +287,18 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
         }
     };
 
+    // [DOD Stage 45.1] Load soma positions
+    let soma_positions = {
+        let pos_path = baked_dir.join("shard.pos");
+        if pos_path.exists() {
+            let data = std::fs::read(&pos_path).unwrap_or_default();
+            if data.len() >= 4 * (padded_n as usize) {
+                bytemuck::cast_slice::<u8, u32>(&data[0..4*(padded_n as usize)])
+                    .iter().copied().collect()
+            } else { vec![0; padded_n as usize] }
+        } else { vec![0; padded_n as usize] }
+    };
+
     // [Phase 41.2] Извлечение типов (сдвиг >> 4) из shard.state
     let neuron_types_cache = {
         let state_path = baked_dir.join("shard.state");
@@ -326,6 +345,8 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
         _soma_to_axon: soma_to_axon,
         _neuron_types_cache: neuron_types_cache,
         _whitelist_masks: whitelist_masks,
+        _soma_positions: soma_positions,
+        _axon_remaining_steps: vec![0; total_axons_max as usize],
         _v_seg: manifest.memory.v_seg,
     })
 }
@@ -441,6 +462,10 @@ fn handle_night_phase(
                     // Bit 0 - Spike flag
                     if (flags[i] & 0x01) != 0 {
                         c._axon_heads[axon_idx as usize].h0 = 0; // Reset head to 0
+                        // [DOD Stage 45.1] Give local axon a budget for nudging if not set
+                        if c._axon_remaining_steps[axon_idx as usize] == 0 {
+                            c._axon_remaining_steps[axon_idx as usize] = c._sim_config.simulation.axon_growth_max_steps;
+                        }
                     }
                 }
             }
@@ -460,6 +485,9 @@ fn handle_night_phase(
                 c._axon_tips_uvw[idx] = (ev.entry_x as u32) | ((ev.entry_y as u32) << 16); // Placeholder packing
                 c._axon_dirs_xyz[idx] = (ev.vector_x as u32) | ((ev.vector_y as u32) << 8) | ((ev.vector_z as u32) << 16);
                 
+                // [DOD Stage 45.1] Set remaining steps for Ghost
+                c._axon_remaining_steps[idx] = ev.remaining_length as u32; // Using length as steps for inertia
+
                 current_ghost_slot += 1;
             } else {
                 eprintln!("⚠️ [Daemon] Ghost capacity exceeded! Max={}, Requested={}", c._total_axons_max, current_ghost_slot);
@@ -467,6 +495,136 @@ fn handle_night_phase(
                     shm_ptr.add(5).write_volatile(ShmState::Error as u8);
                 }
                 break;
+            }
+        }
+
+        // 6.5. Structural Nudging (Activity-Driven)
+        println!("   🧬 Nudging axons based on activity...");
+        let voxel_size_um = c._sim_config.simulation.voxel_size_um as f32;
+        let segment_length_um = c._sim_config.simulation.segment_length_voxels as f32 * voxel_size_um;
+        
+        let soma_positions_packed: Vec<PackedPosition> = c._soma_positions.iter().map(|&p| PackedPosition(p)).collect();
+        let search_r = (c._sim_config.simulation.segment_length_voxels as f32 * 3.0).max(1.0) as u32;
+        let spatial_grid = genesis_baker::bake::spatial_grid::SpatialGrid::new(soma_positions_packed, search_r);
+
+        for i in 0..padded_n {
+            let axon_idx = c._soma_to_axon[i];
+            if axon_idx == u32::MAX || axon_idx >= c._axon_heads.len() as u32 { continue; }
+            
+            let is_spiking = if hdr.flags_offset != 0 {
+                let flags = unsafe {
+                    let ptr = shm_ptr.add(hdr.flags_offset as usize);
+                    std::slice::from_raw_parts(ptr, padded_n)
+                };
+                (flags[i] & 0x01) != 0
+            } else { false };
+
+            if is_spiking {
+                // Unpack current tip (packed as uvw in _axon_tips_uvw: 11-bit X, 11-bit Y, 8-bit Z)
+                let packed_tip = c._axon_tips_uvw[axon_idx as usize];
+                let current_pos_vox = Vec3::new(
+                    (packed_tip & 0x7FF) as f32,
+                    ((packed_tip >> 11) & 0x7FF) as f32,
+                    ((packed_tip >> 22) & 0xFF) as f32
+                );
+                let current_pos_um = current_pos_vox * voxel_size_um;
+                
+                let packed_dir = c._axon_dirs_xyz[axon_idx as usize];
+                let forward_dir = Vec3::new(
+                    (packed_dir & 0xFF) as f32 / 127.0 - 1.0,
+                    ((packed_dir >> 8) & 0xFF) as f32 / 127.0 - 1.0,
+                    ((packed_dir >> 16) & 0xFF) as f32 / 127.0 - 1.0
+                ).normalize_or_zero();
+
+                // Simple inertia + sensing for nudging
+                let type_idx = c._neuron_types_cache[i] as usize;
+                if let Some(nt) = c._neuron_types.get(type_idx) {
+                    let weights = SteeringWeights {
+                        global: nt.steering_weight_inertia,
+                        attract: nt.steering_weight_sensor,
+                        noise: nt.steering_weight_jitter,
+                    };
+                    
+                    let fov_cos = (nt.steering_fov_deg / 2.0).to_radians().cos();
+                    let params = genesis_baker::bake::cone_tracing::ConeParams {
+                        radius_um: nt.steering_radius_um,
+                        fov_cos,
+                        owner_type: type_idx as u8,
+                        type_affinity: nt.type_affinity,
+                    };
+                    
+                    let v_attract = genesis_baker::bake::cone_tracing::calculate_v_attract(
+                        PackedPosition(c._soma_positions[i]),
+                        forward_dir,
+                        &params,
+                        &spatial_grid,
+                        voxel_size_um
+                    );
+
+                    let mut rng = ChaCha8Rng::seed_from_u64(c._master_seed.wrapping_add(i as u64));
+                    let (next_um, next_packed) = step_and_pack(
+                        current_pos_um,
+                        forward_dir, // Use forward_dir as v_global for nudging
+                        v_attract,
+                        &weights,
+                        segment_length_um,
+                        type_idx as u8,
+                        &mut rng,
+                        voxel_size_um
+                    );
+                    
+                    c._axon_tips_uvw[axon_idx as usize] = (next_packed.x() as u32) | ((next_packed.y() as u32) << 11) | ((next_packed.z() as u32) << 22);
+                    let new_dir = (next_um - current_pos_um).normalize_or_zero();
+                    c._axon_dirs_xyz[axon_idx as usize] = 
+                        (((new_dir.x + 1.0) * 127.0) as u32) | 
+                        ((((new_dir.y + 1.0) * 127.0) as u32) << 8) | 
+                        ((((new_dir.z + 1.0) * 127.0) as u32) << 16);
+                }
+            }
+        }
+
+        // [DOD Stage 45.1] Ghost Axon Nudging (Always inertia-driven)
+        println!("   🧬 Nudging Ghost axons...");
+        let ghost_base = c._next_ghost_slot_base as usize;
+        for ghost_idx in ghost_base..c._axon_heads.len() {
+            if c._axon_remaining_steps[ghost_idx] > 0 {
+                let packed_tip = c._axon_tips_uvw[ghost_idx];
+                let current_pos_vox = Vec3::new(
+                    (packed_tip & 0x7FF) as f32,
+                    ((packed_tip >> 11) & 0x7FF) as f32,
+                    ((packed_tip >> 22) & 0xFF) as f32
+                );
+                let current_pos_um = current_pos_vox * voxel_size_um;
+                
+                let packed_dir = c._axon_dirs_xyz[ghost_idx];
+                let forward_dir = Vec3::new(
+                    (packed_dir & 0xFF) as f32 / 127.0 - 1.0,
+                    ((packed_dir >> 8) & 0xFF) as f32 / 127.0 - 1.0,
+                    ((packed_dir >> 16) & 0xFF) as f32 / 127.0 - 1.0
+                ).normalize_or_zero();
+
+                let mut rng = ChaCha8Rng::seed_from_u64(c._master_seed.wrapping_add(ghost_idx as u64));
+                let weights = SteeringWeights { global: 1.0, attract: 0.0, noise: 0.1 };
+                
+                let (next_um, next_packed) = step_and_pack(
+                    current_pos_um,
+                    forward_dir,
+                    Vec3::ZERO, // No attract for inertia
+                    &weights,
+                    segment_length_um,
+                    0, // Default type for Ghost
+                    &mut rng,
+                    voxel_size_um
+                );
+                
+                c._axon_tips_uvw[ghost_idx] = (next_packed.x() as u32) | ((next_packed.y() as u32) << 11) | ((next_packed.z() as u32) << 22);
+                let new_dir = (next_um - current_pos_um).normalize_or_zero();
+                c._axon_dirs_xyz[ghost_idx] = 
+                        (((new_dir.x + 1.0) * 127.0) as u32) | 
+                        ((((new_dir.y + 1.0) * 127.0) as u32) << 8) | 
+                        ((((new_dir.z + 1.0) * 127.0) as u32) << 16);
+                
+                c._axon_remaining_steps[ghost_idx] -= 1;
             }
         }
 
@@ -505,6 +663,13 @@ fn handle_night_phase(
             &out_dir.join("shard.axons"),
             &c._axon_heads,
         ).expect("Failed to write updated .axons");
+
+        // [DOD Stage 45.3] 7.1. Update Geometry Persistence (.geom)
+        let geom_path = out_dir.join("shard.geom");
+        let mut geom_file = std::fs::File::create(geom_path).expect("Failed to create .geom file");
+        use bytemuck::cast_slice;
+        geom_file.write_all(cast_slice(&c._axon_tips_uvw)).unwrap();
+        geom_file.write_all(cast_slice(&c._axon_dirs_xyz)).unwrap();
     }
 
     // 8. Signal Done via Shared Memory state

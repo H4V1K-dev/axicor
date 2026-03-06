@@ -396,9 +396,15 @@ pub fn grow_single_axon(
     };
 
     // 4. Target_Z = target_z_start + Soma_Rel_Z × target_height
-    let target_h = (target_z_end - target_z_start).max(1) as f32;
-    let tip_z = (target_z_start as f32 + (soma_rel_z * target_h).round()) as u32; // Use round to avoid truncation
-    let tip_z = tip_z.clamp(target_z_start, target_z_end).min(255);
+    // [DOD Stage 45.2] If target_layer is None, we use Isotropic (Inertial) growth.
+    let (tip_z, has_target_z) = match target_layer {
+        Some(_) => {
+            let target_h = (target_z_end - target_z_start).max(1) as f32;
+            let tz = (target_z_start as f32 + (soma_rel_z * target_h).round()) as u32;
+            (tz.clamp(target_z_start, target_z_end).min(255), true)
+        }
+        None => (soma_z, false), // No Z-target in isotropic mode
+    };
 
     // Global segment length from config (fixed for all types)
     let segment_length_vox = sim.simulation.segment_length_voxels as f32;
@@ -434,8 +440,8 @@ pub fn grow_single_axon(
         // для генерации константного v_global на каждом шаге. 
         // Cоздаем целевую точку далеко в выбранном направлении.
         let far_target = current_pos + dir * 5000.0;
-        (dir, far_target)
-    } else {
+        (dir, Some(far_target))
+    } else if has_target_z {
         // Вертикальная цель: целевой слой по Z 
         let v_vertical_target = Vec3::new(soma_x as f32, soma_y as f32, tip_z as f32);
         
@@ -452,7 +458,18 @@ pub fn grow_single_axon(
         } else {
             dir
         };
-        (final_dir, t_pos)
+        (final_dir, Some(t_pos))
+    } else {
+        // [DOD Stage 45.2] Isotropic mode: Use inherent forward dir (inertia)
+        let horiz_seed = entity_seed(master_seed, soma_idx as u32 + 0x48_4F_52_5A);
+        let angle = random_f32(horiz_seed) * std::f32::consts::TAU;
+        let pitch = (random_f32(horiz_seed.wrapping_mul(123456789)) - 0.5) * std::f32::consts::PI;
+        let dir = Vec3::new(
+            pitch.cos() * angle.cos(),
+            pitch.cos() * angle.sin(),
+            pitch.sin()
+        ).normalize_or_zero();
+        (dir, None) // No target_pos -> execute_growth_loop uses forward_dir
     };
 
     let params = ConeParams {
@@ -466,7 +483,7 @@ pub fn grow_single_axon(
         current_pos_um,
         current_pos_vox: current_pos,
         forward_dir,
-        target_pos: Some(target_pos),
+        target_pos,
         remaining_steps: sim.simulation.axon_growth_max_steps,
         owner_type_idx: type_idx,
         soma_idx,
