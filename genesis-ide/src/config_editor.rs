@@ -69,7 +69,7 @@ impl Default for LoadedConfig {
     fn default() -> Self {
         Self {
             blueprints: None,
-            path: "config/brains/V1/blueprints.toml".to_string(),
+            path: "config/zones/SensoryCortex/blueprints.toml".to_string(),
             last_modified: None,
         }
     }
@@ -92,7 +92,7 @@ pub struct ConfigWritePending {
 }
 
 fn load_config_from_disk(mut commands: Commands) {
-    let path = "config/brains/V1/blueprints.toml";
+    let path = "config/zones/SensoryCortex/blueprints.toml";
     
     match fs::read_to_string(path) {
         Ok(content) => {

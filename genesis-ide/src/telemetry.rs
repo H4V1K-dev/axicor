@@ -104,7 +104,9 @@ pub fn drain_telemetry_socket(
     mut ev_writer: EventWriter<SpikeFrameEvent>,
 ) {
     while let Ok((tick, dopamine, spike_ids)) = receiver.0.try_recv() {
-        bevy::log::info!("Telemetry tick: {}, Dopamine: {}, Spikes: {}", tick, dopamine, spike_ids.len());
+        if !spike_ids.is_empty() {
+            bevy::log::info!("Telemetry tick: {}, Dopamine: {}, Spikes: {}", tick, dopamine, spike_ids.len());
+        }
         ev_writer.send(SpikeFrameEvent { tick, dopamine, spike_ids });
     }
 }
