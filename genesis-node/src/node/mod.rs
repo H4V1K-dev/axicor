@@ -33,11 +33,11 @@ pub enum ComputeFeedback {
 
 /// [Phase 23] Network channel topology — raw pointers, inter/intra GPU channels.
 pub struct NetworkTopology {
-    pub intra_gpu_channels: Vec<(*mut u32, *mut u32, crate::network::intra_gpu::IntraGpuChannel)>,
-    pub inter_node_channels: Vec<(*mut u32, crate::network::inter_node::InterNodeChannel)>,
+    pub intra_gpu_channels: Vec<(*mut genesis_core::layout::BurstHeads8, *mut genesis_core::layout::BurstHeads8, crate::network::intra_gpu::IntraGpuChannel)>,
+    pub inter_node_channels: Vec<(*mut genesis_core::layout::BurstHeads8, crate::network::inter_node::InterNodeChannel)>,
     pub inter_node_router: Arc<crate::network::inter_node::InterNodeRouter>,
     pub egress_pool: Arc<crate::network::egress::EgressPool>,
-    pub axon_head_ptrs: HashMap<u32, *mut u32>,
+    pub axon_head_ptrs: HashMap<u32, *mut genesis_core::layout::BurstHeads8>,
 }
 
 // Safety: raw pointers in NetworkTopology are pinned GPU pointers owned by ShardEngine.
@@ -86,10 +86,10 @@ impl NodeRuntime {
         local_ip: std::net::Ipv4Addr,
         local_port: u16,
         output_routes: HashMap<u32, Vec<(String, u32)>>,
-        intra_gpu_channels: Vec<(*mut u32, *mut u32, crate::network::intra_gpu::IntraGpuChannel)>,
-        inter_node_channels: Vec<(*mut u32, crate::network::inter_node::InterNodeChannel)>,
+        intra_gpu_channels: Vec<(*mut genesis_core::layout::BurstHeads8, *mut genesis_core::layout::BurstHeads8, crate::network::intra_gpu::IntraGpuChannel)>,
+        inter_node_channels: Vec<(*mut genesis_core::layout::BurstHeads8, crate::network::inter_node::InterNodeChannel)>,
         inter_node_router: Arc<crate::network::inter_node::InterNodeRouter>,
-        axon_head_ptrs: HashMap<u32, *mut u32>,
+        axon_head_ptrs: HashMap<u32, *mut genesis_core::layout::BurstHeads8>,
         egress_pool: Arc<crate::network::egress::EgressPool>,
         night_interval: u64,
         reporter: Arc<crate::simple_reporter::SimpleReporter>,

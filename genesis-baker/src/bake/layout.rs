@@ -38,7 +38,7 @@ pub struct ShardSoA {
     pub dendrite_timers: Vec<u8>, // Refractory timers for synapses
 
     // Аксоны
-    pub axon_heads: Vec<u32>,
+    pub axon_heads: Vec<genesis_core::layout::BurstHeads8>,
     pub axon_tips_uvw: Vec<u32>, // PackedTip -> .geom
     pub axon_dirs_xyz: Vec<u32>, // PackedDir -> .geom
 
@@ -69,7 +69,7 @@ impl ShardSoA {
             dendrite_timers: vec![0; MAX_DENDRITES * padded_n],
 
             // Хард-инвариант: пустые аксоны ОБЯЗАНЫ быть 0x80000000
-            axon_heads: vec![AXON_SENTINEL; total_axons],
+            axon_heads: vec![genesis_core::layout::BurstHeads8::empty(AXON_SENTINEL); total_axons],
             axon_tips_uvw: vec![0; total_axons],
             axon_dirs_xyz: vec![0; total_axons],
 
@@ -163,7 +163,7 @@ pub fn write_state_blob(
 /// Выгрузка .axons блоба.
 pub fn write_axons_blob(
     path: &Path,
-    axon_heads: &[u32], // Длина: total_axons
+    axon_heads: &[genesis_core::layout::BurstHeads8], // Длина: total_axons
 ) -> std::io::Result<()> {
     let mut file = File::create(path)?;
     file.write_all(cast_slice(axon_heads))?;

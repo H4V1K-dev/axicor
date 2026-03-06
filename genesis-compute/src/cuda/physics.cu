@@ -3,6 +3,11 @@
 #include <stdint.h>
 
 // Дублируем контракт памяти из bindings.cu
+struct alignas(32) BurstHeads8 {
+  uint32_t h0; uint32_t h1; uint32_t h2; uint32_t h3;
+  uint32_t h4; uint32_t h5; uint32_t h6; uint32_t h7;
+};
+
 struct ShardVramPtrs {
   int32_t *soma_voltage;
   uint8_t *soma_flags;
@@ -11,7 +16,7 @@ struct ShardVramPtrs {
   uint32_t *soma_to_axon;
   uint32_t *dendrite_targets;
   int16_t *dendrite_weights;
-  uint32_t *axon_heads;
+  BurstHeads8 *axon_heads;
 };
 
 #define AXON_SENTINEL 0x80000000
@@ -45,7 +50,7 @@ extern __constant__ int16_t current_dopamine;
 // 1. Inject Inputs Kernel (Virtual Axons)
 // Извлекает биты из плотной маски и сбрасывает головы виртуальным аксонам
 // ============================================================================
-__global__ void cu_inject_inputs_kernel(uint32_t *axon_heads,
+__global__ void cu_inject_inputs_kernel(BurstHeads8 *axon_heads,
                                         const uint32_t *input_bitmask,
                                         uint32_t virtual_offset,
                                         uint32_t num_virtual_axons) {
@@ -61,7 +66,10 @@ __global__ void cu_inject_inputs_kernel(uint32_t *axon_heads,
 
   // Ветвление минимизировано: пишем только если есть пульс
   if (is_active) {
-    axon_heads[virtual_offset + tid] = 0; // Рождение сигнала
+    BurstHeads8 h = axon_heads[virtual_offset + tid];
+    h.h7 = h.h6; h.h6 = h.h5; h.h5 = h.h4; h.h4 = h.h3;
+    h.h3 = h.h2; h.h2 = h.h1; h.h1 = h.h0; h.h0 = 0;
+    axon_heads[virtual_offset + tid] = h;
   }
 }
 
@@ -69,7 +77,7 @@ __global__ void cu_inject_inputs_kernel(uint32_t *axon_heads,
 // 2. Apply Spike Batch Kernel (Network / Ghost Axons)
 // O(1) инъекция сетевых спайков через Sender-Side Mapping
 // ============================================================================
-__global__ void cu_apply_spike_batch_kernel(uint32_t *axon_heads,
+__global__ void cu_apply_spike_batch_kernel(BurstHeads8 *axon_heads,
                                             const uint32_t *incoming_spikes,
                                             uint32_t num_incoming_spikes,
                                             uint32_t total_axons) {
@@ -83,25 +91,33 @@ __global__ void cu_apply_spike_batch_kernel(uint32_t *axon_heads,
 
   // [DOD FIX] Жесткая защита VRAM от битых сетевых индексов
   if (ghost_id < total_axons) {
-    // Сброс головы Ghost-аксона в 0 (рождение сигнала от соседа)
-    axon_heads[ghost_id] = 0;
+    BurstHeads8 h = axon_heads[ghost_id];
+    h.h7 = h.h6; h.h6 = h.h5; h.h5 = h.h4; h.h4 = h.h3;
+    h.h3 = h.h2; h.h2 = h.h1; h.h1 = h.h0; h.h0 = 0;
+    axon_heads[ghost_id] = h;
   }
 }
 
 // ============================================================================
 // 3. Propagate Axons Kernel
 // ============================================================================
-__global__ void cu_propagate_axons_kernel(uint32_t *axon_heads,
+__global__ void cu_propagate_axons_kernel(BurstHeads8 *axon_heads,
                                           uint32_t total_axons,
                                           uint32_t v_seg) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= total_axons)
     return;
 
-  uint32_t head = axon_heads[tid];
-  if (head != AXON_SENTINEL) {
-    axon_heads[tid] = head + v_seg;
-  }
+  BurstHeads8 h = axon_heads[tid];
+  if (h.h0 != AXON_SENTINEL) h.h0 += v_seg;
+  if (h.h1 != AXON_SENTINEL) h.h1 += v_seg;
+  if (h.h2 != AXON_SENTINEL) h.h2 += v_seg;
+  if (h.h3 != AXON_SENTINEL) h.h3 += v_seg;
+  if (h.h4 != AXON_SENTINEL) h.h4 += v_seg;
+  if (h.h5 != AXON_SENTINEL) h.h5 += v_seg;
+  if (h.h6 != AXON_SENTINEL) h.h6 += v_seg;
+  if (h.h7 != AXON_SENTINEL) h.h7 += v_seg;
+  axon_heads[tid] = h;
 }
 
 // ============================================================================
@@ -142,10 +158,16 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
     uint32_t target_id = (target_packed & 0x00FFFFFF) - 1;
     uint32_t seg_idx = target_packed >> 24;
 
-    uint32_t head = vram.axon_heads[target_id];
+    BurstHeads8 h = vram.axon_heads[target_id];
+    uint32_t prop = p.signal_propagation_length;
 
-    uint32_t dist = head - seg_idx;
-    if (dist < p.signal_propagation_length) {
+    // Branchless 8-head bitwise OR
+    bool hit = ((h.h0 - seg_idx) < prop) | ((h.h1 - seg_idx) < prop) |
+               ((h.h2 - seg_idx) < prop) | ((h.h3 - seg_idx) < prop) |
+               ((h.h4 - seg_idx) < prop) | ((h.h5 - seg_idx) < prop) |
+               ((h.h6 - seg_idx) < prop) | ((h.h7 - seg_idx) < prop);
+
+    if (hit) {
       i_in += (int32_t)vram.dendrite_weights[col_idx];
     }
   }
@@ -177,7 +199,10 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
 
     uint32_t my_axon = vram.soma_to_axon[tid];
     if (my_axon != 0xFFFFFFFF) {
-      vram.axon_heads[my_axon] = 0;
+      BurstHeads8 h = vram.axon_heads[my_axon];
+      h.h7 = h.h6; h.h6 = h.h5; h.h5 = h.h4; h.h4 = h.h3;
+      h.h3 = h.h2; h.h2 = h.h1; h.h1 = h.h0; h.h0 = 0;
+      vram.axon_heads[my_axon] = h;
     }
   }
 
@@ -212,10 +237,22 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n) {
     // Trap)
     uint32_t target_id = (target_packed & 0x00FFFFFF) - 1;
     uint32_t seg_idx = target_packed >> 24;
-    uint32_t head = vram.axon_heads[target_id];
+    BurstHeads8 b = vram.axon_heads[target_id];
+    uint32_t len = p.signal_propagation_length;
 
-    uint32_t dist = head - seg_idx;
-    bool is_active = (dist < p.signal_propagation_length);
+    // Ищем самую свежую (минимальную) дистанцию среди всех голов
+    uint32_t min_dist = 0xFFFFFFFF;
+    uint32_t d;
+    d = b.h0 - seg_idx; if (d < len) min_dist = min(min_dist, d);
+    d = b.h1 - seg_idx; if (d < len) min_dist = min(min_dist, d);
+    d = b.h2 - seg_idx; if (d < len) min_dist = min(min_dist, d);
+    d = b.h3 - seg_idx; if (d < len) min_dist = min(min_dist, d);
+    d = b.h4 - seg_idx; if (d < len) min_dist = min(min_dist, d);
+    d = b.h5 - seg_idx; if (d < len) min_dist = min(min_dist, d);
+    d = b.h6 - seg_idx; if (d < len) min_dist = min(min_dist, d);
+    d = b.h7 - seg_idx; if (d < len) min_dist = min(min_dist, d);
+
+    bool is_active = (min_dist != 0xFFFFFFFF);
 
     int16_t w = vram.dendrite_weights[col_idx];
     int16_t sign = (w >= 0) ? 1 : -1;
@@ -236,13 +273,15 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n) {
 
     int32_t delta_pot = (final_pot * inertia) >> 7;
     int32_t delta_dep = (p.gsop_depression * inertia) >> 7;
+    // Экспоненциальный сдвиг. Каждые 16 тиков сила обучения падает вдвое (>> 1)
+    uint32_t cooling_shift = is_active ? (min_dist >> 4) : 0;
 
-    // 3. Causal Delta
-    int32_t delta = is_active ? delta_pot : -delta_dep;
+    // 3. Causal Delta с экспоненциальным остыванием STDP
+    int32_t delta = is_active ? (delta_pot >> cooling_shift) : -delta_dep;
 
-    // 4. Slot Decay (масштабирует дельту, а не вычитается из веса!)
+    // 4. Slot Decay
     int32_t decay = (i < p.ltm_slot_count) ? p.slot_decay_ltm : p.slot_decay_wm;
-    delta = (delta * decay) >> 7;
+    delta = (delta * decay) >> (7 + cooling_shift);
 
     // 5. Apply & Clamp
     int32_t new_abs = abs_w + delta;

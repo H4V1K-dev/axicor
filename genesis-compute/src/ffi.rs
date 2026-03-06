@@ -38,7 +38,7 @@ pub struct ShardVramPtrs {
     pub dendrite_timers:   *mut u8,    // Синаптическая рефрактерность
 
     // --- Axon Heads (Длина = total_axons: Local + Ghost + Virtual) ---
-    pub axon_heads:        *mut u32,
+    pub axon_heads:        *mut genesis_core::layout::BurstHeads8,
 }
 
 unsafe impl Send for ShardVramPtrs {}
@@ -175,7 +175,7 @@ extern "C" {
     );
     
     pub fn launch_extract_outgoing_spikes(
-        axon_heads: *const u32,
+        axon_heads: *const genesis_core::layout::BurstHeads8,
         src_indices: *const u32,
         dst_ghost_ids: *const u32,
         count: u32,
@@ -187,8 +187,8 @@ extern "C" {
     );
     
     pub fn launch_ghost_sync(
-        src_heads: *const u32,
-        dst_heads: *mut u32,
+        src_heads: *const genesis_core::layout::BurstHeads8,
+        dst_heads: *mut genesis_core::layout::BurstHeads8,
         src_indices: *const u32,
         dst_indices: *const u32,
         count: u32,

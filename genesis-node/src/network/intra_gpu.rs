@@ -105,7 +105,7 @@ impl IntraGpuChannel {
     }
 
     /// GPU-side sync: вызов CUDA kernel launch_ghost_sync (production).
-    pub unsafe fn sync_ghosts(&self, src_heads: *const u32, dst_heads: *mut u32, stream: ffi::CudaStream) {
+    pub unsafe fn sync_ghosts(&self, src_heads: *const genesis_core::layout::BurstHeads8, dst_heads: *mut genesis_core::layout::BurstHeads8, stream: ffi::CudaStream) {
         if self.count == 0 { return; }
         ffi::launch_ghost_sync(
             src_heads,

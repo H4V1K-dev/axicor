@@ -36,8 +36,8 @@ struct NightPhaseContext {
     axon_tips_uvw: Vec<u32>,
     /// axon_dirs_xyz: Vec<u32> — упакованные направления (по одному на аксон)
     axon_dirs_xyz: Vec<u32>,
-    /// axon_heads: Vec<u32> — состояние аксонных голов (для инициализации новых ghost аксонов)
-    axon_heads: Vec<u32>,
+    /// axon_heads: Vec<genesis_core::layout::BurstHeads8> — состояние аксонных голов (для инициализации новых ghost аксонов)
+    axon_heads: Vec<genesis_core::layout::BurstHeads8>,
     
     // [Шаг 4] soma_to_axon маппинг для интеграции новых ghost axons 
     /// soma_to_axon: Vec<u32> — маппинг soma_idx → axon_idx
@@ -206,20 +206,20 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
     let axon_heads = if axons_path.exists() {
         let data = std::fs::read(&axons_path)
             .map_err(|e| eprintln!("[Daemon] Cannot read shard.axons: {}", e)).ok()?;
-        // Пропускаем 16B заголовок (AxonsFileHeader), затем u32×total_axons
+        // Пропускаем 16B заголовок (AxonsFileHeader), затем BurstHeads8×total_axons
         if data.len() > 16 {
             let slice = &data[16..];
-            let count = slice.len() / 4;
+            let count = slice.len() / 32;
             bytemuck::cast_slice(slice)
                 .iter()
                 .take(count.min(total_axons_max as usize))
                 .copied()
                 .collect()
         } else {
-            vec![0; total_axons_max as usize]
+            vec![genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL); total_axons_max as usize]
         }
     } else {
-        vec![0; total_axons_max as usize]
+        vec![genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL); total_axons_max as usize]
     };
 
     // Файл .geom: axon_tips_uvw (u32 × total_axons) + axon_dirs_xyz (u32 × total_axons)

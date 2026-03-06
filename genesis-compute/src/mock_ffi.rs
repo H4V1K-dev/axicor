@@ -192,7 +192,7 @@ pub extern "C" fn launch_sort_and_prune(
 
 #[no_mangle]
 pub extern "C" fn launch_extract_outgoing_spikes(
-    _axon_heads: *const u32,
+    _axon_heads: *const genesis_core::layout::BurstHeads8,
     _src_indices: *const u32,
     _dst_ghost_ids: *const u32,
     _count: u32,
@@ -204,8 +204,8 @@ pub extern "C" fn launch_extract_outgoing_spikes(
 
 #[no_mangle]
 pub extern "C" fn launch_ghost_sync(
-    _src_heads: *const u32,
-    _dst_heads: *mut u32,
+    _src_heads: *const genesis_core::layout::BurstHeads8,
+    _dst_heads: *mut genesis_core::layout::BurstHeads8,
     _src_indices: *const u32,
     _dst_indices: *const u32,
     _count: u32,

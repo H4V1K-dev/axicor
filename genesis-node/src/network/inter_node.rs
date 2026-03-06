@@ -54,7 +54,7 @@ impl InterNodeChannel {
         }
     }
 
-    pub unsafe fn extract_spikes(&self, axon_heads: *const u32, sync_batch_ticks: u32, v_seg: u32, stream: ffi::CudaStream) {
+    pub unsafe fn extract_spikes(&self, axon_heads: *const genesis_core::layout::BurstHeads8, sync_batch_ticks: u32, v_seg: u32, stream: ffi::CudaStream) {
         if self.count == 0 { return; }
         genesis_compute::ffi::launch_extract_outgoing_spikes(
             axon_heads,

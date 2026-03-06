@@ -6,6 +6,13 @@
 // 1. VRAM Layout (Строгое совпадение с genesis_core::layout::VramState)
 // =====================================================================
 extern "C" {
+
+// [DOD] 32-byte aligned Burst Architecture
+struct alignas(32) BurstHeads8 {
+  uint32_t h0; uint32_t h1; uint32_t h2; uint32_t h3;
+  uint32_t h4; uint32_t h5; uint32_t h6; uint32_t h7;
+};
+
 struct SoA_State {
   uint32_t padded_n;
   uint32_t total_axons;
@@ -20,7 +27,7 @@ struct SoA_State {
   int16_t *dendrite_weights;
   uint8_t *dendrite_timers;
 
-  uint32_t *axon_heads;
+  BurstHeads8 *axon_heads;
 
   uint32_t *input_bitmask;
   uint8_t *output_history;
@@ -86,9 +93,12 @@ inject_inputs_kernel(const SoA_State state, const uint32_t *bitmask,
   // L1 кеша)
   uint32_t mask_word = bitmask[word_idx];
 
-  // Рождение сигнала = сброс головы в 0
+  // Рождение сигнала = Burst Shift
   if ((mask_word >> bit_idx) & 1) {
-    state.axon_heads[virtual_offset + tid] = 0;
+    BurstHeads8 b = state.axon_heads[virtual_offset + tid];
+    b.h7 = b.h6; b.h6 = b.h5; b.h5 = b.h4; b.h4 = b.h3;
+    b.h3 = b.h2; b.h2 = b.h1; b.h1 = b.h0; b.h0 = 0;
+    state.axon_heads[virtual_offset + tid] = b;
   }
 }
 
@@ -115,7 +125,10 @@ __global__ void apply_spike_batch_kernel(SoA_State state,
 
   // [DOD FIX] Жесткая защита VRAM от битых сетевых индексов
   if (target_axon < state.total_axons) {
-    state.axon_heads[target_axon] = 0;
+    BurstHeads8 b = state.axon_heads[target_axon];
+    b.h7 = b.h6; b.h6 = b.h5; b.h5 = b.h4; b.h4 = b.h3;
+    b.h3 = b.h2; b.h2 = b.h1; b.h1 = b.h0; b.h0 = 0;
+    state.axon_heads[target_axon] = b;
   }
 }
 
@@ -128,10 +141,16 @@ __global__ void propagate_axons_kernel(const SoA_State state, uint32_t v_seg) {
   if (tid >= state.total_axons)
     return;
 
-  // Безусловное чтение, сложение и запись.
-  // Мёртвые аксоны с AXON_SENTINEL (0x80000000) просто увеличивают своё
-  // значение. 100% утилизация ALU без ветвлений.
-  state.axon_heads[tid] += v_seg;
+  BurstHeads8 h = state.axon_heads[tid];
+  if (h.h0 != AXON_SENTINEL) h.h0 += v_seg;
+  if (h.h1 != AXON_SENTINEL) h.h1 += v_seg;
+  if (h.h2 != AXON_SENTINEL) h.h2 += v_seg;
+  if (h.h3 != AXON_SENTINEL) h.h3 += v_seg;
+  if (h.h4 != AXON_SENTINEL) h.h4 += v_seg;
+  if (h.h5 != AXON_SENTINEL) h.h5 += v_seg;
+  if (h.h6 != AXON_SENTINEL) h.h6 += v_seg;
+  if (h.h7 != AXON_SENTINEL) h.h7 += v_seg;
+  state.axon_heads[tid] = h;
 }
 
 // =====================================================================
@@ -284,8 +303,8 @@ void launch_record_readout(SoA_State vram, const uint32_t *mapped_soma_ids,
 // =====================================================================
 // Ядро 7: Синхронизация Ghost Axons
 // =====================================================================
-__global__ void ghost_sync_kernel(const uint32_t *src_axon_heads,
-                                  uint32_t *dst_axon_heads,
+__global__ void ghost_sync_kernel(const BurstHeads8 *src_axon_heads,
+                                  BurstHeads8 *dst_axon_heads,
                                   const uint32_t *src_indices,
                                   const uint32_t *dst_indices, uint32_t count) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -304,7 +323,7 @@ __global__ void ghost_sync_kernel(const uint32_t *src_axon_heads,
   }
 }
 
-void launch_ghost_sync(const uint32_t *src_heads, uint32_t *dst_heads,
+void launch_ghost_sync(const BurstHeads8 *src_heads, BurstHeads8 *dst_heads,
                        const uint32_t *src_indices, const uint32_t *dst_indices,
                        uint32_t count, cudaStream_t stream) {
   uint32_t threads = 256;
@@ -326,7 +345,7 @@ struct SpikeEvent {
 
 // Ядро компактизирует спайки из гигабайтного графа в плоский Pinned RAM буфер
 __global__ void extract_outgoing_spikes_kernel(
-    const uint32_t *axon_heads,
+    const BurstHeads8 *axon_heads,
     const uint32_t *src_indices,   // Локальные ID экспортируемых аксонов
     const uint32_t *dst_ghost_ids, // Их ID на удаленной машине
     uint32_t count, uint32_t sync_batch_ticks, uint32_t v_seg,
@@ -338,9 +357,11 @@ __global__ void extract_outgoing_spikes_kernel(
     return;
 
   uint32_t local_axon = src_indices[tid];
-  uint32_t head = axon_heads[local_axon];
+  BurstHeads8 h = axon_heads[local_axon];
 
-  // [DOD] Защита: пропускаем мертвые аксоны (AXON_SENTINEL >= 0x80000000)
+  // Мы читаем только h0 (самый свежий спайк). При батче 10мс и рефрактерности 15мс 
+  // физически не может быть 2 спайков за один батч.
+  uint32_t head = h.h0; 
   if (head >= 0x70000000u) return;
 
   // Математика сдвига: head = тики_после_спайка * v_seg
@@ -356,7 +377,7 @@ __global__ void extract_outgoing_spikes_kernel(
   }
 }
 
-void launch_extract_outgoing_spikes(const uint32_t *axon_heads,
+void launch_extract_outgoing_spikes(const BurstHeads8 *axon_heads,
                                     const uint32_t *src_indices,
                                     const uint32_t *dst_ghost_ids,
                                     uint32_t count, uint32_t sync_batch_ticks,
@@ -479,7 +500,7 @@ struct ShardVramPtrs {
   uint32_t *dendrite_targets;
   int16_t *dendrite_weights;
   uint8_t *dendrite_timers;
-  uint32_t *axon_heads; // отдельный буфер
+  BurstHeads8 *axon_heads; // отдельный буфер
 };
 
 #define MAX_DENDRITES_SV 128
@@ -536,7 +557,7 @@ int32_t cu_allocate_shard(uint32_t padded_n, uint32_t total_axons,
 
   // Аксоны — отдельная аллокация (total_axons ≠ padded_n)
   err = cudaMalloc((void **)&out_vram->axon_heads,
-                   (size_t)total_axons * sizeof(uint32_t));
+                   (size_t)total_axons * sizeof(BurstHeads8));
   if (err != cudaSuccess) {
     fprintf(stderr, "[cu_allocate_shard] cudaMalloc axon_heads failed: %s\n",
             cudaGetErrorString(err));
@@ -545,7 +566,7 @@ int32_t cu_allocate_shard(uint32_t padded_n, uint32_t total_axons,
   }
 
   // Инициализируем аксоны нулём (живые). Baker перезапишет нужные значения.
-  cudaMemset(out_vram->axon_heads, 0, (size_t)total_axons * sizeof(uint32_t));
+  cudaMemset(out_vram->axon_heads, 0, (size_t)total_axons * sizeof(BurstHeads8));
 
   return 0;
 }

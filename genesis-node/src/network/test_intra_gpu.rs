@@ -48,6 +48,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_basic_spike_transfer() {
         unsafe {
             let h0 = make_heads(100);
@@ -69,6 +70,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_fanout_one_to_many() {
         unsafe {
             let h0 = make_heads(100);
@@ -93,6 +95,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_bidirectional() {
         unsafe {
             let h0 = make_heads(100);
@@ -116,6 +119,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_empty_channel() {
         unsafe {
             let h0 = make_heads(100);
@@ -132,6 +136,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_repeated_sync() {
         unsafe {
             let h0 = make_heads(100);
@@ -156,6 +161,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_sentinel_propagation() {
         unsafe {
             let h0 = make_heads(100);

@@ -124,7 +124,11 @@ pub fn build_local_topology_internal(
 
     for (i, ax) in axons.iter().enumerate() {
         if i < shard.axon_heads.len() {
-            shard.axon_heads[i] = init_axon_head(ax.length_segments, v_seg);
+            let init_val = init_axon_head(ax.length_segments, v_seg);
+            let mut burst = genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL);
+            burst.h0 = init_val;
+            shard.axon_heads[i] = burst;
+
             shard.axon_tips_uvw[i] = (ax.tip_z << 20) | (ax.tip_y << 10) | ax.tip_x;
             let dx = (ax.last_dir.x * 127.0).clamp(-127.0, 127.0) as i8 as u32;
             let dy = (ax.last_dir.y * 127.0).clamp(-127.0, 127.0) as i8 as u32;

@@ -37,7 +37,7 @@ pub struct BootResult {
 /// Инициализирует ShardEngine прямым DMA-копированием из .state и .axons.
 /// Этот метод реализует O(1) деривацию размеров на основе файлового контракта:
 /// - .state: 910 байта на нейрон (SoA)
-/// - .axons: 4 байта на аксон (u32 heads)
+/// - .axons: 32 байта на аксон (BurstHeads8)
 pub fn boot_shard_from_disk(baked_dir: &Path) -> Result<(ShardEngine, Vec<u32>)> {
     let checkpoint_path = baked_dir.join("checkpoint.state");
     let base_state_path = baked_dir.join("shard.state");
@@ -59,7 +59,7 @@ pub fn boot_shard_from_disk(baked_dir: &Path) -> Result<(ShardEngine, Vec<u32>)>
 
     // 2. Деривация размеров за O(1) (910 байт/нейрон)
     let padded_n = (state_blob.len() / 910) as u32;
-    let total_axons = (axons_blob.len() / 4) as u32;
+    let total_axons = (axons_blob.len() / 32) as u32;
 
     // Верификация целостности (защита от битых файлов)
     let (_, expected_state_size) = calculate_state_blob_size(padded_n as usize);
@@ -201,7 +201,7 @@ impl Bootloader {
     }
 
     fn load_shards_into_vram(zone_manifest: &ZoneManifest, root_dir: &Path) 
-        -> Result<(Vec<BootShard>, HashMap<u32, Vec<u32>>, HashMap<u32, *mut u32>, Vec<(u32, crate::network::io_server::ZoneIoContext)>, Vec<u32>, HashMap<u32, Vec<(String, u32)>>)> 
+        -> Result<(Vec<BootShard>, HashMap<u32, Vec<u32>>, HashMap<u32, *mut genesis_core::layout::BurstHeads8>, Vec<(u32, crate::network::io_server::ZoneIoContext)>, Vec<u32>, HashMap<u32, Vec<(String, u32)>>)> 
     {
         let mut engines = Vec::new();
         let mut io_contexts = Vec::new();
@@ -326,10 +326,10 @@ impl Bootloader {
         zone_manifest: &ZoneManifest,
         root_dir: &Path,
         s2a_maps: &HashMap<u32, Vec<u32>>,
-        axon_head_ptrs: &HashMap<u32, *mut u32>
+        axon_head_ptrs: &HashMap<u32, *mut genesis_core::layout::BurstHeads8>
     ) -> Result<(
-        Vec<(*mut u32, *mut u32, IntraGpuChannel)>, 
-        Vec<(*mut u32, crate::network::inter_node::InterNodeChannel)>, 
+        Vec<(*mut genesis_core::layout::BurstHeads8, *mut genesis_core::layout::BurstHeads8, IntraGpuChannel)>, 
+        Vec<(*mut genesis_core::layout::BurstHeads8, crate::network::inter_node::InterNodeChannel)>, 
         usize // expected_peers
     )> {
         let mut intra_gpu = Vec::new();

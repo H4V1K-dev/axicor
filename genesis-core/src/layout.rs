@@ -1,5 +1,6 @@
 use crate::types::{Voltage, Weight};
 use crate::constants::MAX_DENDRITE_SLOTS;
+use bytemuck::{Pod, Zeroable};
 
 pub const MAX_DENDRITES: usize = MAX_DENDRITE_SLOTS;
 
@@ -29,6 +30,32 @@ pub struct VariantParameters {
 }
 
 const _: () = assert!(std::mem::size_of::<VariantParameters>() == 64);
+
+// [DOD] 32-byte alignment гарантирует загрузку 8 голов за 1 транзакцию L1 кэша.
+#[repr(C, align(32))]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct BurstHeads8 {
+    pub h0: u32,
+    pub h1: u32,
+    pub h2: u32,
+    pub h3: u32,
+    pub h4: u32,
+    pub h5: u32,
+    pub h6: u32,
+    pub h7: u32,
+}
+
+impl BurstHeads8 {
+    pub const fn empty(sentinel: u32) -> Self {
+        Self {
+            h0: sentinel, h1: sentinel, h2: sentinel, h3: sentinel,
+            h4: sentinel, h5: sentinel, h6: sentinel, h7: sentinel,
+        }
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<BurstHeads8>() == 32);
+const _: () = assert!(std::mem::align_of::<BurstHeads8>() == 32);
 
 /// Алгоритм выравнивания N по варпам (32 потока).
 pub fn align_to_warp(n: usize) -> usize {
@@ -129,7 +156,7 @@ pub struct ShardStateSoA {
     pub dendrite_timers: Vec<u8>,
 
     // --- Axon Heads (Size = total_axons) ---
-    pub axon_heads: Vec<u32>, 
+    pub axon_heads: Vec<BurstHeads8>, 
 }
 
 impl ShardStateSoA {
@@ -150,7 +177,7 @@ impl ShardStateSoA {
             dendrite_weights: vec![0; MAX_DENDRITES * padded_n],
             dendrite_timers: vec![0; MAX_DENDRITES * padded_n],
             
-            axon_heads: vec![0; total_axons],
+            axon_heads: vec![BurstHeads8::empty(0); total_axons],
         }
     }
 
@@ -217,7 +244,7 @@ pub struct VramState {
     pub dendrite_timers: *mut u8,
 
     // Axons (Size: total_axons)
-    pub axon_heads: *mut u32,
+    pub axon_heads: *mut BurstHeads8,
 
     // I/O & Telemetry
     pub input_bitmask: *mut u32,
@@ -276,14 +303,14 @@ mod tests {
     fn test_vram_state_pointer_mapping() {
         let mut soa = ShardStateSoA::new(32, 100);
         soa.voltage[0] = 42;
-        soa.axon_heads[99] = 123;
+        soa.axon_heads[99] = BurstHeads8::empty(123);
         
         unsafe {
             let vram = VramState::from_soa(&mut soa);
             assert_eq!(vram.padded_n, 32);
             assert_eq!(vram.total_axons, 100);
             assert_eq!(*vram.voltage, 42);
-            assert_eq!(*vram.axon_heads.add(99), 123);
+            assert_eq!((*vram.axon_heads.add(99)).h0, 123);
         }
     }
 

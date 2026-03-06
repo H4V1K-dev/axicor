@@ -54,8 +54,8 @@ impl SentinelManager {
             return;
         }
 
-        // 1. Выделяем временный буфер на хосте для скачивания axon_heads
-        let mut host_axon_heads = vec![0u32; total_axons];
+        // 1. Выделяем 32-байтный выровненный буфер на хосте
+        let mut host_axon_heads = vec![genesis_core::layout::BurstHeads8::empty(0); total_axons];
 
         // 2. Скачиваем с GPU
         unsafe {
@@ -63,32 +63,39 @@ impl SentinelManager {
             ffi::gpu_memcpy_device_to_host(
                 host_axon_heads.as_mut_ptr() as *mut std::ffi::c_void,
                 vram.ptrs.axon_heads as *const std::ffi::c_void,
-                total_axons * std::mem::size_of::<u32>(),
+                total_axons * std::mem::size_of::<genesis_core::layout::BurstHeads8>(),
             );
         }
 
-        // 3. Сканируем на CPU и сбрасываем
+        // 3. Сканируем все 8 голов каждого аксона на CPU
         let mut reset_count = 0;
-        for head in host_axon_heads.iter_mut() {
-            if *head >= SENTINEL_OVERFLOW_THRESHOLD {
-                *head = AXON_SENTINEL;
+        for burst in host_axon_heads.iter_mut() {
+            let mut changed = false;
+            
+            if burst.h0 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h0 = AXON_SENTINEL; changed = true; }
+            if burst.h1 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h1 = AXON_SENTINEL; changed = true; }
+            if burst.h2 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h2 = AXON_SENTINEL; changed = true; }
+            if burst.h3 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h3 = AXON_SENTINEL; changed = true; }
+            if burst.h4 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h4 = AXON_SENTINEL; changed = true; }
+            if burst.h5 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h5 = AXON_SENTINEL; changed = true; }
+            if burst.h6 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h6 = AXON_SENTINEL; changed = true; }
+            if burst.h7 >= SENTINEL_OVERFLOW_THRESHOLD { burst.h7 = AXON_SENTINEL; changed = true; }
+
+            if changed {
                 reset_count += 1;
             }
         }
 
-        // 4. Если были изменения — заливаем обратно
+        // 4. Заливаем обратно
         if reset_count > 0 {
             unsafe {
                 ffi::gpu_memcpy_host_to_device(
                     vram.ptrs.axon_heads as *mut std::ffi::c_void,
                     host_axon_heads.as_ptr() as *const std::ffi::c_void,
-                    total_axons * std::mem::size_of::<u32>(),
+                    total_axons * std::mem::size_of::<genesis_core::layout::BurstHeads8>(),
                 );
                 ffi::gpu_device_synchronize();
             }
-            // println!("[Sentinel] Reset {} overflowed axons to AXON_SENTINEL", reset_count);
-        } else {
-            // println!("[Sentinel] No axons needed reset. All safe.");
         }
     }
 }

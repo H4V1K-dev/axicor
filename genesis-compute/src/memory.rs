@@ -144,7 +144,7 @@ impl VramState {
 
     /// Только аксоны хранятся отдельно: загружает `axon_heads` напрямую.
     pub fn upload_axon_heads(&self, axon_heads_blob: &[u8]) {
-        let expected = (self.total_axons as usize) * std::mem::size_of::<u32>();
+        let expected = (self.total_axons as usize) * std::mem::size_of::<genesis_core::layout::BurstHeads8>();
         assert_eq!(
             axon_heads_blob.len(), expected,
             "FATAL: axon_heads blob size mismatch: got {} expected {}",
