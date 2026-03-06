@@ -71,7 +71,9 @@ pub fn boot_shard_from_disk(baked_dir: &Path) -> Result<(ShardEngine, Vec<u32>)>
     // Извлекаем soma_to_axon для маршрутизации Ghost-аксонов
     let offsets = compute_state_offsets(padded_n as usize);
     let s2a_bytes = &state_blob[offsets.soma_to_axon .. offsets.soma_to_axon + (padded_n as usize * 4)];
-    let soma_to_axon: Vec<u32> = bytemuck::cast_slice(s2a_bytes).to_vec();
+    let soma_to_axon: Vec<u32> = s2a_bytes.chunks_exact(4)
+        .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+        .collect();
 
     // 3. Выделение VRAM и DMA-заливка
     let vram = VramState::allocate(padded_n, total_axons);
@@ -160,8 +162,14 @@ impl Bootloader {
     }
 
     fn parse_manifests(manifest_path: &Path, _root_dir: &Path) -> Result<(ZoneManifest, genesis_core::config::SimulationConfig)> {
-        let manifest_toml = std::fs::read_to_string(manifest_path)
-            .with_context(|| format!("Failed to read manifest: {:?}", manifest_path))?;
+        let manifest_toml = std::fs::read_to_string(manifest_path).map_err(|e| {
+            let hint = if e.kind() == std::io::ErrorKind::NotFound {
+                "\nHint: Run 'cargo run --release -p genesis-baker --bin baker -- --brain config/brain.toml' first to create baked artifacts."
+            } else {
+                ""
+            };
+            anyhow::anyhow!("Failed to read manifest: {:?}{}", manifest_path, hint)
+        })?;
         
         let zone_manifest: ZoneManifest = toml::from_str(&manifest_toml)
             .with_context(|| format!("Failed to parse zone manifest: {:?}", manifest_path))?;
@@ -285,7 +293,9 @@ impl Bootloader {
         let pos_path = baked_dir.join("shard.pos");
         let pos_blob = std::fs::read(&pos_path)
             .with_context(|| format!("Failed to read shard.pos: {:?}", pos_path))?;
-        let geo_data: Vec<u32> = bytemuck::cast_slice(&pos_blob).to_vec();
+        let geo_data: Vec<u32> = pos_blob.chunks_exact(4)
+            .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+            .collect();
         all_geo_data.extend(geo_data);
 
         let sync_batch_ticks = 100u32;
@@ -399,8 +409,10 @@ impl Bootloader {
         routing_table: Arc<RoutingTable>
     ) -> Result<(Arc<ExternalIoServer>, GeometryServer, Arc<crate::network::telemetry::TelemetrySwapchain>, Arc<crate::network::egress::EgressPool>, Arc<crate::network::inter_node::InterNodeRouter>)> {
         let local_port = first_manifest.network.fast_path_udp_local;
+        let udp_in = first_manifest.network.external_udp_in;
 
-        let io_socket = tokio::net::UdpSocket::bind(&format!("0.0.0.0:{}", first_manifest.network.external_udp_in)).await?;
+        let io_socket = tokio::net::UdpSocket::bind(&format!("0.0.0.0:{}", udp_in)).await
+            .with_context(|| format!("Failed to bind UDP external_udp_in (port {}). Port in use? Kill any running genesis-node: Get-Process genesis-node -EA 0 | Stop-Process -Force", udp_in))?;
         let io_server = Arc::new(ExternalIoServer::new(
             Arc::new(AtomicBool::new(false)),
             io_contexts,
@@ -408,9 +420,12 @@ impl Bootloader {
             Arc::new(io_socket)
         )?);
 
-        let geo_addr = format!("0.0.0.0:{}", local_port + 1).parse()?;
-        let geometry_server = GeometryServer::bind(geo_addr).await?;
-        let telemetry_swapchain = TelemetryServer::start(local_port + 2).await;
+        let geo_port = local_port + 1;
+        let geo_addr = format!("0.0.0.0:{}", geo_port).parse()?;
+        let geometry_server = GeometryServer::bind(geo_addr).await
+            .with_context(|| format!("Failed to bind Geometry Server (TCP port {}). Port in use? Kill any running genesis-node: Get-Process genesis-node -EA 0 | Stop-Process -Force", geo_port))?;
+        let telemetry_port = local_port + 2;
+        let telemetry_swapchain = TelemetryServer::start(telemetry_port).await;
 
         let egress_socket = Arc::new(tokio::net::UdpSocket::bind("0.0.0.0:0").await?);
         let inter_node_router = Arc::new(crate::network::inter_node::InterNodeRouter::new(egress_socket, routing_table));
