@@ -1,3 +1,6 @@
+#![deny(warnings)]
+#![deny(unused_variables)]
+#![deny(dead_code)]
 use bevy::prelude::*;
 mod camera;
 mod config;

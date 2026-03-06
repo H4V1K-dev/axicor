@@ -1,10 +1,11 @@
+#![deny(warnings)]
+#![deny(unused_variables)]
+#![deny(dead_code)]
 use clap::Parser;
 use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
-mod bake;
-mod parser;
-mod validator;
+use genesis_baker::{bake, parser, validator};
 
 
 #[derive(Parser)]
@@ -300,40 +301,5 @@ fn serialize_artifacts(
     Ok(())
 }
 
-/// Формат файла `.axons`:
-/// - Header: `AxonsFileHeader` (8 bytes)
-/// - Array of `total_axons`:
-///   - tip_x: u16, tip_y: u16, tip_z: u16
-///   - length: u32 (N)
-///   - segments: [u32; N] (PackedPositions)
-#[allow(dead_code)]
-fn serialize_axons(axons: &[bake::axon_growth::GrownAxon]) -> Vec<u8> {
-    // Оцениваем размер: 8 байт заголовок + для каждого (10 байт заголовок + 4 байта на сегмент)
-    let estimated_size = 8 + axons.iter().map(|ax| 10 + ax.segments.len() * 4).sum::<usize>();
-    let mut out = Vec::with_capacity(estimated_size);
-    let header = genesis_core::layout::AxonsFileHeader::new(axons.len() as u32);
-    out.extend_from_slice(header.as_bytes());
-    for ax in axons {
-        out.extend_from_slice(&(ax.tip_x as u16).to_le_bytes());
-        out.extend_from_slice(&(ax.tip_y as u16).to_le_bytes());
-        out.extend_from_slice(&(ax.tip_z as u16).to_le_bytes());
-        
-        out.extend_from_slice(&(ax.segments.len() as u32).to_le_bytes());
-        for &seg in &ax.segments {
-            out.extend_from_slice(&seg.to_le_bytes());
-        }
-    }
-    out
-}
 
-/// Атомарная запись: пишем в .tmp, потом rename. Защита от краша.
-#[allow(dead_code)]
-fn atomic_write(path: impl AsRef<Path>, data: &[u8]) -> Result<()> {
-    let path = path.as_ref();
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, data).with_context(|| format!("Cannot write {}", tmp.display()))?;
-    std::fs::rename(&tmp, path)
-        .with_context(|| format!("Cannot rename .tmp → {}", path.display()))?;
-    Ok(())
-}
 

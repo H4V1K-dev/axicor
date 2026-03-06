@@ -18,7 +18,6 @@ pub fn connect_dendrites(
     positions: &[PackedPosition],
     axons: &[GrownAxon],
     types: &[NeuronType],
-    _master_seed: u64,
     voxel_size_um: f32, // [DOD] Вместо хардкод cell_size берем размер вокселя
 ) -> usize {
     // 1. ИНВЕРСИЯ: Строим SpatialGrid из СЕГМЕНТОВ аксонов.
@@ -153,7 +152,7 @@ mod tests {
         let axons = vec![axon];
         
         let voxel_size_um = 25.0;
-        let connections = connect_dendrites(&mut shard, &positions, &axons, &types, 0, voxel_size_um);
+        let connections = connect_dendrites(&mut shard, &positions, &axons, &types, voxel_size_um);
 
         // Since both soma A and soma B scan through space, they both read the same axon.
         // Because data races are eliminated with TempSlot buffers per soma, both must connect safely.

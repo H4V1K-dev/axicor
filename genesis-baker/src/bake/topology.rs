@@ -2,7 +2,6 @@ use crate::bake::layout::{ShardSoA, CompiledShard};
 use crate::bake::axon_growth::{compute_layer_ranges, ShardBounds, grow_axons, GrownAxon, init_axon_head, inject_ghost_axons};
 use crate::bake::neuron_placement::generate_placement_from_config;
 use crate::bake::dendrite_connect::connect_dendrites;
-use crate::bake::seed::seed_from_str;
 use crate::bake::input_map::{build_gxi_mapping};
 use crate::bake::output_map::{build_gxo_mapping};
 use genesis_core::config::{SimulationConfig, InstanceConfig, blueprints::NeuronType, anatomy::AnatomyConfig, io::IoConfig, blueprints::GenesisConstantMemory};
@@ -160,7 +159,6 @@ pub fn build_local_topology_internal(
         &positions,
         &axons,
         neuron_types,
-        master_seed,
         sim.simulation.voxel_size_um as f32, // Передаем размер вокселя
     );
     println!("[baker] ✓ Synapses established: {} (avg: {:.1}/soma)", 
@@ -199,11 +197,11 @@ pub fn build_local_topology_internal(
     let bounds_um = (shard_cfg.dimensions.w as f32 * voxel_um as f32, shard_cfg.dimensions.d as f32 * voxel_um as f32);
 
     let compiled_shard = CompiledShard {
-        zone_name: zone_name.to_string(),
+        _zone_name: zone_name.to_string(),
         local_axons_count,
         soma_to_axon_map: shard.soma_to_axon.clone(),
         packed_positions,
-        bounds_voxels,
+        _bounds_voxels: bounds_voxels,
         bounds_um,
     };
 

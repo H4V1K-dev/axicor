@@ -14,7 +14,7 @@ pub mod inter_node;
 pub mod io_server;
 pub mod egress;
 
-use bytemuck::{Pod, Zeroable};
+// Removed bytemuck imports as they are unused here
 
 // Spike contracts now moved to genesis-core::ipc
 pub use genesis_core::ipc::{SpikeEvent, SpikeBatchHeader};

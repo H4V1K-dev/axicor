@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
 use tokio::net::UdpSocket;
-use genesis_core::ipc::{ExternalIoHeader, RouteUpdate, ROUT_MAGIC};
-use genesis_core::constants::{GSIO_MAGIC, GSOO_MAGIC, MAX_UDP_PAYLOAD};
+use genesis_core::ipc::{ExternalIoHeader, RouteUpdate};
+use genesis_core::constants::{GSIO_MAGIC, GSOO_MAGIC};
 use genesis_compute::memory::PinnedBuffer;
 use crate::network::router::RoutingTable;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 

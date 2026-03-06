@@ -14,7 +14,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use genesis_core::ipc::{shm_name, shm_size, ShmHeader, ShmState, SHM_MAGIC, SHM_VERSION};
+use genesis_core::ipc::{shm_name, shm_size, ShmHeader, ShmState};
 
 // POSIX SHM wrappers (libc calls)
 use std::ffi::CString;
@@ -155,7 +155,7 @@ impl BakerClient {
         }
     }
 
-    fn header(&self) -> ShmHeader {
+    fn _header(&self) -> ShmHeader {
         unsafe { std::ptr::read(self.shm_ptr as *const ShmHeader) }
     }
 

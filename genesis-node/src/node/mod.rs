@@ -4,11 +4,10 @@ use std::process::{Command, Child};
 use std::env;
 use std::sync::atomic::{AtomicU32, Ordering};
 use crossbeam::channel::{bounded, Sender, Receiver};
-use genesis_compute::ShardEngine;
 use crate::network::io_server::ExternalIoServer;
 use crate::network::bsp::BspBarrier;
 use crate::network::router::RoutingTable;
-use crate::network::inter_node::{SpikeBatchHeaderV2, SpikeEventV2, InterNodeRouter};
+use crate::network::inter_node::InterNodeRouter;
 
 pub mod recovery;
 pub mod shard_thread;
@@ -82,7 +81,7 @@ impl NodeRuntime {
         io_server: Arc<ExternalIoServer>,
         routing_table: Arc<RoutingTable>,
         bsp_barrier: Arc<BspBarrier>,
-        telemetry_swapchain: Arc<crate::network::telemetry::TelemetrySwapchain>,
+        _telemetry_swapchain: Arc<crate::network::telemetry::TelemetrySwapchain>,
         local_ip: std::net::Ipv4Addr,
         local_port: u16,
         output_routes: HashMap<u32, Vec<(String, u32)>>,

@@ -1,47 +1,41 @@
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::ffi::CString;
 use clap::Parser;
 
 use genesis_core::ipc::{
-    shm_name, shm_size, ShmHeader, ShmState, SHM_MAGIC, SHM_VERSION,
+    shm_name, ShmHeader, ShmState,
     default_socket_path,
 };
-use memmap2::MmapMut;
 use genesis_core::config::manifest::ZoneManifest;
 use genesis_core::config::blueprints::BlueprintsConfig;
-use genesis_core::layout::pack_dendrite_target;
 use genesis_core::constants::MAX_DENDRITE_SLOTS;
-
-/// Контекст ночной фазы — единожды загруженные конфиги для inject_ghost_axons.
-/// Передаётся по ссылке — Zero-Allocation in Night Phase loop.
 struct NightPhaseContext {
-    baked_dir: PathBuf,
-    layer_ranges: Vec<genesis_baker::bake::axon_growth::LayerZRange>,
-    neuron_types: Vec<genesis_core::config::blueprints::NeuronType>,
-    sim_config: genesis_baker::parser::simulation::SimulationConfig,
-    shard_bounds: genesis_baker::bake::axon_growth::ShardBounds,
-    master_seed: u64,
+    _baked_dir: PathBuf,
+    _layer_ranges: Vec<genesis_baker::bake::axon_growth::LayerZRange>,
+    _neuron_types: Vec<genesis_core::config::blueprints::NeuronType>,
+    _sim_config: genesis_baker::parser::simulation::SimulationConfig,
+    _shard_bounds: genesis_baker::bake::axon_growth::ShardBounds,
+    _master_seed: u64,
     
     // [Шаг 1] Ghost Allocator initialization
     /// Индекс первого свободного слота для Ghost-аксонов
     /// Начинается сразу после локальных аксонов: next_ghost_slot = manifest.memory.padded_n
-    next_ghost_slot_base: u32,
+    _next_ghost_slot_base: u32,
     /// Максимальное количество аксонов (включая ghost capacity)
-    total_axons_max: u32,
+    _total_axons_max: u32,
     
     // [Шаг 4] Геометрия аксонов, загруженная один раз при старте
     /// axon_tips_uvw: Vec<u32> — упакованные Z|Y|X координаты кончиков (по одному на аксон)
-    axon_tips_uvw: Vec<u32>,
+    _axon_tips_uvw: Vec<u32>,
     /// axon_dirs_xyz: Vec<u32> — упакованные направления (по одному на аксон)
-    axon_dirs_xyz: Vec<u32>,
+    _axon_dirs_xyz: Vec<u32>,
     /// axon_heads: Vec<genesis_core::layout::BurstHeads8> — состояние аксонных голов (для инициализации новых ghost аксонов)
-    axon_heads: Vec<genesis_core::layout::BurstHeads8>,
+    _axon_heads: Vec<genesis_core::layout::BurstHeads8>,
     
     // [Шаг 4] soma_to_axon маппинг для интеграции новых ghost axons 
     /// soma_to_axon: Vec<u32> — маппинг soma_idx → axon_idx
-    soma_to_axon: Vec<u32>,
+    _soma_to_axon: Vec<u32>,
 }
 
 #[derive(Parser)]
@@ -276,18 +270,18 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
     };
 
     Some(NightPhaseContext {
-        baked_dir: baked_dir.clone(),
-        layer_ranges,
-        neuron_types,
-        sim_config,
-        shard_bounds,
-        master_seed,
-        next_ghost_slot_base: padded_n,
-        total_axons_max,
-        axon_tips_uvw,
-        axon_dirs_xyz,
-        axon_heads,
-        soma_to_axon,
+        _baked_dir: baked_dir.clone(),
+        _layer_ranges: layer_ranges,
+        _neuron_types: neuron_types,
+        _sim_config: sim_config,
+        _shard_bounds: shard_bounds,
+        _master_seed: master_seed,
+        _next_ghost_slot_base: padded_n,
+        _total_axons_max: total_axons_max,
+        _axon_tips_uvw: axon_tips_uvw,
+        _axon_dirs_xyz: axon_dirs_xyz,
+        _axon_heads: axon_heads,
+        _soma_to_axon: soma_to_axon,
     })
 }
 

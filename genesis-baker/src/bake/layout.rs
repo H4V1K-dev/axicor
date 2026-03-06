@@ -8,14 +8,14 @@ use genesis_compute::memory::{calculate_state_blob_size, MAX_DENDRITES};
 
 /// Строгий контракт данных локального шарда после Фазы A (до межзональных связей).
 pub struct CompiledShard {
-    pub zone_name: String,
+    pub _zone_name: String,
     pub local_axons_count: usize,
     /// Маппинг Dense ID -> Axon ID
     pub soma_to_axon_map: Vec<u32>,
     /// Упакованные 32-битные координаты (X|Y|Z|Type)
     pub packed_positions: Vec<u32>,
     /// Физические размеры зоны в вокселях (W, D, H)
-    pub bounds_voxels: (u32, u32, u32),
+    pub _bounds_voxels: (u32, u32, u32),
     /// Физические размеры в микронах (W, D) для UV-Атласа
     pub bounds_um: (f32, f32),
 }
@@ -24,7 +24,7 @@ pub struct CompiledShard {
 /// Гарантирует правильный padding для CUDA варпов.
 pub struct ShardSoA {
     pub padded_n: usize,
-    pub total_axons: usize,
+    pub _total_axons: usize,
 
     // Динамическое состояние сом
     pub voltage: Vec<i32>,
@@ -58,7 +58,7 @@ impl ShardSoA {
 
         Self {
             padded_n,
-            total_axons,
+            _total_axons: total_axons,
             voltage: vec![0; padded_n],
             flags: vec![0; padded_n],
             threshold_offset: vec![0; padded_n],
@@ -80,7 +80,7 @@ impl ShardSoA {
 
     /// Вычисляет плоский индекс для Coalesced Access на GPU.
     #[inline(always)]
-    pub fn columnar_idx(padded_n: usize, neuron_idx: usize, slot: usize) -> usize {
+    pub fn _columnar_idx(padded_n: usize, neuron_idx: usize, slot: usize) -> usize {
         debug_assert!(neuron_idx < padded_n && slot < MAX_DENDRITE_SLOTS);
         slot * padded_n + neuron_idx
     }

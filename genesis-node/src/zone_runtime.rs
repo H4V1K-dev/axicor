@@ -1,6 +1,6 @@
 // Removed Runtime import as we only need ZoneRuntime struct itself
-use genesis_core::config::{BlueprintsConfig, InstanceConfig};
-use std::sync::atomic::{AtomicBool, Ordering};
+use genesis_core::config::InstanceConfig;
+use std::sync::atomic::AtomicBool;
 // Removed PingPongSchedule as we use BspBarrier now
 use std::time::{Instant, Duration};
 use std::sync::Arc;

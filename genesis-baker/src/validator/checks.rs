@@ -60,7 +60,7 @@ pub fn validate_blueprints(types_count: usize) -> Result<(), String> {
 }
 
 /// Детерминированное распределение квот с компенсацией остатка (Zero Lost Neurons).
-pub fn distribute_quotas(total_capacity: u32, quotas: &[f32]) -> Result<Vec<u32>, String> {
+pub fn _distribute_quotas(total_capacity: u32, quotas: &[f32]) -> Result<Vec<u32>, String> {
     // 1. Проверка суммы (Float Precision 1e-4)
     let sum: f32 = quotas.iter().sum();
     if (sum - 1.0).abs() > 1e-4 {

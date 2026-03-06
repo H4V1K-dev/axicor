@@ -3,14 +3,11 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::collections::HashMap;
-use crossbeam::channel::bounded;
 use crossbeam::queue::SegQueue;
 
 use genesis_core::config::manifest::ZoneManifest;
-use genesis_core::hash::fnv1a_32;
 use genesis_compute::memory::{VramState, calculate_state_blob_size, compute_state_offsets};
 use genesis_compute::ShardEngine;
-use crate::zone_runtime::ZoneRuntime;
 use crate::network::geometry_client::GeometryServer;
 use crate::network::telemetry::TelemetryServer;
 use crate::network::io_server::ExternalIoServer;
@@ -39,16 +36,17 @@ pub struct BootResult {
 /// - .state: 910 байта на нейрон (SoA)
 /// - .axons: 32 байта на аксон (BurstHeads8)
 pub fn boot_shard_from_disk(baked_dir: &Path) -> Result<(ShardEngine, Vec<u32>)> {
-    let checkpoint_path = baked_dir.join("checkpoint.state");
-    let base_state_path = baked_dir.join("shard.state");
-    let axons_path = baked_dir.join("shard.axons");
+    let chk_state = baked_dir.join("checkpoint.state");
+    let chk_axons = baked_dir.join("checkpoint.axons");
+    let base_state = baked_dir.join("shard.state");
+    let base_axons = baked_dir.join("shard.axons");
 
-    // [DOD] Приоритет горячего дампа над начальным графом
-    let state_path = if checkpoint_path.exists() {
-        println!("[Boot] 💾 Resuming from checkpoint: {:?}", checkpoint_path);
-        checkpoint_path
+    // [DOD FIX] Strict Causal Continuity: Загружаем только синхронизированную пару
+    let (state_path, axons_path) = if chk_state.exists() && chk_axons.exists() {
+        println!("[Boot] 💾 Resuming from matched checkpoints (State + Active Tails)");
+        (chk_state, chk_axons)
     } else {
-        base_state_path
+        (base_state, base_axons)
     };
 
     // 1. Zero-Parsing загрузка сырых байт в RAM
@@ -180,7 +178,7 @@ impl Bootloader {
         Ok((zone_manifest, sim_config))
     }
 
-    fn load_zone_manifest(root_dir: &Path, zones: &[genesis_core::config::brain::ZoneEntry]) -> Result<ZoneManifest> {
+    fn _load_zone_manifest(root_dir: &Path, zones: &[genesis_core::config::brain::ZoneEntry]) -> Result<ZoneManifest> {
         let first_manifest_path = root_dir.join(&zones[0].baked_dir).join("manifest.toml");
         let manifest_toml = std::fs::read_to_string(&first_manifest_path)
             .with_context(|| format!("Failed to read zone manifest: {:?}", first_manifest_path))?;

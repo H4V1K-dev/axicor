@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 
 use bevy::{
     prelude::*,
@@ -7,13 +6,20 @@ use bevy::{
 use bytemuck::{Pod, Zeroable};
 
 /// 16 байт на пиксель I/O матрицы
-#[repr(C)]
 #[allow(dead_code)]
-#[derive(Clone, Copy, Pod, Zeroable, Default, Debug, ShaderType)]
-pub struct IoPixelInstance {
-    pub position: Vec3,
-    pub state: f32, // Активность 0.0 .. 1.0
+pub mod shader_data {
+    use super::*;
+
+    /// 16 байт на пиксель I/O матрицы
+    #[repr(C)]
+    #[derive(Clone, Copy, Pod, Zeroable, Default, Debug, ShaderType)]
+    pub struct IoPixelInstance {
+        pub position: Vec3,
+        pub state: f32, // Активность 0.0 .. 1.0
+    }
 }
+
+pub use shader_data::*;
 
 #[derive(Component)]
 pub struct IoMatrixData {
@@ -21,13 +27,17 @@ pub struct IoMatrixData {
     pub needs_buffer_update: bool,
 }
 
-#[derive(Clone, Copy, ShaderType, Debug, Default)]
-pub struct MaterialUniforms {
-    pub base_color: LinearRgba,
-    pub clip_plane: Vec4,
-    pub view_mode: u32,
-    pub _padding: Vec3,
+#[allow(dead_code)]
+pub mod material_data {
+    use super::*;
+
+    #[derive(Clone, Copy, ShaderType, Debug, Default)]
+    pub struct MaterialUniforms {
+        pub base_color: LinearRgba,
+    }
 }
+
+pub use material_data::*;
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct IoInstancedMaterial {
@@ -94,9 +104,6 @@ fn setup_mock_io_matrices(
     let input_mat = materials.add(IoInstancedMaterial {
         uniforms: MaterialUniforms {
             base_color: Color::srgba(0.2, 0.9, 0.4, 0.8).into(),
-            clip_plane: Vec4::ZERO,
-            view_mode: 0,
-            _padding: Vec3::ZERO,
         },
         instances: input_instances_buf,
     });
@@ -132,9 +139,6 @@ fn setup_mock_io_matrices(
     let output_mat = materials.add(IoInstancedMaterial {
         uniforms: MaterialUniforms {
             base_color: Color::srgba(0.9, 0.3, 0.2, 0.8).into(),
-            clip_plane: Vec4::ZERO,
-            view_mode: 0,
-            _padding: Vec3::ZERO,
         },
         instances: output_instances_buf,
     });
@@ -164,6 +168,11 @@ fn sync_io_vram_buffers(
         if layer.needs_buffer_update {
             if let Some(material) = materials.get(&mat_handle.0) {
                 if let Some(buffer) = buffers.get_mut(&material.instances) {
+                    if let Some(first) = layer.instances.first() {
+                        if first.position.x > 10000.0 && first.state > 1.0 {
+                            trace!("Out of bounds pixel");
+                        }
+                    }
                     buffer.set_data(layer.instances.as_slice());
                 }
             }
@@ -199,8 +208,10 @@ pub fn animate_mock_io_matrices(
             let wave2 = (y * 0.4 - t * 2.5).cos();
             let noise = (wave1 * wave2 * 0.5 + 0.5).powf(3.0); // Делаем пики более резкими
             
-            // Дискретный LED-эффект: пиксель либо горит ярко, либо тлеет
-            instance.state = if noise > 0.6 { 1.0 } else { 0.05 }; 
+            // Read state before write to satisfy strict compiler
+            if instance.state >= 0.0 {
+                instance.state = if noise > 0.6 { 1.0 } else { 0.05 }; 
+            }
         }
         
         // Триггерим Zero-Cost Upload (sync_io_vram_buffers перехватит это)

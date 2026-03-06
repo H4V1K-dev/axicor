@@ -1,5 +1,5 @@
 use rand::seq::SliceRandom;
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng; // Быстрый и детерминированный алгоритм
 use genesis_core::types::PackedPosition;
 use genesis_core::config::anatomy::AnatomyConfig;

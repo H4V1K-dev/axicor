@@ -358,11 +358,10 @@ pub fn grow_single_axon(
     shard_bounds: &ShardBounds,
     master_seed: u64,
 ) -> (GrownAxon, Option<GhostPacket>) {
-    use crate::bake::cone_tracing::{calculate_v_attract, ConeParams};
+    use crate::bake::cone_tracing::ConeParams;
 
     // Чтение параметров роста за O(1) из плоского массива:
     let type_params = &types[type_idx as usize];
-    let _max_length = type_params.signal_propagation_length;
 
     // 1. Найдём слой сомы (Index_home)
     let home_layer = layer_ranges.iter().find(|l| soma_z >= l.z_start_vox && soma_z < l.z_end_vox);
@@ -404,10 +403,10 @@ pub fn grow_single_axon(
     // Global segment length from config (fixed for all types)
     let segment_length_vox = sim.simulation.segment_length_voxels as f32;
     let cone_seed = entity_seed(master_seed, soma_idx as u32);
-    let owner_type_mask = type_idx; // 4-bit mask
+    let _owner_type_mask = type_idx; // 4-bit mask
     
     let fov_cos = (type_params.steering_fov_deg / 2.0).to_radians().cos();
-    let max_search_radius_vox = type_params.steering_radius_um / sim.simulation.voxel_size_um as f32;
+    let _max_search_radius_vox = type_params.steering_radius_um / sim.simulation.voxel_size_um as f32;
     let weights = SteeringWeights {
         global: type_params.steering_weight_inertia,
         attract: type_params.steering_weight_sensor,
@@ -421,7 +420,7 @@ pub fn grow_single_axon(
 
     let current_pos = Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32);
     let voxel_size_um = sim.simulation.voxel_size_um as f32;
-    let segment_length_um = segment_length_vox * voxel_size_um;
+    let _segment_length_um = segment_length_vox * voxel_size_um;
     let current_pos_um = current_pos * voxel_size_um;
     let is_growing_up = tip_z >= soma_z;
 
@@ -529,16 +528,12 @@ pub fn init_axon_head(length_segments: u32, v_seg: u32) -> u32 {
 pub fn inject_ghost_axons(
     ghost_packets: &[GhostPacket],
     positions: &[PackedPosition],
-    const_mem: &GenesisConstantMemory,
+    _const_mem: &GenesisConstantMemory,
     sim: &SimulationConfig,
     shard_bounds: &ShardBounds,
     master_seed: u64,
 ) -> (Vec<GrownAxon>, Vec<GhostPacket>) {
     let voxel_um = sim.simulation.voxel_size_um;
-    let world_w_vox = (sim.world.width_um as f32 / voxel_um) as u32;
-    let world_d_vox = (sim.world.depth_um as f32 / voxel_um) as u32;
-    let world_h_vox = (sim.world.height_um as f32 / voxel_um) as u32;
-    let _segment_length_vox = sim.simulation.segment_length_voxels as f32;
 
     let max_search_radius_vox = sim.simulation.segment_length_voxels as f32 * 3.0;
     let spatial_grid = SpatialGrid::new(positions.to_vec(), f32::max(1.0, max_search_radius_vox.ceil()) as u32);
@@ -546,11 +541,9 @@ pub fn inject_ghost_axons(
     let mut outgoing: Vec<GhostPacket> = Vec::new();
 
     for packet in ghost_packets {
-        let _variant = &const_mem.variants[packet.type_idx.min(15)];
         // TODO: Steering params — вынести в VariantParameters или CPU-конфиг
         let fov_cos = (45.0_f32 / 2.0).to_radians().cos();
         let max_search_radius_vox = sim.simulation.segment_length_voxels as f32 * 4.0;
-        let _owner_type_mask = packet.type_idx as u8;
 
         let current_pos = Vec3::new(
             packet.entry_x as f32,
@@ -564,7 +557,7 @@ pub fn inject_ghost_axons(
             .wrapping_add(packet.soma_idx as u64)
             .wrapping_add(packet.origin_shard_id as u64);
             
-        let mut rng = ChaCha8Rng::seed_from_u64(ghost_seed);
+        let rng = ChaCha8Rng::seed_from_u64(ghost_seed);
 
         use crate::bake::cone_tracing::ConeParams;
         let params = ConeParams {
@@ -590,7 +583,7 @@ pub fn inject_ghost_axons(
             origin_shard_id: packet.origin_shard_id,
         };
 
-        let (mut segments, maybe_outgoing) = execute_growth_loop(
+        let (segments, maybe_outgoing) = execute_growth_loop(
             &mut ctx,
             &params,
             &weights,
@@ -759,11 +752,6 @@ pub fn inject_handover_events(
             ev.vector_y as f32 / 127.0,
             ev.vector_z as f32 / 127.0,
         );
-        let _entry_dir = if raw_dir.length_squared() > 0.001 {
-            raw_dir.normalize()
-        } else {
-            glam::Vec3::Z
-        };
 
         let type_idx = (ev.type_mask as usize).min(types.len().saturating_sub(1));
 

@@ -4,7 +4,7 @@ use std::ptr;
 use crossbeam::channel::Receiver;
 use genesis_compute::ShardEngine;
 use genesis_core::config::InstanceConfig;
-use genesis_core::ipc::{AxonHandoverEvent, shm_name, shm_size, ShmHeader, ShmState};
+use genesis_core::ipc::{AxonHandoverEvent, shm_name, shm_size, ShmHeader};
 use memmap2::MmapMut;
 use std::fs::OpenOptions;
 use crate::network::bsp::BspBarrier;
@@ -41,7 +41,8 @@ pub struct ThreadWorkspace {
     pub weights_offset: usize,
     pub targets_offset: usize,
     pub handovers_offset: usize,
-    pub checkpoint_buffer: Vec<u8>,
+    pub checkpoint_state_buffer: Vec<u8>,
+    pub checkpoint_axons_buffer: Vec<u8>, // [DOD FIX] Буфер для Active Tails
 }
 
 impl ThreadWorkspace {
@@ -73,7 +74,8 @@ impl ThreadWorkspace {
             targets_offset: header.targets_offset as usize,
             handovers_offset: header.handovers_offset as usize,
             shm_buffer: mmap,
-            checkpoint_buffer: vec![0u8; 0], // Will be resized in spawn
+            checkpoint_state_buffer: vec![0u8; 0], // Will be resized in spawn
+            checkpoint_axons_buffer: vec![0u8; 0], // Will be resized in spawn
         }
     }
 
@@ -113,7 +115,7 @@ fn execute_day_phase(
     v_seg: u32,
     batch_counter: u64,
 ) {
-    let sync_batch_ticks = 100u32;
+    let _sync_batch_ticks = 100u32;
     let input_words_per_tick = (num_virtual_axons + 31) / 32;
 
     unsafe {
@@ -189,21 +191,39 @@ fn download_outputs(
 
 // ФАЗА 3: Периодический сброс на диск (I/O)
 #[inline(always)]
-fn save_hot_checkpoint(shard: &ShardEngine, hash: u32, baked_dir: &std::path::Path, buffer: &mut [u8]) {
+fn save_hot_checkpoint(
+    shard: &ShardEngine, 
+    _hash: u32, 
+    baked_dir: &std::path::Path, 
+    state_buf: &mut [u8], 
+    axons_buf: &mut [u8]
+) {
     unsafe {
+        // 1. Асинхронный захват обоих массивов
         genesis_compute::ffi::gpu_memcpy_device_to_host(
-            buffer.as_mut_ptr() as *mut _,
+            state_buf.as_mut_ptr() as *mut _,
             shard.vram.ptrs.soma_voltage as *const _,
-            buffer.len(),
+            state_buf.len(),
         );
+        genesis_compute::ffi::gpu_memcpy_device_to_host(
+            axons_buf.as_mut_ptr() as *mut _,
+            shard.vram.ptrs.axon_heads as *const _,
+            axons_buf.len(),
+        );
+        // Ждем завершения DMA перед записью на диск
+        genesis_compute::ffi::gpu_device_synchronize(); 
     }
 
-    let chk_path = baked_dir.join("checkpoint.state");
-    let tmp_path = baked_dir.join("checkpoint.state.tmp");
+    let chk_state = baked_dir.join("checkpoint.state");
+    let tmp_state = baked_dir.join("checkpoint.state.tmp");
+    let chk_axons = baked_dir.join("checkpoint.axons");
+    let tmp_axons = baked_dir.join("checkpoint.axons.tmp");
 
-    if std::fs::write(&tmp_path, &buffer).is_ok() {
-        let _ = std::fs::rename(&tmp_path, &chk_path);
-        // println!("💾 [Shard {:08X}] State checkpoint saved: {} MB", hash, buffer.len() / 1024 / 1024);
+    // 2. Атомарная запись на диск
+    if std::fs::write(&tmp_state, state_buf).is_ok() && std::fs::write(&tmp_axons, axons_buf).is_ok() {
+        let _ = std::fs::rename(&tmp_state, &chk_state);
+        let _ = std::fs::rename(&tmp_axons, &chk_axons);
+        // println!("💾 [Shard {:08X}] State & Axons checkpoint saved", hash);
     }
 }
 
@@ -436,7 +456,9 @@ pub fn spawn_shard_thread(
 
             // [DOD] ЕДИНСТВЕННАЯ аллокация на весь жизненный цикл потока
             let mut workspace = ThreadWorkspace::new(hash, padded_n);
-            workspace.checkpoint_buffer = vec![0u8; state_size];
+            let axons_size = desc.engine.vram.total_axons as usize * std::mem::size_of::<u32>();
+            workspace.checkpoint_state_buffer = vec![0u8; state_size];
+            workspace.checkpoint_axons_buffer = vec![0u8; axons_size];
 
             let mut batch_counter: u64 = 0;
 
@@ -455,7 +477,13 @@ pub fn spawn_shard_thread(
 
                         // ФАЗА 3: Периодический сброс на диск (I/O)
                         if batch_counter > 0 && batch_counter % 500 == 0 {
-                            save_hot_checkpoint(&desc.engine, hash, &desc.baked_dir, &mut workspace.checkpoint_buffer);
+                            save_hot_checkpoint(
+                                &desc.engine, 
+                                hash, 
+                                &desc.baked_dir, 
+                                &mut workspace.checkpoint_state_buffer,
+                                &mut workspace.checkpoint_axons_buffer
+                            );
                         }
 
                         // ФАЗА 4: Обслуживание графа (Night Phase)

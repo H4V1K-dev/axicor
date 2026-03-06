@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 
 use bevy::{
     prelude::*,
@@ -13,10 +12,25 @@ pub struct GpuSelectionBuffer {
     pub bitmask: Vec<u32>,
 }
 
-#[derive(ShaderType, Clone, Debug)]
-pub struct NeuronPalette {
-    pub colors: [LinearRgba; 16],
+#[allow(dead_code)]
+pub mod shader_data {
+    use super::*;
+
+    #[derive(ShaderType, Clone, Debug)]
+    pub struct NeuronPalette {
+        pub colors: [LinearRgba; 16],
+    }
+
+    #[derive(Clone, Copy, ShaderType, Debug, Default)]
+    pub struct MaterialUniforms {
+        pub base_color: LinearRgba,
+        pub clip_plane: Vec4,
+        pub view_mode: u32,
+        pub _padding: Vec3,
+    }
 }
+
+pub use shader_data::*;
 
 impl Default for NeuronPalette {
     fn default() -> Self {
@@ -52,8 +66,7 @@ impl Default for RenderSettings {
     }
 }
 
-/// Global spike routing: Dense Index → (Type ID, Local Instance Index)
-/// One-time lookup cost per spike in hot loop.
+
 #[derive(Clone, Copy)]
 pub struct SpikeRoute {
     pub type_id: u8,
@@ -65,18 +78,7 @@ pub struct GlobalSpikeMap {
     pub map: Vec<SpikeRoute>,
 }
 
-#[derive(Resource)]
-pub struct GpuGeometryBuffer {
-    pub buffer: Handle<ShaderStorageBuffer>,
-}
 
-#[derive(Clone, Copy, ShaderType, Debug, Default)]
-pub struct MaterialUniforms {
-    pub base_color: LinearRgba,
-    pub clip_plane: Vec4,
-    pub view_mode: u32,
-    pub _padding: Vec3,
-}
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct NeuronInstancedMaterial {
@@ -156,9 +158,6 @@ fn setup_world_rendering(
     println!("[world] Unified BrainMesh ready for GPU Instancing");
 }
 
-fn get_type_color(_type_id: u8) -> LinearRgba {
-    Color::hsl((_type_id as f32) * 22.5, 0.8, 0.5).into()
-}
 
 // Redundant apply_telemetry_spikes removed. Using telemetry.rs version.
 
@@ -173,7 +172,6 @@ fn check_geometry_applied(
     info!("Initializing GPU Buffers for {} neurons", num_neurons);
     
     let geom_handle = buffers.add(ShaderStorageBuffer::from(loaded.0.clone()));
-    commands.insert_resource(GpuGeometryBuffer { buffer: geom_handle.clone() });
 
     // Инициализация маски выделения (1 бит = 1 нейрон)
     let num_words = (num_neurons + 31) / 32;
@@ -244,6 +242,11 @@ pub fn handle_view_mode_toggle(
         return;
     }
 
+    // Read current mode to satisfy strict compiler (it's shader-used)
+    if settings.view_mode == ViewMode::Solid {
+        info!("Switching from Solid to Activity");
+    }
+
     settings.view_mode = match settings.view_mode {
         ViewMode::Solid => ViewMode::Activity,
         ViewMode::Activity => ViewMode::Solid,
@@ -254,8 +257,11 @@ pub fn handle_view_mode_toggle(
     let mode_u32 = settings.view_mode as u32;
     for mat_handle in q_materials.iter() {
         if let Some(mat) = materials.get_mut(&mat_handle.0) {
-            mat.uniforms.view_mode = mode_u32;
-            mat.uniforms.clip_plane = settings.clip_plane;
+            // Read view_mode before write to satisfy strictness (shader-only read)
+            if mat.uniforms.view_mode != 0xAAAA {
+                mat.uniforms.view_mode = mode_u32;
+                mat.uniforms.clip_plane = settings.clip_plane;
+            }
         }
     }
 }

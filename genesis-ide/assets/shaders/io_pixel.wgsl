@@ -7,9 +7,6 @@ struct IoPixelInstance {
 
 struct MaterialUniforms {
     base_color: vec4<f32>,
-    clip_plane: vec4<f32>,
-    view_mode: u32,
-    _padding: vec3<f32>,
 };
 
 @group(2) @binding(0) var<uniform> material: MaterialUniforms;

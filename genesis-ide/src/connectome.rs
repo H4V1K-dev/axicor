@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 
 use bevy::{
     prelude::*,
@@ -6,13 +5,19 @@ use bevy::{
 };
 use bytemuck::{Pod, Zeroable};
 
-#[repr(C)]
 #[allow(dead_code)]
-#[derive(Clone, Copy, Pod, Zeroable, Default, Debug, ShaderType)]
-pub struct AxonInstance {
-    pub packed_start: u32,
-    pub packed_end: u32,
+pub mod shader_data {
+    use super::*;
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Pod, Zeroable, Default, Debug, ShaderType)]
+    pub struct AxonInstance {
+        pub packed_start: u32,
+        pub packed_end: u32,
+    }
 }
+
+pub use shader_data::*;
 
 #[derive(Component)]
 pub struct AxonLayerData {
@@ -26,13 +31,18 @@ pub struct GhostAxonLayerData {
     pub needs_buffer_update: bool,
 }
 
-#[derive(Clone, Copy, ShaderType, Debug, Default)]
-pub struct MaterialUniforms {
-    pub base_color: LinearRgba,
-    pub clip_plane: Vec4,
-    pub view_mode: u32,
-    pub _padding: Vec3,
+#[allow(dead_code)]
+pub mod material_data {
+    use super::*;
+
+    #[derive(Clone, Copy, ShaderType, Debug, Default)]
+    pub struct MaterialUniforms {
+        pub base_color: LinearRgba,
+        pub clip_plane: Vec4,
+    }
 }
+
+pub use material_data::*;
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 pub struct AxonInstancedMaterial {
@@ -103,8 +113,6 @@ fn setup_axon_rendering(
         uniforms: MaterialUniforms {
             base_color: Color::srgba(0.2, 0.4, 0.8, 0.3).into(),
             clip_plane: settings.clip_plane,
-            view_mode: 0,
-            _padding: Vec3::ZERO,
         },
         instances: axon_instances,
     });
@@ -114,8 +122,6 @@ fn setup_axon_rendering(
         uniforms: MaterialUniforms {
             base_color: Color::srgba(0.9, 0.2, 0.8, 0.6).into(),
             clip_plane: settings.clip_plane,
-            view_mode: 0,
-            _padding: Vec3::ZERO,
         },
         instances: ghost_instances,
     });

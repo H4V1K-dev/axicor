@@ -1,3 +1,6 @@
+#![deny(warnings)]
+#![deny(unused_variables)]
+#![deny(dead_code)]
 pub mod hash;
 pub mod config;
 pub mod constants;

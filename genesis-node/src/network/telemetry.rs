@@ -6,9 +6,7 @@ use axum::{
     routing::get,
     Router,
 };
-use genesis_core::ipc::TelemetryFrameHeader;
 use genesis_compute::memory::PinnedBuffer;
-use futures_util::StreamExt;
 
 /// Lock-Free Swapchain for Telemetry.
 /// Allows the Day Phase Orchestrator to dump spikes into a back-buffer

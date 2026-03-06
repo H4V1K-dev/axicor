@@ -1,3 +1,6 @@
+#![deny(warnings)]
+#![deny(unused_variables)]
+#![deny(dead_code)]
 pub mod boot;
 pub mod network;
 pub mod node;
