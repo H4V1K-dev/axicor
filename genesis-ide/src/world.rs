@@ -6,6 +6,10 @@ use bevy::{
 use crate::loader::LoadedGeometry;
 use crate::hud::SelectionState;
 
+/// Marker: GPU buffers initialized for current geometry. Prevents re-running every frame.
+#[derive(Resource)]
+struct GeometryGpuApplied;
+
 #[derive(Resource)]
 pub struct GpuSelectionBuffer {
     pub handle: Handle<ShaderStorageBuffer>,
@@ -121,7 +125,9 @@ impl Plugin for WorldViewPlugin {
                     sync_selection_to_gpu,
                     handle_view_mode_toggle,
                     handle_clipping_plane,
-                    check_geometry_applied.run_if(resource_exists::<LoadedGeometry>),
+                    check_geometry_applied.run_if(
+                        resource_exists::<LoadedGeometry>.and(not(resource_exists::<GeometryGpuApplied>)),
+                    ),
                 )
                     .chain(),
             );
@@ -202,6 +208,7 @@ fn check_geometry_applied(
     }
 
     info!("GPU Geometry & Selection Buffers initialized.");
+    commands.insert_resource(GeometryGpuApplied);
     // We keep LoadedGeometry for CPU side lookups (inspector/picking)
 }
 

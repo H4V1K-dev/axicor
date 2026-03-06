@@ -101,6 +101,9 @@ pub fn drain_telemetry_socket(
     mut ev_writer: EventWriter<SpikeFrameEvent>,
 ) {
     while let Ok((tick, spike_ids)) = receiver.0.try_recv() {
+        if !spike_ids.is_empty() {
+            bevy::log::info!("Telemetry tick: {}, Spikes: {}", tick, spike_ids.len());
+        }
         ev_writer.send(SpikeFrameEvent { tick, spike_ids });
     }
 }
