@@ -17,22 +17,22 @@ struct SoA_State {
   uint32_t padded_n;
   uint32_t total_axons;
 
-  int32_t *voltage;
-  uint8_t *flags;
-  int32_t *threshold_offset;
-  uint8_t *refractory_timer;
-  uint32_t *soma_to_axon;
+  int32_t* __restrict__ voltage;
+  uint8_t* __restrict__ flags;
+  int32_t* __restrict__ threshold_offset;
+  uint8_t* __restrict__ refractory_timer;
+  uint32_t* __restrict__ soma_to_axon;
 
-  uint32_t *dendrite_targets;
-  int16_t *dendrite_weights;
-  uint8_t *dendrite_timers;
+  uint32_t* __restrict__ dendrite_targets;
+  int16_t* __restrict__ dendrite_weights;
+  uint8_t* __restrict__ dendrite_timers;
 
-  BurstHeads8 *axon_heads;
+  BurstHeads8* __restrict__ axon_heads;
 
-  uint32_t *input_bitmask;
-  uint8_t *output_history;
-  uint32_t *telemetry_count;
-  uint32_t *telemetry_spikes;
+  uint32_t* __restrict__ input_bitmask;
+  uint8_t* __restrict__ output_history;
+  uint32_t* __restrict__ telemetry_count;
+  uint32_t* __restrict__ telemetry_spikes;
 };
 
 // Строго 128 байт. 16 типов = 2048 байт (влезает в constant memory)
@@ -66,12 +66,23 @@ __constant__ int16_t current_dopamine;
 #define MAX_DENDRITE_SLOTS 128
 #define AXON_SENTINEL 0x80000000
 
+__device__ __forceinline__ void push_burst_head(BurstHeads8* h) {
+  h->h7 = h->h6;
+  h->h6 = h->h5;
+  h->h5 = h->h4;
+  h->h4 = h->h3;
+  h->h3 = h->h2;
+  h->h2 = h->h1;
+  h->h1 = h->h0;
+  h->h0 = 0;
+}
+
 // =====================================================================
 // Ядро 1: Инъекция внешних сигналов (InjectInputs)
 // Спецификация: 08_io_matrix.md §2.6
 // =====================================================================
 __global__ void
-inject_inputs_kernel(const SoA_State state, const uint32_t *bitmask,
+inject_inputs_kernel(const SoA_State state, const uint32_t* __restrict__ bitmask,
                      uint32_t virtual_offset, uint32_t current_tick,
                      uint8_t input_stride, uint32_t total_virtual_axons) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -97,8 +108,7 @@ inject_inputs_kernel(const SoA_State state, const uint32_t *bitmask,
   // Рождение сигнала = Burst Shift
   if ((mask_word >> bit_idx) & 1) {
     BurstHeads8 b = state.axon_heads[virtual_offset + tid];
-    b.h7 = b.h6; b.h6 = b.h5; b.h5 = b.h4; b.h4 = b.h3;
-    b.h3 = b.h2; b.h2 = b.h1; b.h1 = b.h0; b.h0 = 0;
+    push_burst_head(&b);
     state.axon_heads[virtual_offset + tid] = b;
   }
 }
@@ -108,8 +118,8 @@ inject_inputs_kernel(const SoA_State state, const uint32_t *bitmask,
 // Спецификация: 06_distributed.md §2.4 (Sender-Side Mapping)
 // =====================================================================
 __global__ void apply_spike_batch_kernel(SoA_State state,
-                                         const uint32_t *schedule_buffer,
-                                         const uint32_t *counts,
+                                         const uint32_t* __restrict__ schedule_buffer,
+                                         const uint32_t* __restrict__ counts,
                                          uint32_t current_tick,
                                          uint32_t max_spikes_per_tick) {
   uint32_t num_spikes = counts[current_tick];
@@ -127,8 +137,7 @@ __global__ void apply_spike_batch_kernel(SoA_State state,
   // [DOD FIX] Жесткая защита VRAM от битых сетевых индексов
   if (target_axon < state.total_axons) {
     BurstHeads8 b = state.axon_heads[target_axon];
-    b.h7 = b.h6; b.h6 = b.h5; b.h5 = b.h4; b.h4 = b.h3;
-    b.h3 = b.h2; b.h2 = b.h1; b.h1 = b.h0; b.h0 = 0;
+    push_burst_head(&b);
     state.axon_heads[target_axon] = b;
   }
 }
@@ -159,7 +168,7 @@ __global__ void propagate_axons_kernel(const SoA_State state, uint32_t v_seg) {
 // Спецификация: 08_io_matrix.md §3.2
 // =====================================================================
 __global__ void record_readout_kernel(const SoA_State state,
-                                      const uint32_t *mapped_soma_ids,
+                                      const uint32_t* __restrict__ mapped_soma_ids,
                                       uint32_t num_channels,
                                       uint32_t current_tick) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -304,10 +313,10 @@ void launch_record_readout(SoA_State vram, const uint32_t *mapped_soma_ids,
 // =====================================================================
 // Ядро 7: Синхронизация Ghost Axons
 // =====================================================================
-__global__ void ghost_sync_kernel(const BurstHeads8 *src_axon_heads,
-                                  BurstHeads8 *dst_axon_heads,
-                                  const uint32_t *src_indices,
-                                  const uint32_t *dst_indices, uint32_t count) {
+__global__ void ghost_sync_kernel(const BurstHeads8* __restrict__ src_axon_heads,
+                                  BurstHeads8* __restrict__ dst_axon_heads,
+                                  const uint32_t* __restrict__ src_indices,
+                                  const uint32_t* __restrict__ dst_indices, uint32_t count) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= count)
     return;
@@ -346,12 +355,12 @@ struct SpikeEvent {
 
 // Ядро компактизирует спайки из гигабайтного графа в плоский Pinned RAM буфер
 __global__ void extract_outgoing_spikes_kernel(
-    const BurstHeads8 *axon_heads,
-    const uint32_t *src_indices,   
-    const uint32_t *dst_ghost_ids, 
+    const BurstHeads8* __restrict__ axon_heads,
+    const uint32_t* __restrict__ src_indices,   
+    const uint32_t* __restrict__ dst_ghost_ids, 
     uint32_t count, uint32_t sync_batch_ticks, uint32_t v_seg,
-    SpikeEvent *out_events, 
-    uint32_t *out_count     
+    SpikeEvent* __restrict__ out_events, 
+    uint32_t* __restrict__ out_count     
 ) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= count) return;
@@ -506,15 +515,15 @@ extern "C" {
 
 // Зеркало Rust #[repr(C)] struct ShardVramPtrs
 struct ShardVramPtrs {
-  int32_t *soma_voltage; // base ptr всего state-блоба
-  uint8_t *soma_flags;
-  int32_t *threshold_offset;
-  uint8_t *timers;
-  uint32_t *soma_to_axon;
-  uint32_t *dendrite_targets;
-  int16_t *dendrite_weights;
-  uint8_t *dendrite_timers;
-  BurstHeads8 *axon_heads; // отдельный буфер
+  int32_t* __restrict__ soma_voltage; // base ptr всего state-блоба
+  uint8_t* __restrict__ soma_flags;
+  int32_t* __restrict__ threshold_offset;
+  uint8_t* __restrict__ timers;
+  uint32_t* __restrict__ soma_to_axon;
+  uint32_t* __restrict__ dendrite_targets;
+  int16_t* __restrict__ dendrite_weights;
+  uint8_t* __restrict__ dendrite_timers;
+  BurstHeads8* __restrict__ axon_heads; // отдельный буфер
 };
 
 #define MAX_DENDRITES_SV 128

@@ -9,17 +9,29 @@ struct alignas(32) BurstHeads8 {
 };
 
 struct ShardVramPtrs {
-  int32_t *soma_voltage;
-  uint8_t *soma_flags;
-  int32_t *threshold_offset;
-  uint8_t *timers;
-  uint32_t *soma_to_axon;
-  uint32_t *dendrite_targets;
-  int16_t *dendrite_weights;
-  BurstHeads8 *axon_heads;
+  int32_t* __restrict__ soma_voltage;
+  uint8_t* __restrict__ soma_flags;
+  int32_t* __restrict__ threshold_offset;
+  uint8_t* __restrict__ timers;
+  uint32_t* __restrict__ soma_to_axon;
+  uint32_t* __restrict__ dendrite_targets;
+  int16_t* __restrict__ dendrite_weights;
+  BurstHeads8* __restrict__ axon_heads;
 };
 
 #define AXON_SENTINEL 0x80000000
+
+__device__ __forceinline__ void push_burst_head(BurstHeads8* h) {
+  h->h7 = h->h6;
+  h->h6 = h->h5;
+  h->h5 = h->h4;
+  h->h4 = h->h3;
+  h->h3 = h->h2;
+  h->h2 = h->h1;
+  h->h1 = h->h0;
+  h->h0 = 0;
+}
+
 #define MAX_DENDRITES 128
 
 // Строго 64 байта. 16 типов = 1024 байта (идеально ложится в кеш L1 constant)
@@ -51,8 +63,8 @@ extern __constant__ int16_t current_dopamine;
 // 1. Inject Inputs Kernel (Virtual Axons)
 // Извлекает биты из плотной маски и сбрасывает головы виртуальным аксонам
 // ============================================================================
-__global__ void cu_inject_inputs_kernel(BurstHeads8 *axon_heads,
-                                        const uint32_t *input_bitmask,
+__global__ void cu_inject_inputs_kernel(BurstHeads8* __restrict__ axon_heads,
+                                        const uint32_t* __restrict__ input_bitmask,
                                         uint32_t virtual_offset,
                                         uint32_t num_virtual_axons) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -68,8 +80,7 @@ __global__ void cu_inject_inputs_kernel(BurstHeads8 *axon_heads,
   // Ветвление минимизировано: пишем только если есть пульс
   if (is_active) {
     BurstHeads8 h = axon_heads[virtual_offset + tid];
-    h.h7 = h.h6; h.h6 = h.h5; h.h5 = h.h4; h.h4 = h.h3;
-    h.h3 = h.h2; h.h2 = h.h1; h.h1 = h.h0; h.h0 = 0;
+    push_burst_head(&h);
     axon_heads[virtual_offset + tid] = h;
   }
 }
@@ -78,8 +89,8 @@ __global__ void cu_inject_inputs_kernel(BurstHeads8 *axon_heads,
 // 2. Apply Spike Batch Kernel (Network / Ghost Axons)
 // O(1) инъекция сетевых спайков через Sender-Side Mapping
 // ============================================================================
-__global__ void cu_apply_spike_batch_kernel(BurstHeads8 *axon_heads,
-                                            const uint32_t *incoming_spikes,
+__global__ void cu_apply_spike_batch_kernel(BurstHeads8* __restrict__ axon_heads,
+                                            const uint32_t* __restrict__ incoming_spikes,
                                             uint32_t num_incoming_spikes,
                                             uint32_t total_axons) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -93,8 +104,7 @@ __global__ void cu_apply_spike_batch_kernel(BurstHeads8 *axon_heads,
   // [DOD FIX] Жесткая защита VRAM от битых сетевых индексов
   if (ghost_id < total_axons) {
     BurstHeads8 h = axon_heads[ghost_id];
-    h.h7 = h.h6; h.h6 = h.h5; h.h5 = h.h4; h.h4 = h.h3;
-    h.h3 = h.h2; h.h2 = h.h1; h.h1 = h.h0; h.h0 = 0;
+    push_burst_head(&h);
     axon_heads[ghost_id] = h;
   }
 }
@@ -102,7 +112,7 @@ __global__ void cu_apply_spike_batch_kernel(BurstHeads8 *axon_heads,
 // ============================================================================
 // 3. Propagate Axons Kernel
 // ============================================================================
-__global__ void cu_propagate_axons_kernel(BurstHeads8 *axon_heads,
+__global__ void cu_propagate_axons_kernel(BurstHeads8* __restrict__ axon_heads,
                                           uint32_t total_axons,
                                           uint32_t v_seg) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -201,8 +211,7 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
     uint32_t my_axon = vram.soma_to_axon[tid];
     if (my_axon != 0xFFFFFFFF) {
       BurstHeads8 h = vram.axon_heads[my_axon];
-      h.h7 = h.h6; h.h6 = h.h5; h.h5 = h.h4; h.h4 = h.h3;
-      h.h3 = h.h2; h.h2 = h.h1; h.h1 = h.h0; h.h0 = 0;
+      push_burst_head(&h);
       vram.axon_heads[my_axon] = h;
     }
   }
@@ -244,14 +253,12 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n) {
     // Ищем самую свежую (минимальную) дистанцию среди всех голов
     uint32_t min_dist = 0xFFFFFFFF;
     uint32_t d;
-    d = b.h0 - seg_idx; if (d < len) min_dist = min(min_dist, d);
-    d = b.h1 - seg_idx; if (d < len) min_dist = min(min_dist, d);
-    d = b.h2 - seg_idx; if (d < len) min_dist = min(min_dist, d);
-    d = b.h3 - seg_idx; if (d < len) min_dist = min(min_dist, d);
-    d = b.h4 - seg_idx; if (d < len) min_dist = min(min_dist, d);
-    d = b.h5 - seg_idx; if (d < len) min_dist = min(min_dist, d);
-    d = b.h6 - seg_idx; if (d < len) min_dist = min(min_dist, d);
-    d = b.h7 - seg_idx; if (d < len) min_dist = min(min_dist, d);
+    #pragma unroll
+    for (int k = 0; k < 8; k++) {
+        uint32_t head = ((uint32_t*)&b)[k];
+        d = head - seg_idx;
+        min_dist = min(min_dist, (d < len) ? d : 0xFFFFFFFF);
+    }
 
     bool is_active = (min_dist != 0xFFFFFFFF);
 
@@ -298,9 +305,9 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n) {
 // ============================================================================
 // 6. Record Readout Kernel (Output Matrix)
 // ============================================================================
-__global__ void cu_record_readout_kernel(const uint8_t *soma_flags,
-                                         const uint32_t *mapped_soma_ids,
-                                         uint8_t *output_history,
+__global__ void cu_record_readout_kernel(const uint8_t* __restrict__ soma_flags,
+                                         const uint32_t* __restrict__ mapped_soma_ids,
+                                         uint8_t* __restrict__ output_history,
                                          uint32_t num_outputs) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= num_outputs)
