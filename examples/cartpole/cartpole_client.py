@@ -39,15 +39,15 @@ ZONE_OUT = fnv1a_32(b"MotorCortex")
 
 # ─── Population Coding ───────────────────────────────────────────
 def encode_population(value: float, min_val: float, max_val: float,
-                      n: int = NUM_NEURONS) -> int:
+                      n: int = NUM_NEURONS, sigma: int = 2) -> int:
     """
-    Float → N-bit bitmask via Gaussian Receptive Field (σ≈1 slot).
-    Zero-allocation: pure integer arithmetic, no heap.
+    Float → N-bit bitmask via Gaussian Receptive Field.
+    sigma=2 → center±2 (5 neurons active), smoother encoding.
     """
     norm = max(0.0, min(1.0, (value - min_val) / (max_val - min_val)))
     center = int(norm * (n - 1))
     mask = 0
-    for i in range(max(0, center - 1), min(n, center + 2)):
+    for i in range(max(0, center - sigma), min(n, center + sigma + 1)):
         mask |= (1 << i)
     return mask
 
@@ -107,11 +107,12 @@ def main() -> None:
         cart_x, cart_v, pole_a, pole_av = obs
 
         # ── 2. Dopamine signal (R-STDP steering) ─────────────────
-        # Upright pole → positive. Terminal → hard depression.
+        # Upright pole → positive. Terminal → softer depression (was -30000).
+        # Added velocity penalty to discourage fast swings.
         if terminated:
-            dopamine = -30000
+            dopamine = -20000
         else:
-            dopamine = int((0.05 - abs(pole_a)) * 20000)
+            dopamine = int((0.03 - abs(pole_a)) * 25000 - abs(pole_av) * 5000)
         dopamine = max(-32768, min(32767, dopamine))
 
         # ── 3. Encode & send ─────────────────────────────────────

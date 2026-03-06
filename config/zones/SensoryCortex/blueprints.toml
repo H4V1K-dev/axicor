@@ -1,6 +1,6 @@
 [[neuron_type]]
 name = "Excitatory"
-threshold = 11000
+threshold = 9500
 rest_potential = 10000
 leak_rate = 10
 refractory_period = 15
@@ -9,13 +9,13 @@ synapse_refractory_period = 10
 signal_propagation_length = 15
 homeostasis_penalty = 5000
 homeostasis_decay = 10
-slot_decay_ltm = 160
+slot_decay_ltm = 140
 slot_decay_wm = 96
-steering_radius_um = 100.0 # 100 микрон - радиус поиска дендритов
-gsop_potentiation = 80
-gsop_depression = 20
+steering_radius_um = 130.0
+gsop_potentiation = 110
+gsop_depression = 15
 prune_threshold = 15
 ltm_slot_count = 80
 is_inhibitory = false
-initial_synapse_weight = 2000
+initial_synapse_weight = 2800
 inertia_curve = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
