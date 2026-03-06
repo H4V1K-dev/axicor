@@ -163,6 +163,27 @@ impl InterNodeRouter {
                 if let Ok((size, _)) = sock.recv_from(&mut buf).await {
                     if size < 32 { continue; }
  
+                    // [NEW Phase 50] Dynamic Route Patching
+                    let raw_magic = u32::from_le_bytes(buf[0..4].try_into().unwrap());
+                    if raw_magic == genesis_core::ipc::ROUT_MAGIC {
+                         let update: genesis_core::ipc::RouteUpdate = *bytemuck::from_bytes(&buf[0..32]);
+                         let mut new_map = std::collections::HashMap::new();
+                         let ptr = routing_table.get_map_ptr();
+                         if !ptr.is_null() {
+                             unsafe { new_map = (*ptr).clone(); }
+                         }
+                         
+                         let new_addr = std::net::SocketAddr::from((
+                             std::net::Ipv4Addr::from(update.new_ipv4),
+                             update.new_port
+                         ));
+                         
+                         new_map.insert(update.zone_hash, new_addr);
+                         unsafe { routing_table.update_routes(new_map); }
+                         println!("🔄 [Network] Route Updated: 0x{:08X} -> {}", update.zone_hash, new_addr);
+                         continue;
+                    }
+ 
                     let header: SpikeBatchHeaderV3 = *bytemuck::from_bytes(&buf[0..32]);
                     let current_epoch = bsp_barrier.current_epoch.load(std::sync::atomic::Ordering::Acquire);
  

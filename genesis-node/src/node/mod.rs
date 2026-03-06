@@ -22,6 +22,7 @@ pub enum ComputeCommand {
         telemetry_ptrs: Option<(usize, usize)>,
     },
     Shutdown,
+    Resurrect { zone_hash: u32 },
 }
 
 pub enum ComputeFeedback {
@@ -322,8 +323,25 @@ impl NodeRuntime {
 
             // [DOD] 7. Wait for Ingress data (Strict BSP network sync)
             if let Err(e) = self.services.bsp_barrier.wait_for_data_sync() {
-                eprintln!("🔴 [Node] BSP Isolation Detected: {}", e);
-                break; 
+                match e {
+                    crate::network::bsp::BspError::NodeIsolated(dead_zone_hash) => {
+                        eprintln!("⚠️ [Orchestrator] Peer 0x{:08X} dead. Initiating resurrection...", dead_zone_hash);
+                        
+                        // Check if we have the shadow replica locally
+                        let shadow_path = std::path::PathBuf::from(format!("/dev/shm/0x{:08X}.shadow", dead_zone_hash));
+                        if shadow_path.exists() {
+                            // Find a dispatcher to handle the resurrection. 
+                            // For simplicity, we send it to the first available shard thread or a dedicated recovery pool.
+                            // In this architecture, we'll pick the first dispatcher.
+                            if let Some(tx) = self.compute_dispatchers.values().next() {
+                                let _ = tx.send(ComputeCommand::Resurrect { zone_hash: dead_zone_hash });
+                            }
+                        } else {
+                            eprintln!("🔴 [Orchestrator] No local shadow replica for 0x{:08X}. Node Isolated.", dead_zone_hash);
+                            break;
+                        }
+                    }
+                }
             }
 
             // [DOD] 8. Synchronize BSP and consume Ghost events

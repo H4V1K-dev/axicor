@@ -573,6 +573,48 @@ pub fn spawn_shard_thread(
             // 2. Плоский горячий цикл
             while let Ok(cmd) = rx.recv() {
                 match cmd {
+                    ComputeCommand::Resurrect { zone_hash } => {
+                        println!("⚡ [Shard {:08X}] Resurrecting from shadow replica...", zone_hash);
+                        
+                        let shadow_path = format!("/dev/shm/0x{:08X}.shadow", zone_hash);
+                        if let Ok(file) = std::fs::File::open(&shadow_path) {
+                            let mmap = unsafe { memmap2::Mmap::map(&file).expect("Mmap failed") };
+                            let _header = unsafe { &*(mmap.as_ptr() as *const genesis_core::ipc::ShardStateHeader) };
+                            
+                            // Load weights into GPU (weights start 32 bytes after ShardStateHeader)
+                            let current_padded_n = desc.engine.vram.padded_n as usize;
+                            let weights_ptr = unsafe { mmap.as_ptr().add(32) as *const i16 };
+                            
+                            unsafe {
+                                genesis_compute::ffi::gpu_memcpy_host_to_device(
+                                    desc.engine.vram.ptrs.dendrite_weights as *mut _,
+                                    weights_ptr as *const _,
+                                    current_padded_n * 128 * std::mem::size_of::<i16>(),
+                                );
+                            }
+
+                            // [NEW Phase 50] High-Precision Warmup
+                            // Выполняем 100 тиков "тихой" симуляции (без внешних выходов)
+                            for _ in 0..100 {
+                                execute_day_phase(
+                                    &mut desc.engine,
+                                    1, // tick by tick
+                                    0, // global_dopamine
+                                    &ctx.bsp_barrier,
+                                    &ctx.io_ctx,
+                                    &io_buffers,
+                                    desc.virtual_offset,
+                                    desc.num_virtual_axons,
+                                    mapped_soma_ids,
+                                    desc.v_seg,
+                                    batch_counter
+                                );
+                            }
+                            println!("✅ [Shard {:08X}] Warmup complete. Shard is LIVE.", zone_hash);
+                        } else {
+                            eprintln!("🔴 [Shard {:08X}] Shadow file NOT FOUND at {}", zone_hash, shadow_path);
+                        }
+                    }
                     ComputeCommand::RunBatch { tick_base: _, batch_size, global_dopamine, telemetry_ptrs } => {
                         // ФАЗА 1: Выполнение GPU батча (Day Phase)
                         execute_day_phase(

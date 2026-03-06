@@ -2,7 +2,6 @@ use crate::network::ring_buffer::SpikeSchedule;
 use std::sync::atomic::{AtomicBool, AtomicUsize, AtomicU32, Ordering};
 use std::time::{Instant, Duration};
 use dashmap::DashMap;
-use std::sync::Arc;
 use thiserror::Error;
  
 #[derive(Debug, Error)]

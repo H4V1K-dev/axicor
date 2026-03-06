@@ -484,6 +484,19 @@ impl ExternalIoHeader {
 // ===========================================================================
 
 pub const SNAP_MAGIC: u32 = 0x50414E53; // "SNAP"
+pub const ROUT_MAGIC: u32 = 0x54554F52; // "ROUT"
+ 
+#[repr(C, align(32))]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct RouteUpdate {
+    pub magic: u32,
+    pub zone_hash: u32,
+    pub new_ipv4: u32, // Network endian or host endian (orchestrator defines)
+    pub new_port: u16,
+    pub _padding1: u16,
+    pub _padding2: [u64; 2], // Pad to 32 bytes
+}
+const _: () = assert!(std::mem::size_of::<RouteUpdate>() == 32, "RouteUpdate must be 32 bytes");
 
 #[repr(C, align(32))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
@@ -497,17 +510,3 @@ pub struct ShardStateHeader {
 }
 
 const _: () = assert!(std::mem::size_of::<ShardStateHeader>() == 32);
-
-pub const ROUT_MAGIC: u32 = 0x54554F52; // "ROUT"
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
-pub struct RouteUpdate {
-    pub magic: u32,
-    pub zone_hash: u32,
-    pub new_ipv4: u32, // u32 representation of IPv4Addr
-    pub new_port: u16,
-    pub _padding: u16,
-}
-
-const _: () = assert!(std::mem::size_of::<RouteUpdate>() == 16);

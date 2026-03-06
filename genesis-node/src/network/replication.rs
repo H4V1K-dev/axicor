@@ -1,7 +1,6 @@
 use tokio::io::{AsyncWriteExt, AsyncReadExt, AsyncSeekExt};
 use std::path::{Path, PathBuf};
 use genesis_core::ipc::{ShardStateHeader, SNAP_MAGIC};
-use memmap2::Mmap;
 use std::fs::OpenOptions;
 use tokio::net::{TcpListener, TcpStream};
 use bytemuck;

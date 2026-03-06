@@ -3,7 +3,7 @@ use tokio::net::UdpSocket;
 use anyhow::{Result, bail, Context};
 use std::sync::Arc;
 
-use crate::network::{SpikeEvent, SpikeBatchHeader};
+use crate::network::{SpikeEvent, SpikeBatchHeaderV3};
 
 /// Async wrapper over a UDP socket providing Zero-Copy transmission
 /// of SpikeBatch structures.
@@ -38,9 +38,13 @@ impl NodeSocket {
         events: &[SpikeEvent],
         tx_buffer: &mut Vec<u8> // [DOD] Переиспользуемый буфер
     ) -> Result<()> {
-        let header = SpikeBatchHeader {
-            magic: 0x5350494B, // "SPIK"
-            batch_id,
+        let header = SpikeBatchHeaderV3 {
+            src_zone_hash: 0,
+            dst_zone_hash: 0,
+            epoch: batch_id,
+            is_last: 0,
+            tick: 0,
+            _padding: 0,
         };
 
         let header_bytes = bytemuck::bytes_of(&header);
@@ -68,19 +72,18 @@ impl NodeSocket {
         let (len, src_addr) = self.socket.recv_from(&mut buf).await?;
         let buf = &buf[..len];
 
-        let header_sz = std::mem::size_of::<SpikeBatchHeader>();
+        let header_sz = std::mem::size_of::<SpikeBatchHeaderV3>();
         if len < header_sz {
             bail!("Packet too small for header ({} bytes)", len);
         }
 
         let (header_bytes, body_bytes) = buf.split_at(header_sz);
-        let header: &SpikeBatchHeader = bytemuck::from_bytes(header_bytes);
+        let header: &SpikeBatchHeaderV3 = bytemuck::from_bytes(header_bytes);
         
-        if header.magic != 0x5350494B {
-            bail!("Invalid spike batch magic: {:x}", header.magic);
-        }
+        // magic removed in V3, using tick/epoch for validation if needed,
+        // but for legacy receiver we just check size.
         
-        let batch_id = header.batch_id;
+        let batch_id = header.epoch; // Use epoch for batch_id in V3
         let expected_body_sz = body_bytes.len() / std::mem::size_of::<SpikeEvent>() * std::mem::size_of::<SpikeEvent>();
         
         if body_bytes.len() < std::mem::size_of::<SpikeEvent>() && body_bytes.len() > 0 {

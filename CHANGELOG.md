@@ -8,6 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.237.29] - 2026-03-06 22:27:32
+
+**Distributed Self-Healing (Resurrection) - Heartbeat, Isolation Detection**
+
+### Added
+- Set `SpikeBatchHeaderV3` alignment to 32 bytes using `#[repr(C, align(32))]`
+- Add `tick: u64` field to track heartbeat pulse in `genesis-core/src/ipc.rs`
+- Inject orchestrator's `current_tick` into all outgoing packets in `inter_node.rs`
+- Update `spawn_ghost_listener` to skip exactly 32 bytes of header for payload offset
+- Refresh `peer_last_seen` registry on every valid incoming heartbeat
+- Add `DashMap<u32, Instant>` to `BspBarrier` in `bsp.rs` to track peer activity
+- Implement 500ms isolation detection logic in `wait_for_data_sync`
+- Implement `ShadowBufferManager` in `replication.rs` for atomic `/dev/shm` weight updates
+- Implement `send_replica_from_shm` using `tokio::io::copy` for zero-copy transmission
+- Trigger `replicate_shards` asynchronously every 500 batches in `NodeRuntime` (`node/mod.rs`)
+- Handle `NodeIsolated` error in `NodeRuntime` orchestrator in `boot.rs`
+- Update `genesis-node/Cargo.toml` dependencies
+
 ## [0.227.29] - 2026-03-06 22:01:28
 
 **SHM v4: 64B Alignment, GXO Capacity 1M, Offset Collision Fix**

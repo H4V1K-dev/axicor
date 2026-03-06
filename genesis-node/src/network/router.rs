@@ -1,4 +1,4 @@
-use crate::network::{SpikeEvent, SpikeBatchHeader};
+use crate::network::{SpikeEvent, SpikeBatchHeaderV3};
 use std::collections::HashMap;
 use tokio::net::UdpSocket;
 use std::net::SocketAddr;
@@ -90,9 +90,13 @@ impl InterNodeRouter {
             return; // Node not found or isolated
         };
 
-        let header = SpikeBatchHeader {
-            magic: 0x5350494B, // "SPIK"
-            batch_id: 0,
+        let header = SpikeBatchHeaderV3 {
+            src_zone_hash: 0,
+            dst_zone_hash: 0,
+            epoch: 0,
+            is_last: 0,
+            tick: 0,
+            _padding: 0,
         };
 
         let header_bytes = bytemuck::bytes_of(&header);
@@ -114,15 +118,15 @@ impl InterNodeRouter {
             
             loop {
                 if let Ok((size, _)) = socket.recv_from(&mut buf).await {
-                    if size < std::mem::size_of::<SpikeBatchHeader>() { continue; }
+                    if size < std::mem::size_of::<SpikeBatchHeaderV3>() { continue; }
                     
-                    let header_ptr = buf.as_ptr() as *const SpikeBatchHeader;
-                    let header = unsafe { &*header_ptr };
+                    let header_ptr = buf.as_ptr() as *const SpikeBatchHeaderV3;
+                    let _header = unsafe { &*header_ptr };
                     
-                    if header.magic != 0x5350494B { continue; }
+                    // magic removed in V3
                     
-                    let events_count = (size - std::mem::size_of::<SpikeBatchHeader>()) / std::mem::size_of::<SpikeEvent>();
-                    let events_ptr = unsafe { buf.as_ptr().add(std::mem::size_of::<SpikeBatchHeader>()) as *const SpikeEvent };
+                    let events_count = (size - std::mem::size_of::<SpikeBatchHeaderV3>()) / std::mem::size_of::<SpikeEvent>();
+                    let events_ptr = unsafe { buf.as_ptr().add(std::mem::size_of::<SpikeBatchHeaderV3>()) as *const SpikeEvent };
                     let events = unsafe { std::slice::from_raw_parts(events_ptr, events_count) };
                     
                     let schedule = bsp_barrier.get_write_schedule();
