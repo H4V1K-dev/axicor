@@ -126,6 +126,7 @@ fn execute_day_phase(
     mapped_soma_ids: *const u32,
     v_seg: u32,
     batch_counter: u64,
+    tick_base: u32, // <--- ADD
 ) {
     let _sync_batch_ticks = 100u32;
     let input_words_per_tick = (num_virtual_axons + 31) / 32;
@@ -179,6 +180,7 @@ fn execute_day_phase(
         num_virtual_axons,
         mapped_soma_ids,
         v_seg,
+        tick_base,
     );
 }
 
@@ -482,13 +484,13 @@ pub fn spawn_shard_thread(
                         warmup_ticks_remaining = 100;
                         println!("⚕️ [Shard {:08X}] Entering Warmup Phase (100 ticks)", hash);
                     }
-                    ComputeCommand::RunBatch { tick_base: _, batch_size, global_dopamine } => {
+                    ComputeCommand::RunBatch { tick_base, batch_size, global_dopamine } => {
                         let is_warmup = warmup_ticks_remaining > 0;
                         
                         // ФАЗА 1: Выполнение GPU батча (Day Phase)
                         execute_day_phase(
                             &mut desc.engine, batch_size, global_dopamine, &ctx.bsp_barrier,
-                            &ctx.io_ctx, &io_buffers, desc.virtual_offset, desc.num_virtual_axons, mapped_soma_ids, desc.v_seg, batch_counter
+                            &ctx.io_ctx, &io_buffers, desc.virtual_offset, desc.num_virtual_axons, mapped_soma_ids, desc.v_seg, batch_counter, tick_base
                         );
 
                         // ФАЗА 2: Чтение выходов

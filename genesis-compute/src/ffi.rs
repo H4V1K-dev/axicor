@@ -62,7 +62,7 @@ pub struct VariantParameters {
     pub slot_decay_wm: u8,
     pub signal_propagation_length: u8,
     pub ltm_slot_count: u8,
-    pub _pad1: [u8; 2],
+    pub heartbeat_m: u16,      // [DOD FIX] DDS Multiplier
     pub inertia_curve: [i16; 16],
     pub prune_threshold: i16,
     pub _pad2a: [u8; 32],
@@ -109,6 +109,7 @@ extern "C" {
         padded_n: u32,
         total_axons: u32,
         v_seg: u32,
+        current_tick: u32, // <--- PLUMB
         input_bitmask: *const u32,
         virtual_offset: u32,
         num_virtual_axons: u32,

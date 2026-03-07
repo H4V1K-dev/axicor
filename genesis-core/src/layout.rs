@@ -23,7 +23,8 @@ pub struct VariantParameters {
     pub slot_decay_ltm: u8,             // 1B — Long-Term Memory: затухание веса за тик
     pub slot_decay_wm: u8,              // 1B — Working Memory: затухание веса за тик
     pub signal_propagation_length: u8,  // 1B — длина «хвоста» сигнала, сегментов
-    pub _padding: [u8; 3],              // 3B — выравнивание до 32B
+    pub heartbeat_m: u16,               // 2B — [DOD FIX] DDS Phase Multiplier
+    pub _pad: u8,                       // 1B — выравнивание до 32B
     // --- Inertia Curve (32B) ---
     pub inertia_curve: [i16; 16],       // 32B — кривая коэффициентов GSOP (16 рангов)
 }

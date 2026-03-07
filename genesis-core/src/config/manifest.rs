@@ -26,6 +26,8 @@ pub struct ManifestVariant {
     pub inertia_curve: [i16; 16],
     #[serde(default = "default_prune_threshold")]
     pub prune_threshold: i16,
+    #[serde(default)]
+    pub heartbeat_m: u16,
 }
 
 fn default_prune_threshold() -> i16 { 15 }
@@ -53,7 +55,7 @@ pub struct GpuVariantParameters {
     pub slot_decay_wm: u8,
     pub signal_propagation_length: u8,
     pub ltm_slot_count: u8,
-    pub _pad1: [u8; 2],
+    pub heartbeat_m: u16, // [DOD FIX] DDS Multiplier instead of _pad1
     pub inertia_curve: [i16; 16],
     pub prune_threshold: i16,
     pub _pad2a: [u8; 32],
@@ -77,7 +79,7 @@ impl ManifestVariant {
             slot_decay_wm: self.slot_decay_wm,
             signal_propagation_length: self.signal_propagation_length,
             ltm_slot_count: self.ltm_slot_count,
-            _pad1: [0; 2],
+            heartbeat_m: self.heartbeat_m, // Replaces _pad1
             inertia_curve: self.inertia_curve,
             prune_threshold: self.prune_threshold,
             _pad2a: [0; 32],

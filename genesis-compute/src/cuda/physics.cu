@@ -49,7 +49,7 @@ struct VariantParameters {
   uint8_t slot_decay_wm;
   uint8_t signal_propagation_length;
   uint8_t ltm_slot_count;
-  uint8_t _pad1[2];          // Выравнивание до 36B
+  uint16_t heartbeat_m;      // DDS Phase Accumulator Multiplier
   int16_t inertia_curve[16]; // 32B — кривая инерции GSOP (16 рангов)
   int16_t prune_threshold;   // Night Phase threshold
   uint8_t _pad2[58];         // Дополняем до 128 байт
@@ -135,7 +135,7 @@ __global__ void cu_propagate_axons_kernel(BurstHeads8* __restrict__ axon_heads,
 // 4. Update Neurons Kernel (GLIF + Dendritic Integration)
 // ============================================================================
 __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
-                                         uint32_t padded_n) {
+                                         uint32_t padded_n, uint32_t current_tick) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= padded_n)
     return;
@@ -201,13 +201,25 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   current_voltage = p.rest_potential + (diff & ~(diff >> 31));
 
   int32_t effective_threshold = p.threshold + thresh_offset;
+  int32_t is_glif_spiking = (current_voltage >= effective_threshold) ? 1 : 0;
 
-  if (current_voltage >= effective_threshold) {
-    flags |= 0x01;
-    current_voltage = p.rest_potential;
-    thresh_offset += p.homeostasis_penalty;
-    vram.timers[tid] = p.refractory_period;
+  // DDS Phase Accumulator (§4 neuron_model.md)
+  uint32_t phase = (current_tick * p.heartbeat_m + tid * 104729) & 0xFFFF;
+  int32_t is_heartbeat = (p.heartbeat_m > 0 && phase < p.heartbeat_m) ? 1 : 0;
 
+  // Итоговый спайк (ГЛИФ ИЛИ Heartbeat)
+  int32_t final_spike = is_glif_spiking | is_heartbeat;
+
+  // Мембрана и гомеостаз сбрасываются ТОЛЬКО от GLIF-спайка
+  current_voltage = is_glif_spiking * p.rest_potential + (1 - is_glif_spiking) * current_voltage;
+  thresh_offset += is_glif_spiking * p.homeostasis_penalty;
+  uint8_t new_timer = is_glif_spiking * p.refractory_period + (1 - is_glif_spiking) * vram.timers[tid];
+
+  // Флаг активности устанавливается от ЛЮБОГО спайка (нужно для GSOP)
+  flags = (flags & 0xFE) | (uint8_t)final_spike;
+
+  // 7. Сдвиг голов аксона при спайке (Burst Shift)
+  if (final_spike) {
     uint32_t my_axon = vram.soma_to_axon[tid];
     if (my_axon != 0xFFFFFFFF) {
       BurstHeads8 h = vram.axon_heads[my_axon];
@@ -216,9 +228,11 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
     }
   }
 
+  // 8. Запись в VRAM
   vram.soma_voltage[tid] = current_voltage;
   vram.soma_flags[tid] = flags;
   vram.threshold_offset[tid] = thresh_offset;
+  vram.timers[tid] = new_timer;
 }
 
 // ============================================================================
@@ -369,7 +383,7 @@ extern "C" {
 // Day Phase Orchestrator
 // ============================================================================
 int32_t cu_step_day_phase(const ShardVramPtrs *vram, uint32_t padded_n,
-                          uint32_t total_axons, uint32_t v_seg,
+                          uint32_t total_axons, uint32_t v_seg, uint32_t current_tick,
                           // --- ВХОДЫ (InjectInputs) ---
                           const uint32_t *input_bitmask,
                           uint32_t virtual_offset, uint32_t num_virtual_axons,
@@ -402,7 +416,7 @@ int32_t cu_step_day_phase(const ShardVramPtrs *vram, uint32_t padded_n,
 
   // 4. UpdateNeurons (GLIF)
   int blocks_neurons = (padded_n + threads - 1) / threads;
-  cu_update_neurons_kernel<<<blocks_neurons, threads>>>(*vram, padded_n);
+  cu_update_neurons_kernel<<<blocks_neurons, threads>>>(*vram, padded_n, current_tick);
 
   // 5. ApplyGSOP (Пластичность 3D STDP)
   cu_apply_gsop_kernel<<<blocks_neurons, threads>>>(*vram, padded_n);

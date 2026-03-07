@@ -50,7 +50,7 @@ struct VariantParameters {
   uint8_t slot_decay_wm;
   uint8_t signal_propagation_length;
   uint8_t ltm_slot_count;
-  uint8_t _pad1[2];          // Выравнивание до 36B
+  uint16_t heartbeat_m;      // DDS Phase Accumulator Multiplier
   int16_t inertia_curve[16]; // 32B — кривая инерции GSOP
   int16_t prune_threshold;   // Night Phase threshold
   uint8_t _pad2[58];         // Дополняем до 128 байт

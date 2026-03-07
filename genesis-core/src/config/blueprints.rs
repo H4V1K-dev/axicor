@@ -18,6 +18,9 @@ pub struct NeuronType {
     pub threshold: i32,
     pub rest_potential: i32,
     pub leak_rate: i32,
+    
+    #[serde(default)]
+    pub spontaneous_firing_period_ticks: u32,
 
     // --- Тайминги (u8, Ticks) ---
     pub refractory_period: u8,

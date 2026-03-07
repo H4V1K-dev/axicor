@@ -40,6 +40,12 @@ pub fn parse_blueprints(toml_content: &str) -> (GenesisConstantMemory, Vec<Neuro
             inertia[idx] = val as i16;
         }
 
+        let heartbeat_m = if nt.spontaneous_firing_period_ticks == 0 {
+            0
+        } else {
+            (65536u32 / nt.spontaneous_firing_period_ticks.max(1)).clamp(1, 65535) as u16
+        };
+
         memory.variants[i] = VariantParameters {
             threshold: nt.threshold,
             rest_potential: nt.rest_potential,
@@ -53,6 +59,8 @@ pub fn parse_blueprints(toml_content: &str) -> (GenesisConstantMemory, Vec<Neuro
             slot_decay_wm: nt.slot_decay_wm as u8,
             refractory_period: nt.refractory_period,
             synapse_refractory_period: nt.synapse_refractory_period,
+            heartbeat_m, // [DOD FIX]
+            _pad: 0,
             inertia_curve: inertia,
             ..VariantParameters::default()
         };
