@@ -18,7 +18,7 @@
 pub const SHM_MAGIC: u32 = 0x47454E53; // "GENS"
 
 /// IPC protocol version. Bump on incompatible ShmHeader changes.
-pub const SHM_VERSION: u8 = 1;
+pub const SHM_VERSION: u8 = 2;
 
 pub const MAX_HANDOVERS_PER_NIGHT: usize = 10_000;
 
@@ -110,7 +110,10 @@ pub struct ShmHeader {
     pub handovers_offset: u32,  // 36..40
     pub handovers_count: u32,   // 40..44
     pub zone_hash: u32,         // 44..48 [DOD FIX: Уникальный ID]
-    pub _padding: [u8; 16],     // 48..64 (Выравнивание кэш-линии)
+    pub prunes_offset: u32,         // 48..52
+    pub prunes_count: u32,          // 52..56
+    pub incoming_prunes_count: u32, // 56..60
+    pub flags_offset: u32,          // 60..64
 }
 
 
@@ -138,7 +141,10 @@ impl ShmHeader {
             handovers_offset,
             handovers_count: 0,
             zone_hash,
-            _padding: [0; 16],
+            prunes_offset: 0,
+            prunes_count: 0,
+            incoming_prunes_count: 0,
+            flags_offset: 0,
         }
     }
 

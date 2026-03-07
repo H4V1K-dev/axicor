@@ -16,6 +16,9 @@
 > **Важно:** Перед каждым новым запеканием обязательно удаляйте старую папку `baked` в корне проекта!
 ```bash
 rm -rf baked/
+pkill -f genesis-node
+pkill -f genesis-baker-daemon
+rm -f /dev/shm/genesis_shard_*
 cargo run --release -p genesis-baker --bin baker -- --brain examples/cartpole/config/brain.toml
 ```
 
@@ -53,7 +56,7 @@ python3 examples/cartpole/cartpole_client.py
 
 | Участник | Рекорд | Дата | Комментарий / Изменения | Коммит |
 | :--- | :---: | :---: | :--- | :---: |
-| **@shunat** | **71** | 07.03.2026 | Добавил `random.randint(0, 1)` при равенстве `L=0`, `R=0` (смягчило затухание) | `3ed37ac` |
+| **@shuanat** | **71** | 07.03.2026 | Добавил `random.randint(0, 1)` при равенстве `L=0`, `R=0` (смягчило затухание) | `3ed37ac` |
 | **@H4V1K-dev** | **19** | 06.03.2026 | Просто запустил этот тест | `462110a` |
 
 ## Удачи! 🚀

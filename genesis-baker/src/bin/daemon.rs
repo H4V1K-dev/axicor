@@ -9,28 +9,8 @@ use genesis_core::ipc::{
 use genesis_core::config::manifest::ZoneManifest;
 use genesis_core::config::blueprints::BlueprintsConfig;
 use genesis_core::constants::MAX_DENDRITE_SLOTS;
-use genesis_core::layout::BurstHeads8;
 
-/// Parses bytes to Vec<u32> without requiring alignment (avoids bytemuck cast_slice).
-fn bytes_to_u32_vec(bytes: &[u8]) -> Vec<u32> {
-    bytes.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect()
-}
 
-/// Parses bytes to Vec<BurstHeads8> without requiring 32-byte alignment.
-fn bytes_to_burst_heads(bytes: &[u8]) -> Vec<BurstHeads8> {
-    bytes.chunks_exact(32)
-        .map(|chunk| BurstHeads8 {
-            h0: u32::from_le_bytes(chunk[0..4].try_into().unwrap()),
-            h1: u32::from_le_bytes(chunk[4..8].try_into().unwrap()),
-            h2: u32::from_le_bytes(chunk[8..12].try_into().unwrap()),
-            h3: u32::from_le_bytes(chunk[12..16].try_into().unwrap()),
-            h4: u32::from_le_bytes(chunk[16..20].try_into().unwrap()),
-            h5: u32::from_le_bytes(chunk[20..24].try_into().unwrap()),
-            h6: u32::from_le_bytes(chunk[24..28].try_into().unwrap()),
-            h7: u32::from_le_bytes(chunk[28..32].try_into().unwrap()),
-        })
-        .collect()
-}
 struct NightPhaseContext {
     _baked_dir: PathBuf,
     _layer_ranges: Vec<genesis_baker::bake::axon_growth::LayerZRange>,
@@ -237,40 +217,76 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
     let padded_n = manifest.memory.padded_n as u32;
     let total_axons_max = (manifest.memory.padded_n + manifest.memory.virtual_axons + manifest.memory.ghost_capacity) as u32;
 
-    // [Шаг 4] Загружаем геометрию аксонов из дисковых дампов
-    // Файл .axons: просто header + axon_heads (u32 × total_axons)
+    // [DOD FIX] Zero-Copy Memory Mapping instead of std::fs::read.
+    // Guarantees OS page alignment (4096 bytes) -> bytemuck is strictly safe.
+    let state_path = baked_dir.join("shard.state");
+    let state_file = std::fs::File::open(&state_path).ok()?;
+    let state_mmap = unsafe { memmap2::Mmap::map(&state_file).ok()? };
+
     let axons_path = baked_dir.join("shard.axons");
-    let axon_heads = if axons_path.exists() {
-        let data = std::fs::read(&axons_path)
-            .map_err(|e| eprintln!("[Daemon] Cannot read shard.axons: {}", e)).ok()?;
-        // Пропускаем 16B заголовок (AxonsFileHeader), затем BurstHeads8×total_axons
-        if data.len() > 16 {
-            let slice = &data[16..];
-            let count = slice.len() / 32;
-            let mut heads = bytes_to_burst_heads(slice);
-            heads.truncate(count.min(total_axons_max as usize));
-            heads
+    let axons_file = std::fs::File::open(&axons_path).ok()?;
+    let axons_mmap = unsafe { memmap2::Mmap::map(&axons_file).ok()? };
+
+    // Strict validation of the C-ABI Boundary invariant
+    assert_eq!(
+        state_mmap.as_ptr() as usize % 64,
+        0,
+        "FATAL C-ABI BOUNDARY: Memory-mapped .state file is not 64-byte aligned! OS page mapping failed."
+    );
+
+    let (axon_heads, soma_to_axon) = {
+        // Zero-cost casting without allocations
+        let mut axon_heads: Vec<genesis_core::layout::BurstHeads8> = {
+            if axons_mmap.len() > 16 {
+                bytemuck::cast_slice(&axons_mmap[16..]).to_vec()
+            } else {
+                vec![genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL); total_axons_max as usize]
+            }
+        };
+        axon_heads.truncate(total_axons_max as usize);
+
+        let data = &state_mmap[..];
+        let state_size = data.len();
+
+        let s2a = if state_size > 0 {
+            let bytes_per_neuron = 4 + 1 + 4 + 1 + 4 + genesis_core::constants::MAX_DENDRITE_SLOTS * (4 + 2 + 1);
+            let padded_n = (state_size / bytes_per_neuron) as u32;
+
+            let voltage_offset = 0;
+            let flags_offset = voltage_offset + 4 * (padded_n as usize);
+            let thresholds_offset = flags_offset + (padded_n as usize);
+            let timers_offset = thresholds_offset + 4 * (padded_n as usize);
+            let soma_to_axon_offset = timers_offset + (padded_n as usize);
+            let soma_to_axon_end = soma_to_axon_offset + 4 * (padded_n as usize);
+
+            if data.len() >= soma_to_axon_end {
+                let s2a_slice = &data[soma_to_axon_offset..soma_to_axon_end];
+                bytemuck::cast_slice(s2a_slice).to_vec()
+            } else {
+                vec![u32::MAX; padded_n as usize]
+            }
         } else {
-            vec![genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL); total_axons_max as usize]
-        }
-    } else {
-        vec![genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL); total_axons_max as usize]
+            vec![u32::MAX; 0]
+        };
+
+        (axon_heads, s2a)
     };
 
     // Файл .geom: axon_tips_uvw (u32 × total_axons) + axon_dirs_xyz (u32 × total_axons)
     let geom_path = baked_dir.join("shard.geom");
-    let (axon_tips_uvw, axon_dirs_xyz) = if geom_path.exists() {
-        let data = std::fs::read(&geom_path)
-            .map_err(|e| eprintln!("[Daemon] Cannot read shard.geom: {}", e)).ok()?;
-        // Каждый аксон — 2 × u32, всего 8 * total_axons байт
-        let count = total_axons_max as usize;
-        let expected_size = 8 * count;
-        if data.len() >= expected_size {
-            let tips = bytes_to_u32_vec(&data[0..4 * count]);
-            let dirs = bytes_to_u32_vec(&data[4 * count..8 * count]);
-            (tips, dirs)
+    let (axon_tips_uvw, axon_dirs_xyz) = if let Ok(geom_file) = std::fs::File::open(&geom_path) {
+        if let Ok(geom_mmap) = unsafe { memmap2::Mmap::map(&geom_file) } {
+            let count = total_axons_max as usize;
+            let expected_size = 8 * count;
+            if geom_mmap.len() >= expected_size {
+                let tips_slice = &geom_mmap[0..4 * count];
+                let dirs_slice = &geom_mmap[4 * count..8 * count];
+                (bytemuck::cast_slice(tips_slice).to_vec(), bytemuck::cast_slice(dirs_slice).to_vec())
+            } else {
+                (vec![0; count], vec![0; count])
+            }
         } else {
-            (vec![0; count], vec![0; count])
+            (vec![0; total_axons_max as usize], vec![0; total_axons_max as usize])
         }
     } else {
         (vec![0; total_axons_max as usize], vec![0; total_axons_max as usize])
@@ -278,32 +294,6 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
 
     println!("[Daemon] Loaded {} axon geometries (next_ghost_slot_base={})", total_axons_max, padded_n);
 
-    // [Шаг 4] Загружаем soma_to_axon маппинг для интеграции новых ghost axons
-    // Файл .state: [padded_n * u32 voltages] + [padded_n * u8 flags] + [padded_n * u32 thresholds] + [padded_n * u8 timers] + [padded_n * u32 soma_to_axon] + ...
-    let soma_to_axon = {
-        let state_path = baked_dir.join("shard.state");
-        if state_path.exists() {
-            let data = std::fs::read(&state_path)
-                .map_err(|e| eprintln!("[Daemon] Cannot read shard.state: {}", e)).ok()?;
-            
-            // Вычисляем offset soma_to_axon в .state бломе
-            // Структура: [u32 voltages: 4*N] + [u8 flags: N] + [u32 thresholds: 4*N] + [u8 timers: N] + [u32 soma_to_axon: 4*N]
-            let voltage_offset = 0;
-            let flags_offset = voltage_offset + 4 * (padded_n as usize);
-            let thresholds_offset = flags_offset + (padded_n as usize);
-            let timers_offset = thresholds_offset + 4 * (padded_n as usize);
-            let soma_to_axon_offset = timers_offset + (padded_n as usize);
-            let soma_to_axon_end = soma_to_axon_offset + 4 * (padded_n as usize);
-            
-            if data.len() >= soma_to_axon_end {
-                bytes_to_u32_vec(&data[soma_to_axon_offset..soma_to_axon_end])
-            } else {
-                vec![u32::MAX; padded_n as usize]
-            }
-        } else {
-            vec![u32::MAX; padded_n as usize]
-        }
-    };
 
     Some(NightPhaseContext {
         _baked_dir: baked_dir.clone(),
