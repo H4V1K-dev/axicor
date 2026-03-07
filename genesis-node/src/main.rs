@@ -20,6 +20,14 @@ use std::sync::Arc;
 use tokio::runtime::Builder;
 use crate::boot::Bootloader;
 
+#[derive(clap::ValueEnum, Clone, Copy, Debug, Default)]
+pub enum CpuProfile {
+    #[default]
+    Aggressive, // 100% CPU, 0ms latency (spin_loop)
+    Balanced,   // High CPU, OS scheduler yielding (yield_now)
+    Eco,        // Low CPU, sleep polling (sleep 1ms)
+}
+
 #[derive(Parser, Debug)]
 #[command(
     name = "genesis-node",
@@ -38,6 +46,9 @@ struct Cli {
 
     #[arg(long, default_value = "100")]
     batch_size: u32,
+
+    #[arg(long, default_value = "aggressive")]
+    cpu_profile: CpuProfile,
 }
 
 fn main() -> Result<()> {
@@ -68,7 +79,7 @@ fn main() -> Result<()> {
         println!("[Node] Starting Genesis Distributed Daemon...");
         
         // 2-5. Execution of the 5-Component Fail-Fast Boot Sequence
-        let boot_result = Bootloader::boot_node(&cli.manifest, reporter.clone()).await
+        let boot_result = Bootloader::boot_node_with_profile(&cli.manifest, reporter.clone(), cli.cpu_profile).await
             .context("Node Bootstrap Failed")?;
 
         println!("[Node] Bootstrap Successful. Hands-off to NodeRuntime.");
@@ -84,6 +95,7 @@ fn main() -> Result<()> {
 
         // 6. Spawn Dedicated OS Thread for Lock-Free UDP Egress
         let worker_pool = boot_result.egress_pool.clone();
+        let profile = cli.cpu_profile;
         std::thread::Builder::new()
             .name("genesis-egress-tx".into())
             .spawn(move || {
@@ -101,8 +113,11 @@ fn main() -> Result<()> {
                         let _ = socket.send_to(&msg.buffer[..msg.size], msg.target);
                         worker_pool.free_queue.push(msg).unwrap();
                     } else {
-                        // Выжигаем квант процессора без контекста ОС
-                        std::hint::spin_loop();
+                        match profile {
+                            CpuProfile::Aggressive => std::hint::spin_loop(),
+                            CpuProfile::Balanced => std::thread::yield_now(),
+                            CpuProfile::Eco => std::thread::sleep(std::time::Duration::from_millis(1)),
+                        }
                     }
                 }
             }).expect("Fatal: Failed to spawn egress worker thread");

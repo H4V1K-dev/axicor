@@ -156,8 +156,8 @@ async fn websocket_stream(mut socket: WebSocket, server: Arc<TelemetryServer>) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use genesis_core::ipc::TELE_MAGIC;
+    use super::TELE_MAGIC;
+    use genesis_core::ipc::TelemetryFrameHeader;
 
     #[test]
     fn test_telemetry_frame_packing() {

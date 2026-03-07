@@ -122,31 +122,138 @@ struct AxonHandover {
 - Они укладываются в **кольцевой буфер** (`Schedule`) получателя и срабатывают в батче N+1 на тике, равном их `tick_offset`.
 - **Результат:** Задержка в 1 батч (10 мс) биологически естественна — сигнал от одной зоны коры до другой идёт 5–20 мс.
 
-### 2.3. Fast Path: Zero-Copy Память [MVP]
+#### 2.2.1. HFT Log Throttling & BSP Timings
 
-Никакого кастомного бинарного протокола с десериализацией. Формат пакета — **плоский дамп памяти GPU**.
+**Проблема:** Day Phase на GPU крутится 100+ раз в секунду (sync_batch_ticks = 100, 10 мс батч). Без троттлирования каждый спайк, каждый Egress-пакет, каждый Self-Heal event создаёт систему вывод в stdout → блокирует реактор.
 
-**Пайплайн:** `cudaMemcpy (VRAM → RAM)` → TCP/UDP сокет → RAM соседа → аппаратный каст сырых байтов обратно в `&[SpikeEvent]`.
+**Решение: Atomic Throttling (Lock-Free)**
+
+Счётчики сообщений хранятся в `AtomicUsize` (thread-safe без Mutex) и выводятся **один раз на 100 сообщений**:
 
 ```rust
-// Заголовок (8 байт, выровнен)
-#[repr(C)]
-struct SpikeBatchHeader {
-    batch_id: u32,      // Номер батча (защита от рассинхрона)
-    spikes_count: u32,  // Количество событий
+pub struct HftLogger {
+    dopamine_count: AtomicUsize,
+    egress_packet_count: AtomicUsize,
+    self_heal_event_count: AtomicUsize,
+    throttle_rate: usize,  // 100
 }
 
-// Тело пакета (ровно 8 байт на спайк — Coalesced Access)
-#[repr(C)]
-struct SpikeEvent {
-    // ПРЯМОЙ индекс в памяти принимающего шарда. Никаких поисков.
-    receiver_ghost_id: u32,
-    // Смещение внутри батча (0..sync_batch_ticks)
-    tick_offset: u8,
-    // Паддинг для выравнивания до 64 бит
-    _pad: [u8; 3],
+impl HftLogger {
+    pub fn log_dopamine(&self) {
+        let count = self.dopamine_count.fetch_add(1, Ordering::Relaxed);
+        if count % self.throttle_rate == 0 {
+            eprintln!("[Dopamine] Batch #{}, cumulative: {}", batch_id, count);
+        }
+    }
+    
+    pub fn log_egress(&self, packet_size: u32) {
+        let count = self.egress_packet_count.fetch_add(1, Ordering::Relaxed);
+        if count % self.throttle_rate == 0 {
+            eprintln!("[Egress] {} packets sent, last size: {} bytes", count, packet_size);
+        }
+    }
+    
+    pub fn log_self_heal(&self, node_id: u32) {
+        let count = self.self_heal_event_count.fetch_add(1, Ordering::Relaxed);
+        if count % self.throttle_rate == 0 {
+            eprintln!("[SelfHeal] Node {} recovered, cumulative: {} events", node_id, count);
+        }
+    }
 }
 ```
+
+**Ключевые инварианты:**
+
+1. **Нулевой блокинг:** `fetch_add(Ordering::Relaxed)` — чистая CAS-операция на ALU, ~2 цикла. Без шпинделя, без семафора.
+2. **Выборочный вывод:** Только каждое 100-е сообщение идёт в stderr. За 100 тиков (1 батч батча) система хранит в памяти только счётчик, затем однажды sпечатает.
+3. **Истина в logs:** Настоящие счётчики растут монотонно. Пользователь видит правду («cumulative: 1247»), не лепространные фрагменты.
+
+#### 2.2.2. BSP Synchronization Timeout
+
+**Инвариант:** **BSP_SYNC_TIMEOUT_MS = 500 ms** (вместо 50 ms).
+
+**Почему увеличиваем:**
+
+- Медленная нода в кластере может лагать на 10–20 мс дополнительно (контекст, I/O, CPU scheduler jitter).
+- При `sync_batch_ticks = 100` (10 мс батч) это = 1–2 батча запаса.
+- Таймаут в 50 мс = 5 батчей, но первый лаг ноды → timeout → false panic.
+- **500 мс = ~50 батчей запаса** → защита даже от медленных дисков и CPU thrashing.
+
+**Фиксация в константе:**
+
+```rust
+const BSP_SYNC_TIMEOUT_MS: u64 = 500;
+const MAX_BATCHES_LATENCY: u64 = BSP_SYNC_TIMEOUT_MS / BATCH_DURATION_MS;  // ~50 батчей
+
+pub fn wait_for_neighbors(
+    wait_strategy: WaitStrategy,
+    start_time: Instant,
+) -> Result<Vec<SpikeBatch>, BspTimeoutError> {
+    loop {
+        if let Some(batch) = try_recv_all_neighbors() {
+            return Ok(batch);
+        }
+        
+        if start_time.elapsed().as_millis() > BSP_SYNC_TIMEOUT_MS {
+            return Err(BspTimeoutError {
+                timeout_ms: BSP_SYNC_TIMEOUT_MS,
+                batch_count_allowed: MAX_BATCHES_LATENCY,
+            });
+        }
+        
+        match wait_strategy {
+            WaitStrategy::Aggressive => std::hint::spin_loop(),
+            WaitStrategy::Balanced => std::thread::yield_now(),
+            WaitStrategy::Eco => std::thread::sleep(Duration::from_millis(1)),
+        }
+    }
+}
+```
+
+**Эффект:**
+
+| Параметр | 50 мс | 500 мс |
+|---|---|---|
+| Батчей запаса | 5 | 50 |
+| Защита от контекст-свичей | Низкая (одного спайка достаточно) | Высокая (система может глючить 0.5 сек) |
+| Performance Impact | Ноль | Ноль (timeout — редкое событие) |
+
+**Как чтение?** Если нода зависнет на диске > 500 мс → система обнаружит deadlock и спаникует с логом. Это лучше, чем молчаливая потеря данных.
+
+### 2.3. Fast Path & L7 Fragmentation (V2)
+
+UDP имеет жёсткий лимит MTU (максимальный размер полезной нагрузки `MAX_UDP_PAYLOAD = 65507`). Батчи спайков могут превышать этот лимит. Мы фрагментируем их на уровне приложения (L7) перед отправкой.
+
+#### 2.3.1. Параметры L7 Фрагментации
+
+- **Максимум спайков в UDP пакете:** `MAX_EVENTS_PER_PACKET = 8186`
+- **Размер пакета:** 16 байт (заголовок V2) + 8186 × 8 байт (события) = 65504 байта (идеально влезает в MTU 65535).
+
+#### 2.3.2. Бинарный Контракт V2: SpikeBatchHeaderV2 & SpikeEventV2
+
+```rust
+#[repr(C, align(8))]
+pub struct SpikeBatchHeaderV2 {
+    pub src_zone_hash: u32,    // Hash отправляющей зоны
+    pub dst_zone_hash: u32,    // Hash принимающей зоны
+    pub epoch: u32,            // Глобальный счётчик батчей (Epoch)
+    pub is_last: u32,          // 0 = Чанк, 1 = Последний чанк (Heartbeat), 2 = ACK-ответ
+}  // = 16 bytes
+
+#[repr(C)]
+pub struct SpikeEventV2 {
+    pub ghost_id: u32,    // ПРЯМОЙ индекс в памяти принимающего шарда
+    pub tick_offset: u32, // Смещение внутри батча (0..sync_batch_ticks)
+}  // = 8 bytes
+```
+
+**Инвариант Heartbeat:** Даже если за батч не было ни одного спайка, маршрутизатор обязан отправить пустой пакет с `is_last = 1`. Это пробивает BSP-барьер на стороне получателя и гарантирует лассинхронизацию за счёт `epoch`.
+
+#### 2.3.3. Zero-Copy Pipeline (Legacy MVP, работает как раньше)
+
+**Пайплайн:** `cudaMemcpy (VRAM → RAM)` → UDP сокет (с фрагментацией) → RAM соседа → аппаратный каст сырых байтов в `&[SpikeEventV2]`.
+
+Отправитель формирует пакеты с `SpikeBatchHeaderV2` + `SpikeEventV2[]` (до 8186 событий). Если коулических спайков > `MAX_EVENTS_PER_PACKET`, формируется несколько пакетов, все кроме последнего с `is_last = 0`, последний — `is_last = 1`.
 
 ### 2.4. Sender-Side Mapping [MVP]
 
@@ -235,6 +342,62 @@ for event in incoming_batch {
 
 **Чтение (Day Phase, GPU):** На каждом тике `ApplySpikeBatch` читает **один слот** `schedule[current_tick_in_batch]`, запускается только для `counts[tick]` спайков.
 
+### 2.8.1. Epoch Synchronization & Biological Amnesia
+
+Вместо слепого пинг-понга, BSP-барьер опирается на строгий счётчик `epoch` (номер батча). Поскольку UDP не гарантирует порядок доставки, рантайм реализует два механизма выживания:
+
+#### Biological Amnesia (Drop)
+
+Если приходит пакет с `header.epoch < current_epoch`, он **мгновенно отбрасывается**.
+
+```rust
+fn process_spike_batch(
+    packet: &SpikeBatchHeaderV2,
+    current_epoch: Atomic<u32>,
+) {
+    let curr = current_epoch.load(Ordering::Acquire);
+    
+    if packet.epoch < curr {
+        // Пакет "из прошлого" — биологически бессмыслен
+        // Отброс: нет логирования, нет паники, просто DROP
+        return;
+    }
+    
+    // Обработать как обычно
+    apply_spike_events_to_schedule(packet);
+}
+```
+
+**Почему это работает:** Сигнал "из прошлого" физиологически не имеет смысла и только разрушит причинно-следственные связи GSOP (долгосрочная пластичность зависит от точного временного порядка). Отброс — это **легальное биологическое поведение** (аналог забывчивости нейрона при задержниках).
+
+#### Self-Healing (Fast-Forward)
+
+Если приходит пакет с `header.epoch > current_epoch`, это означает, что **наш шард завис или пропустил Heartbeat**. Шард принудительно сбрасывает свой барьер, делает прыжок во времени и синхронизируется с сетью, жертвуя потерянными локальными тиками:
+
+```rust
+fn self_heal_from_network(
+    packet: &SpikeBatchHeaderV2,
+    current_epoch: &AtomicU32,
+) {
+    let curr = current_epoch.load(Ordering::Acquire);
+    
+    if packet.epoch > curr {
+        // Нас "отставили" в сети. Fast-forward:
+        eprintln!("[SelfHeal] Epoch jumped from {} to {}", curr, packet.epoch);
+        
+        // Сбросить Ring Buffer (потеря локальных спайков за пропущенные батчи)
+        flush_spike_schedule();
+        
+        // Atomically обновить epoch
+        current_epoch.store(packet.epoch, Ordering::Release);
+    }
+}
+```
+
+**Эффект:** Если кластер лагает, одна быстрая нода может "разбудить" отставшие, заставив их пересинхронизироваться. Потеря данных (Biological Amnesia) — это цена синхронизма, и она **приемлема для нейросети** (спайки теряются на биологических синапсах при глубоком сне).
+
+**Инвариант:** `epoch` никогда не движется назад (монотонно возрастает). Это гарантирует, что система движется вперёд во времени, даже если теряет данные.
+
 ### 2.9. Bulk DMA & Autonomous Batch Execution [MVP]
 
 Сетевой реактор Tokio и GPU полностью изолированы через Ping-Pong буферы (`BspBarrier`). Шина PCIe не дергается каждый тик.
@@ -287,7 +450,50 @@ for event in incoming_batch {
 
 **Инвариант:** Нет микротранзакций. Нет пинг-понга каждый тик. Только 4 макро-операции за весь батч (100 ms → 4 DMA).
 
-### 2.10. Почему Это Сработает [MVP]
+### 2.10. WaitStrategy: CPU Profiles [MVP]
+
+**Задача:** Управление планировщиком ОС в горячих циклах (BSP Barrier, сетевой ввод). Выбор между спин-локом, yield и дремой при ожидании данных от соседей.
+
+**3 профиля (флаг `--cpu-profile`):**
+
+| Профиль | Стратегия | Латентность | Использование CPU | Сценарий |
+|---|---|---|---|---|
+| **Aggressive** | `spin_loop()` | ~1 нс | 100% ядро | Production / HFT |
+| **Balanced** | `yield_now()` | ~1–15 мс | Разд. с OS | Дебаг, локальная сеть |
+| **Eco** | `sleep(1ms)` | ~1–5 мс | ~0% детально | Ноутбуки, батарея |
+
+**Реализация в Network Phase:**
+
+```rust
+pub enum WaitStrategy {
+    Aggressive,  // spin_loop()
+    Balanced,    // yield_now()
+    Eco,         // sleep(1ms)
+}
+
+pub fn wait_for_neighbors(wait_strategy: WaitStrategy) -> Vec<SpikeBatch> {
+    loop {
+        // Попытка неблокирующего чтения из буфера сокетов
+        if let Some(batch) = try_recv_all_neighbors() {
+            return batch;
+        }
+        
+        match wait_strategy {
+            WaitStrategy::Aggressive => std::hint::spin_loop(),
+            WaitStrategy::Balanced => std::thread::yield_now(),
+            WaitStrategy::Eco => std::thread::sleep(std::time::Duration::from_millis(1)),
+        }
+    }
+}
+```
+
+**Ключевые Инварианты:**
+
+1. **Spin-loop безопасен:** BSP барьер — единственное место, где хост ждёт физиологического события (приход сетки). Нет Mutex, нет atomics-loop.
+2. **Не цепляется за GPU:** Network Phase — чисто CPU, GPU работает независимо (Autonomous Loop, §2.9).
+3. **Портативность:** Выбор профиля — runtime, переносится через config или CLI. Ядро физики одинаково во всех режимах.
+
+### 2.11. Почему Это Сработает [MVP]
 
 | Принцип | Эффект |
 |---|---|
@@ -335,6 +541,72 @@ Target_Y += Hash(master_seed + soma_id + 1) % jitter_radius
 1. **Передающий шард (V1):** Создаётся выходной порт (`Port Out`).
 2. **Принимающий шард (V2):** Создаётся массив Ghost Axons в рассчитанных координатах (`Target_X`, `Target_Y`). Они начинают **локально прорастать** вглубь целевого слоя, подчиняясь обычной физике Cone Tracing (§4 из [04_connectivity.md](./04_connectivity.md)).
 3. **Задержка:** `Delay_Ticks` рассчитывается жёстко по физическому расстоянию между зонами в Атласе. Реальный сетевой лаг (пинг) **прячется** внутри этой математической задержки — сеть перестаёт быть проблемой.
+
+### 3.5. Dynamic Routing (Read-Copy-Update)
+
+Статическая маршрутизация не подходит для отказоустойчивых кластеров. Адреса шардов могут меняться при их воскрешении (Resurrection) на новых нодах.
+
+**Таблица маршрутизации** (`RoutingTable`) работает по принципу **RCU (Read-Copy-Update)**, гарантируя **0 блокировок в горячем цикле:**
+
+- **Read:** Egress-потоки читают адреса через `AtomicPtr` (O(1), без блокировок).
+- **Copy-Update:** При получении пакета `RouteUpdate` (Magic: `0x54554F52` / "ROUT"), оркестратор клонирует хэш-таблицу, обновляет IP:Port, и делает атомарный `swap` указателя.
+- **Deferred Cleanup:** Старая таблица удаляется через `tokio::spawn` с задержкой 100 мс, гарантируя, что все отставшие Egress-потоки успели завершить чтение.
+
+#### Формат пакета RouteUpdate
+
+```rust
+#[repr(C)]
+pub struct RouteUpdate {
+    pub magic: u32,      // 0x54554F52 ("ROUT")
+    pub zone_hash: u32,  // ID перемещенной зоны
+    pub new_ipv4: u32,   // Новый IP в u32 (network byte order)
+    pub new_port: u16,   // Новый порт
+    pub _padding: u16,   // Выравнивание; ignore
+}  // = 16 bytes
+```
+
+#### RCU Implementation
+
+```rust
+pub struct RoutingTable {
+    // Указатель на текущую таблицу маршрутизации
+    // Читается без блокировок через load(Ordering::Acquire)
+    ptr: AtomicPtr<HashMap<u32, SocketAddr>>,
+}
+
+impl RoutingTable {
+    pub fn lookup(&self, zone_hash: u32) -> Option<SocketAddr> {
+        // O(1) чтение без мьютекса
+        let table = unsafe { &*self.ptr.load(Ordering::Acquire) };
+        table.get(&zone_hash).copied()
+    }
+    
+    pub fn update(&self, zone_hash: u32, new_addr: SocketAddr) {
+        // Copy: клонировать текущую таблицу
+        let old_ptr = self.ptr.load(Ordering::Acquire);
+        let mut new_table = unsafe { (*old_ptr).clone() };
+        
+        // Update: вставить новый адрес
+        new_table.insert(zone_hash, new_addr);
+        let new_ptr = Box::into_raw(Box::new(new_table));
+        
+        // Swap: атомарно поменять указатель
+        let old_ptr = self.ptr.swap(new_ptr, Ordering::Release);
+        
+        // Cleanup (deferred): удалить старую таблицу через 100 мс
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            drop(unsafe { Box::from_raw(old_ptr) });
+        });
+    }
+}
+```
+
+**Инварианты:**
+
+1. **Горячий цикл (Egress):** `lookup()` — чистое чтение без атомиков, без блокировок. CAS + Acquire ordering = ~3 цикла на x86.
+2. **Холодный цикл (Control Plane):** `update()` работает редко (при воскрешении шарда); может заполнять CPU на copy+swap, но не влияет на рендеринг спайков.
+3. **Безопасность:** Deferred cleanup гарантирует, что нет Use-After-Free: старая таблица удаляется только когда все читатели заведомо завершили свои операции (100 мс >> max jitter).
 
 ---
 

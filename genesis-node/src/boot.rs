@@ -86,6 +86,10 @@ pub fn boot_shard_from_disk(baked_dir: &Path) -> Result<(ShardEngine, Vec<u32>)>
 impl Bootloader {
     /// Full node bootstrap sequence. Standard "Genesis Sequence" pipeline.
     pub async fn boot_node(manifest_path: &Path, reporter: Arc<crate::simple_reporter::SimpleReporter>) -> Result<BootResult> {
+        Self::boot_node_with_profile(manifest_path, reporter, crate::CpuProfile::Aggressive).await
+    }
+
+    pub async fn boot_node_with_profile(manifest_path: &Path, reporter: Arc<crate::simple_reporter::SimpleReporter>, cpu_profile: crate::CpuProfile) -> Result<BootResult> {
         let root_dir = manifest_path.parent().unwrap_or(Path::new("."));
         
         // 1. Data/Config Phase: Load brain and simulation configs
@@ -132,7 +136,7 @@ impl Bootloader {
             Self::setup_networking(&first_manifest, io_contexts, routing_table.clone()).await?;
 
         // 5. Orchestrator Assembly: Glue everything into NodeRuntime
-        let bsp_barrier = Arc::new(BspBarrier::new(sim_config.simulation.sync_batch_ticks as usize, expected_peers));
+        let bsp_barrier = Arc::new(BspBarrier::new(sim_config.simulation.sync_batch_ticks as usize, expected_peers).with_cpu_profile(cpu_profile));
 
         let node_runtime = NodeRuntime::boot(
             shards,

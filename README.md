@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  🏆 <strong>CartPole Рекорд: 71 очков</strong> (@shuanat) &nbsp;|&nbsp; 
+  🏆 <strong>CartPole Рекорд: 71 очков</strong> (@shuanat) 3ed37ac &nbsp;|&nbsp; 
   <a href="examples/cartpole/readme.md">🏎 Попробовать побить рекорд!</a>
 </p>
 

@@ -139,7 +139,6 @@ impl InterNodeRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::time::Duration;
 
     #[tokio::test]
     async fn test_lock_free_routing() {

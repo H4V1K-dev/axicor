@@ -18,6 +18,7 @@ pub struct BspBarrier {
     pub completed_peers: AtomicUsize, // [DOD] Count of is_last flags
     pub timeout_log_counter: AtomicU32, // Throttle: log every 100th timeout
     pub self_heal_log_counter: AtomicU32, // Throttle: log every 100th self-heal
+    pub cpu_profile: crate::CpuProfile,
 }
 
 impl BspBarrier {
@@ -31,6 +32,21 @@ impl BspBarrier {
             completed_peers: AtomicUsize::new(0),
             timeout_log_counter: AtomicU32::new(0),
             self_heal_log_counter: AtomicU32::new(0),
+            cpu_profile: crate::CpuProfile::Aggressive,
+        }
+    }
+
+    pub fn with_cpu_profile(mut self, cpu_profile: crate::CpuProfile) -> Self {
+        self.cpu_profile = cpu_profile;
+        self
+    }
+
+    #[inline(always)]
+    pub fn apply_wait_strategy(&self) {
+        match self.cpu_profile {
+            crate::CpuProfile::Aggressive => std::hint::spin_loop(),
+            crate::CpuProfile::Balanced => std::thread::yield_now(),
+            crate::CpuProfile::Eco => std::thread::sleep(std::time::Duration::from_millis(1)),
         }
     }
 
@@ -48,8 +64,8 @@ impl BspBarrier {
                 }
                 break;
             }
-            // Yield instead of spin: receiver often waits for slower sender; burning CPU is wasteful
-            std::thread::yield_now();
+            // [DOD FIX] Dynamic wait strategy
+            self.apply_wait_strategy();
         }
     }
 
@@ -83,5 +99,49 @@ impl BspBarrier {
         } else {
             &self.schedule_b
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::CpuProfile;
+    use std::time::Instant;
+
+    #[test]
+    fn test_bsp_barrier_cpu_profile_builder() {
+        let b1 = BspBarrier::new(100, 1);
+        assert!(matches!(b1.cpu_profile, CpuProfile::Aggressive));
+
+        let b2 = BspBarrier::new(100, 1).with_cpu_profile(CpuProfile::Balanced);
+        assert!(matches!(b2.cpu_profile, CpuProfile::Balanced));
+
+        let b3 = BspBarrier::new(100, 1).with_cpu_profile(CpuProfile::Eco);
+        assert!(matches!(b3.cpu_profile, CpuProfile::Eco));
+    }
+
+    #[test]
+    fn test_bsp_barrier_apply_wait_strategy() {
+        // Just verify that these do not panic
+        let barrier = BspBarrier::new(100, 1);
+        
+        let b = barrier.with_cpu_profile(CpuProfile::Aggressive);
+        b.apply_wait_strategy();
+
+        let b2 = BspBarrier::new(100, 1).with_cpu_profile(CpuProfile::Balanced);
+        b2.apply_wait_strategy();
+
+        let b3 = BspBarrier::new(100, 1).with_cpu_profile(CpuProfile::Eco);
+        b3.apply_wait_strategy();
+    }
+
+    #[test]
+    fn test_bsp_barrier_wait_timeout() {
+        let barrier = BspBarrier::new(100, 1).with_cpu_profile(CpuProfile::Eco);
+        let start = Instant::now();
+        barrier.wait_for_data_sync();
+        let elapsed = start.elapsed();
+        // Should wait at least BSP_SYNC_TIMEOUT_MS, but return eventually
+        assert!(elapsed.as_millis() >= super::BSP_SYNC_TIMEOUT_MS as u128);
     }
 }

@@ -174,7 +174,174 @@ pub struct GenesisConstantMemory {        // 1024 bytes
 
 > **⚠️ Baking Tool Validator (inertia_lut):** При сборке `GenesisConstantMemory` необходимо проверять, что минимальный результат `(gsop_potentiation * inertia_lut[rank]) >> 7 >= 1` для **всех** рангов и вариантов. Если результат равен 0, возникает «Мёртвая зона пластичности» — вес синапса перестаёт адаптироваться навсегда. Это задача валидатора Baking Tool (и в перспективе IDE с live-подсказками по конфигу).
 
+### 1.6. Cross-Platform IPC & Zero-Copy Mmap
+
+**Инвариант:** Идеал Zero-Copy Загрузки (§1.4) реализуется одинаково эффективно на всех платформах. Отказ от Linux-exclusive конструкций (`/dev/shm`, Unix Sockets).
+
+#### 1.6.1. Архитектура: Платформа-Специфичные Фолбэки
+
+| Платформа | Память (Night Phase) | Синхронизация (Network) |
+|---|---|---|
+| **Linux** | POSIX `shm_open()` → `/dev/shm/*.state.shm` | Unix Domain Sockets (**UDS**); Fast-Path UDP для Data Plane |
+| **Windows** | File-backed mmap в `%TEMP%` → файлы `*.state.bin.mmap` | TCP/IP на портах `19000 + (hash % 1000)` для Control & Data Plane |
+| **Darwin (macOS)** | POSIX `shm_open()` (аналог Linux) | UDS + TCP fallback для Legacy Systems |
+
+**Выбор платформы:** Compile-time через `cfg!(target_os)`. Runtime auto-detection переносится на stage bootstrap (инициализация Node в Distributed Cluster).
+
+#### 1.6.2. Page-Aligned Memory Guarantee (4096 bytes)
+
+**Жёсткий C-ABI контракт:** Всегда `mmap` выравнивается по границе **4096 байт** (минимальный page size современных ОС).
+
+```rust
+// generic_ipc.rs
+pub fn allocate_shared_memory(size: usize) -> Result<SharedMemoryRegion, CAbiBoundaryError> {
+    let aligned_size = (size + 4095) / 4096 * 4096; // Align UP to 4096
+    
+    #[cfg(target_os = "linux")]
+    {
+        let shm = unsafe { libc::shm_open(name, libc::O_CREAT | libc::O_RDWR, 0o644) }?;
+        let addr = unsafe { libc::mmap(
+            std::ptr::null_mut(),
+            aligned_size,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_SHARED,
+            shm,
+            0,
+        )};
+        // addr guaranteed to be % 4096 == 0
+        
+        assert_eq!(addr as usize % 4096, 0, "FATAL C-ABI BOUNDARY: mmap address not page-aligned!");
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        let file = File::create(temp_path)?;
+        file.set_len(aligned_size as u64)?;
+        let handle = unsafe { CreateFileMappingA(file, aligned_size)? };
+        let addr = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, aligned_size) };
+        
+        assert_eq!(addr as usize % 4096, 0, "FATAL C-ABI BOUNDARY: MapViewOfFile address not page-aligned!");
+    }
+    
+    Ok(SharedMemoryRegion { addr, size: aligned_size })
+}
+```
+
+**Гарантия:** Все `.state` и `.axons` блобы лежат **целиком в выровненной по 4096 памяти**.
+
+```
+Mmap:   [0x10000000 aligned to 4096]
+         ┌─────────────────────────────────┐
+         │ SoA Payload (782B × N)          │
+         │ + Burst Architecture (32B × A)  │ ← All @ offset % 4096 == 0
+         └─────────────────────────────────┘ ← Also @ offset % 4096 == 0
+         [страница 4096 байт, no gaps]
+```
+
+#### 1.6.3. Legalized bytemuck::cast_slice (Zero-Copy)
+
+**Почему это работает:**
+
+1. **Mmap гарантирует выравнивание:** Любой указатель внутри mmap-региона = `base_addr + offset`. Если `base_addr % 4096 == 0` и `offset % align_of::<T>() == 0`, то полученный указатель гарантированно выровнен.
+
+2. **Baking Tool Determinism (Compile-Time):** Baker гарантирует, что SoA-массивы начинаются ровно на границе требуемого выравнивания (`align_of::<T>()`). Для типов как `VariantParameters` (align 64) это означает: `offset % 64 == 0`.
+
+3. **Host-Side Zero-Copy:**
+
+```rust
+// memory.rs (Night Phase CPU-side)
+let shared_region = allocate_shared_memory(total_state_bytes)?;
+
+// ZERO allocations, ZERO copies
+let soma_voltage: &[i32] = unsafe {
+    bytemuck::cast_slice(std::slice::from_raw_parts(
+        (shared_region.addr + offset_soma_voltage) as *const i32,
+        neuron_count,
+    ))
+};
+
+// This is SAFE because:
+// 1. (shared_region.addr + offset_soma_voltage) % align_of::<i32>() == 0 (baker-enforced)
+// 2. shared_region.addr % 4096 == 0 (mmap-guaranteed)
+// 3. bytemuck::Pod trait ensures no padding, no Option, no refcells
+```
+
+**CUDA-Side (Device Pointers):**
+
+```cuda
+// kernel.cu
+__global__ void example_kernel(CudaShardVramPtrs ptrs) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    // ZERO device-side alignment overhead
+    int32_t v = ptrs.soma_voltage[tid];  // Guaranteed coalesced access: 32 threads read 128 bytes @ 32-byte boundary
+}
+```
+
+#### 1.6.4. Паника FATAL C-ABI BOUNDARY (Нарушение Контракта)
+
+При любом нарушении выравнивания **во время загрузки** мотор обязан паниковать с сообщением `FATAL C-ABI BOUNDARY`:
+
+```rust
+// validation.rs (baking_tool output check)
+pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
+    let vram_base = header.vram_base_ptr as usize;
+    
+    if vram_base % 4096 != 0 {
+        panic!(
+            "FATAL C-ABI BOUNDARY: VRAM base address 0x{:x} is not 4096-byte page-aligned. \
+            This violates the Zero-Copy Mmap contract and will cause uncoalesced access & cache thrashing.",
+            vram_base
+        );
+    }
+    
+    for soa_field in &header.soa_fields {
+        let offset = soa_field.offset as usize;
+        if offset % soa_field.required_align != 0 {
+            panic!(
+                "FATAL C-ABI BOUNDARY: SoA field '{}' @ offset 0x{:x} breaks {} alignment. \
+                Baker must enforce columnar layout alignment from compile-time.",
+                soa_field.name, offset, soa_field.required_align
+            );
+        }
+    }
+    
+    Ok(())
+}
+```
+
+**Взаимодействие с Node Runtime:**
+
+- При `load_shard(shard_id)` хост проверяет контракт перед `cudaMemcpy`.
+- Если контракт нарушен → **сразу паника**, ноль попыток работать с невыровненными данными.
+- Это **legalization** логики аппаратуры в коде: нет хаков, нет `__pack__`, нет скрытых аллокаций.
+
 ---
+
+### 1.7. SHM Binary Contract (Night Phase IPC)
+
+Связь между `genesis-runtime` и `genesis-baker-daemon` происходит через Shared Memory. 
+Нулевой оффсет файла всегда содержит 64-байтный `ShmHeader` (Little-Endian, C-ABI). 
+Массивы данных начинаются строго после него (offset 64).
+
+| Смещение | Поле | Тип | Описание |
+| :--- | :--- | :--- | :--- |
+| `0x00` | `magic` | `u32` | 0x47454E53 ("GENS") |
+| `0x04` | `version` | `u8` | Текущая версия = 1 |
+| `0x05` | `state` | `u8` | State Machine (0=Idle, 1=NightStart, 2=Sprouting, 3=NightDone, 4=Error) |
+| `0x06` | `_pad` | `u16` | Выравнивание |
+| `0x08` | `padded_n` | `u32` | Количество нейронов (кратно 32) |
+| `0x0C` | `dendrite_slots` | `u32` | Всегда 128 |
+| `0x10` | `weights_offset` | `u32` | Смещение до i16 массива весов (обычно 64) |
+| `0x14` | `targets_offset` | `u32` | Смещение до u32 массива целей |
+| `0x18` | `epoch` | `u64` | Глобальный счетчик батчей (BSP Epoch) |
+| `0x20` | `total_axons` | `u32` | Local + Ghost + Virtual аксоны |
+| `0x24` | `handovers_offset` | `u32` | Смещение до очереди `AxonHandoverEvent` |
+| `0x28` | `handovers_count` | `u32` | Количество событий в очереди |
+| `0x2C` | `zone_hash` | `u32` | FNV-1a хэш имени зоны |
+| `0x30` | `_padding` | `[u8; 16]` | Добивка до 64 байт (L2 Cache Line) |
+
+*Общий размер: ровно 64 байта. Изменение структуры без повышения версии и обновления C-кода строго запрещено.*
 
 ## 2. Архитектура Цикла: День и Ночь (Day/Night Cycle)
 
@@ -327,8 +494,51 @@ pub struct ExternalIoHeader {
 **Дисфрагментация:** UDP пакеты больше 65KB автоматически дропятся (отсутствует EMSGSIZE отравления сокета). Полные передачи когда батч готов.
 
 **Плагин**:
-- На каждом батче (когда `current_tick_in_batch == 0`) стадия услуги выслыла UDP датаграмму с `output_history` предыдущего батча клиенту (робоцика, визуализация).
+- На каждом батче (когда `current_tick_in_batch == 0`) сервер выслыла UDP датаграмму с `output_history` предыдущего батча клиенту (робоцика, визуализация).
 - Одновременно вычитывает входящие `Input Bitmask` из датаграмм, сканирует через `try_recv_input()` в неблокирующем положении и ассоциирует пиксели с Virtual Axons (`InjectInputs`).
+
+### 2.3.1. WaitStrategy: Управление CPU в Горячих Циклах
+
+**Контекст:** День-фаза (GPU) автономна, но ночная фаза (Night Phase) и сетевой ввод (Network Phase, см. [06_distributed.md §2.10](./06_distributed.md)) требуют синхронизации с OS scheduler.
+
+**Сценарий:** CPU ждёт данных от соседних шардов в BSP-барьере или дождается завершения I/O асинхронного. Без явного управления spin/yield ядро растрачивает кванты впустую.
+
+**3 профиля (флаг `--cpu-profile`):**
+
+| Профиль | Стратегия | Эффект | Сценарий |
+|---|---|---|---|
+| **Aggressive** | `std::hint::spin_loop()` | ~1 нс латентность, 100% CPU | Production, HFT, локальный кластер |
+| **Balanced** | `std::thread::yield_now()` | OS берёт квант, процесс в очереди (~1–15 мс) | Дебаг, SSH-сессии, многопроцессный хост |
+| **Eco** | `std::thread::sleep(1ms)` | ~0% CPU в холостую, батарея сохранена | Ноутбуки, мобильные, фоновые процессы |
+
+```rust
+pub enum WaitStrategy {
+    Aggressive,
+    Balanced,
+    Eco,
+}
+
+impl WaitStrategy {
+    pub fn poll_neighbors_until_ready(&self) -> Vec<SpikeBatch> {
+        loop {
+            if let Some(batch) = try_recv_all_neighbors() {
+                return batch;
+            }
+            match self {
+                Self::Aggressive => std::hint::spin_loop(),
+                Self::Balanced => std::thread::yield_now(),
+                Self::Eco => std::thread::sleep(Duration::from_millis(1)),
+            }
+        }
+    }
+}
+```
+
+**Инварианты:**
+
+1. **Выбор на стартапе:** WaitStrategy фиксируется при инициализации runtime в `OnceLock<WaitStrategy>`. Нулевой cost для горячего цикла.
+2. **Безопасность:** BSP-барьер — единственное место, где CPU физически ждёт события. Нет Mutex, нет CAS-loop.
+3. **Портативность:** Ядро физики (GSOP, спайки, диффузия) идентично во всех профилях. Меняется только OS-level scheduling поведение.
 
 ---
 
