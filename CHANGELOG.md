@@ -8,6 +8,87 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.205.28] - 2026-03-07 12:45:58
+
+**[Architecture] Extend distributed runtime and IDE specs with Zero-Cost S**
+
+### Added
+- Implement Zero-Cost State Machine with `GeometryGpuApplied` marker component and `LoadedGeometry` in genesis-ide/src/geometry.rs to prevent repeated GPU uploads
+- Add HFT Log Throttling with `HftLogger` using `AtomicUsize` counters and `fetch_add(Ordering::Relaxed)` for dopamine, egress packet, and self-heal event logging
+- Increase BSP synchronization timeout to `BSP_SYNC_TIMEOUT_MS = 500 ms` and define `MAX_BATCHES_LATENCY` constant in wait_for_neighbors function
+- Specify L7 Fragmentation parameters: `MAX_EVENTS_PER_PACKET = 8186` and binary contract with `SpikeBatchHeaderV2` and `SpikeEventV2` structs
+- Enforce Heartbeat invariant: routers must send empty packet with `is_last = 1` even if no spikes in batch
+- Document Biological Amnesia rule: drop packets with `header.epoch < current_epoch` and implement Epoch Synchronization
+- Extend docs/specs/06_distributed.md with detailed HFT logging, BSP timeout, L7 fragmentation, and Epoch Synchronization sections
+- Update docs/specs/010_ide.md with Zero-Cost State Machine cascade: fetch_real_geometry, upload_geometry_to_gpu, and render_neuron_network systems
+- Revise docs/specs/07_gpu_runtime.md with new memory layout and synchronization protocols
+- Modify genesis-node/src/network/bsp.rs to incorporate new timeout constant and telemetry adjustments
+- Update genesis-node/src/network/telemetry.rs to integrate throttled logging mechanisms
+- Remove genesis-node/src/network/router.rs placeholder and adjust genesis-node/src/boot.rs and main.rs for initialization changes
+- Update README.md CartPole record line with commit hash 3ed37ac
+- Revise examples/cartpole/readme.md with updated instructions and links
+
+## [0.190.28] - 2026-03-07 10:42:04
+
+**docs: finalize AGENT.md laws and update CartPole records**
+
+## [0.189.28] - 2026-03-07 09:11:31
+
+**docfix**
+
+## [0.189.27] - 2026-03-06 23:20:22
+
+**CartPole Tuning [Config]**
+
+### Added
+- Dopamine shaping, sigma=2 for population coding in cartpole_client
+- Blueprints: threshold 9500, gsop 110/15, initial_synapse_weight 2800, steering_radius 130, slot_decay_ltm 140
+
+## [0.187.27] - 2026-03-06 23:20:17
+
+**IDE Fixes [Genesis-IDE]**
+
+### Added
+- Update config path to config/zones/SensoryCortex/blueprints.toml
+- Add GeometryGpuApplied marker for one-time GPU buffer init
+- Log telemetry only when spikes.len() > 0
+
+## [0.185.26] - 2026-03-06 23:20:11
+
+**Log Throttling [Node]**
+
+### Added
+- Throttle BSP self-heal, dopamine, egress, shard I/O logs (every 100th)
+
+## [0.184.26] - 2026-03-06 23:20:06
+
+**Boot & BSP Improvements [Node]**
+
+### Added
+- Improve UDP/Geometry binding error messages with hints to kill existing processes
+- Increase BSP sync timeout 50ms -> 500ms, use yield_now instead of spin_loop
+- Add throttled self-heal logging (every 100th)
+
+## [0.181.26] - 2026-03-06 23:20:01
+
+**RTX 4090 CUDA Support [Build]**
+
+### Added
+- Detect GPU arch via nvidia-smi (compute_cap -> sm_XX)
+- Use CUDA_ARCH env override, fallback sm_75
+- Host compiler: g++-12 on Unix, MSVC on Windows
+
+## [0.178.26] - 2026-03-06 23:19:55
+
+**Windows IPC & Alignment [Platform]**
+
+### Added
+- Add TCP fallback and Windows SHM path in genesis-core/ipc.rs
+- Refactor genesis-node/ipc.rs for TCP and file-backed shm
+- Use file-backed mmap and TCP in genesis-baker daemon for Windows
+- Add bytes_to_u32_vec/bytes_to_burst_heads to avoid cast_slice on unaligned data
+- Fix bytemuck alignment in geometry_client and socket for Windows
+
 ## [0.174.25] - 2026-03-06 23:20:22
 
 **CartPole Tuning [Config]**

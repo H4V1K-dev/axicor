@@ -737,14 +737,153 @@ pub struct BspBarrier {
 | [02_configuration.md](./02_configuration.md) | §5.3: master_seed, deterministic topology |
 | [project_structure.md](../project_structure.md) | Distributed arch role in overall Genesis design |
 
-## 6. [TODO] Autonomous Node Recovery (Fault Tolerance)
+## 6. Autonomous Node Recovery (The Great Resurrection)
 
-**Goal**: Ensure high availability and fault tolerance for the distributed simulation network.
+Кластер Genesis проектируется под постоянные аппаратные отказы. Вместо остановки симуляции применяется механизм **Zero-Downtime Shard Recovery**, гарантирующий восстановление вычислений за миллисекунды.
 
-### Proposed Architecture
-- **State Replication**: Each node will maintain redundant backups of its VRAM state / graph topology checkpoints in multiple distinct storage locations.
-- **Heartbeat & Consensus**: Implement a network-wide gossip or heartbeat protocol so that all nodes constantly monitor the health and responsiveness of their peers.
-- **Self-Healing (Autonomous Orchestration)**: If a node failure is detected, the network will automatically identify available free hardware, deploy a new genesis-runtime instance, restore from the latest distributed backup, and dynamically re-route intra-gpu/network channels to seamlessly patch the gap without human intervention.
+### 6.1. Shadow Buffers (Теневые Реплики)
+
+Для избежания потери синаптических весов при смерти ноды применяется асинхронная репликация в POSIX Shared Memory.
+
+1. **Периодичность:** Каждые 500 батчей оркестратор вызывает `replicate_shards`.
+
+2. **Zero-Copy Transfer:** Массивы `dendrite_weights` и `dendrite_targets` напрямую копируются из `/dev/shm/genesis_shard_{zone_hash}` в `/dev/shm/{zone_hash}.shadow` на соседних резервных нодах.
+
+3. **OS-Level Transport:** Используется `tokio::io::copy`, который на Linux транслируется в системный вызов `sendfile` (или `splice`), обеспечивая копирование из сокета в файловый дескриптор в пространстве ядра, минуя user-space аллокации.
+
+```rust
+// genesis-runtime/src/recovery.rs
+
+pub async fn replicate_shards(
+    shards: &[ShardState],
+    backup_nodes: &[BackupNode],
+) -> Result<Vec<ReplicaStatus>> {
+    for shard in shards {
+        let shm_path = format!("/dev/shm/genesis_shard_{:x}", shard.zone_hash);
+        let shadow_path = format!("/dev/shm/{:x}.shadow", shard.zone_hash);
+        
+        // Open source (shared memory)
+        let mut src = tokio::fs::File::open(&shm_path).await?;
+        
+        // Send to backup nodes asynchronously
+        for backup in backup_nodes {
+            let mut dst = TcpStream::connect(backup.addr).await?;
+            tokio::io::copy(&mut src, &mut dst).await?;  // kernel-level sendfile
+        }
+    }
+    Ok(replicas)
+}
+```
+
+### 6.2. 500ms Isolation Detection
+
+`BspBarrier` отслеживает время ожидания от каждого соседа.
+
+- Если барьер заблокирован более чем на `BSP_SYNC_TIMEOUT_MS` (500 мс), срабатывает детектор изоляции.
+- Оркестратор генерирует ошибку `BspError::NodeIsolated(dead_zone_hash)`.
+- Узел, хранящий теневую реплику (`.shadow`) упавшей зоны, назначается координатором воскрешения.
+
+```rust
+// genesis-runtime/src/orchestrator.rs
+
+pub fn detect_isolation(
+    current_epoch: u32,
+    barrier_start_epoch: u32,
+    timeout_ms: u64,
+) -> Option<IsolatedZone> {
+    let elapsed = (current_epoch - barrier_start_epoch) * TICK_DURATION_US as u32 / 1000;
+    
+    if elapsed > timeout_ms as u32 {
+        return Some(IsolatedZone {
+            zone_hash: last_missing_peer,
+            detection_epoch: current_epoch,
+        });
+    }
+    None
+}
+```
+
+### 6.3. The Great Resurrection (Протокол Воскрешения)
+
+При активации координатор выполняет следующий конвейер:
+
+1. **VRAM Re-allocation:** Выделяется новая память на GPU под `padded_n` и `total_axons`.
+
+2. **Shadow Restore:** Данные из `/dev/shm/*.shadow` заливаются в VRAM через `cudaMemcpyAsync`.
+
+3. **RCU Route Patching:** Координатор рассылает всем пирам широковещательный пакет `RouteUpdate` (см. [06_distributed.md §3.5](./06_distributed.md#35-dynamic-routing-read-copy-update), `ROUT_MAGIC = 0x54554F52`). Пиры атомарно обновляют свои Egress-таблицы (RCU Swap), перенаправляя трафик на новый IP/Port. **Ноль мьютексов в горячем цикле**.
+
+```rust
+// genesis-runtime/src/recovery.rs
+
+pub struct ResurrectionCoordinator {
+    shadow_path: String,
+    zone_hash: u32,
+}
+
+impl ResurrectionCoordinator {
+    pub async fn execute(&self) -> Result<()> {
+        // Step 1: VRAM allocation
+        let new_vram = allocate_vram(padded_n, total_axons)?;
+        
+        // Step 2: Shadow restore
+        let shadow_data = read_shadow_buffer(&self.shadow_path)?;
+        cuda_memcpy_async(new_vram, shadow_data)?;
+        cuda_synchronize()?;
+        
+        // Step 3: RCU route patching
+        self.broadcast_route_update(new_addr).await?;
+        
+        Ok(())
+    }
+}
+```
+
+### 6.4. Stabilization (Warmup Loop)
+
+Сохранённый `.shadow` дамп содержит веса дендритов и топологию аксонов, но **не содержит мембранные потенциалы** (вольтаж сомы) — они слишком волатильны и их сброс на диск убьёт PCIe шину.
+
+При воскрешении все нейроны имеют `voltage = 0`. Если сразу пустить шард в сеть, произойдёт эпилептический шторм из-за потери гомеостатических порогов или, наоборот, полное молчание.
+
+**Механика:**
+
+Команда `ComputeCommand::Resurrect(zone_hash)` переводит шард в режим **Warmup** длительностью 100 тиков (Day Phase):
+
+1. **Входящие сетевые спайки** обрабатываются нормально (`ApplySpikeBatch`).
+2. **Собственные исходящие спайки** (External Outputs через Virtual Axons) **гасятся** (не отправляются в сеть).
+3. **Мембранные потенциалы** (`voltage` и `threshold_offset`) медленно напитываются токами и стабилизируются до биологической нормы.
+4. **По окончании 100 тиков** шард переходит в режим Normal и начинает полноценно взаимодействовать с кластером.
+
+```rust
+// genesis-runtime/src/compute.rs
+
+pub struct ShardMode {
+    pub variant: ShardVariant,
+    pub warmup_ticks_remaining: u32,
+}
+
+pub enum ShardVariant {
+    Normal,
+    Warmup,  // Входящие спайки ОК, исходящие гасятся
+}
+
+pub fn record_readout_warmup(
+    out_spike_ids: &mut Vec<u32>,
+    out_count: &mut u32,
+    shard_mode: &ShardMode,
+) {
+    if shard_mode.variant == ShardVariant::Warmup {
+        // Отбросить все исходящие спайки
+        out_spike_ids.clear();
+        *out_count = 0;
+        return;
+    }
+    // Normal mode: запись как обычно
+    // ... записать spike_ids в out_spike_ids
+}
+```
+
+**Результат:** После 100 тиков (1–10 мс реального времени) напряжение стабилизируется, пороги учитывают локальный контекст активности, и шард может безопасно взаимодействовать с остальным кластером без риска паралича или неконтролируемых всплесков.
 
 ---
 

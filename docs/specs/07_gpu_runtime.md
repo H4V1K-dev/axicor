@@ -22,14 +22,18 @@
 //   threshold_offset   [N]     i32   | 4N bytes
 //   timers             [N]     u8    | 1N bytes
 //   soma_to_axon       [N]     u32   | 4N bytes
-//   dendrite_targets   [128*N] u32   | 512N bytes
-//   dendrite_weights   [128*N] i16   | 256N bytes
-//   dendrite_timers    [128*N] u8    | 128N bytes
+//   dendrite_targets   [128 * N] u32   | 512N bytes
+//   dendrite_weights   [128 * N] i16   | 256N bytes
+//   dendrite_timers    [128 * N] u8    | 128N bytes
 //   [DOD FIX] Burst Architecture
 //   axon_heads         [A]     BurstHeads8 | 32A bytes  (A = total_axons)
 // =============================================================================
 
-**Инвариант Выравнивания:** Все массивы имеют длину `padded_n`, кратную 32 (Warp Alignment). Дамп памяти хранится в Little-Endian, без заголовков, без метаданных. Baker гарантирует byte-for-byte совпадение дампа с VRAM layout.
+**Инвариант 64-байтного Выравнивания:** Каждый SoA-массив обязан начинаться с адреса, кратного **64 байтам** (размер L2-кэш линии). Padding между массивами обязателен. Это гарантирует, что при Load происходит максимум одна L2-операция и нет конфликтов банков памяти.
+
+**GXO Capacity:** Поддержка сложных слоёв считывания ограничивает максимальный размер выходной матрицы `MAX_GXO_PIXELS = 1,048,576` (1 миллион каналов). Это соответствует 1K × 1K текстуре в GPU памяти (~4 МБ).
+
+**Инвариант Выравнивания (Legacy):** Все массивы имеют длину `padded_n`, кратную 32 (Warp Alignment). Дамп памяти хранится в Little-Endian, без заголовков, без метаданных. Baker гарантирует byte-for-byte совпадение дампа с VRAM layout.
 
 **Извлечение типа за 1 такт ALU:**
 
@@ -318,30 +322,42 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
 
 ---
 
-### 1.7. SHM Binary Contract (Night Phase IPC)
+### 1.7. SHM Binary Contract (Night Phase IPC v4)
 
 Связь между `genesis-runtime` и `genesis-baker-daemon` происходит через Shared Memory. 
 Нулевой оффсет файла всегда содержит 64-байтный `ShmHeader` (Little-Endian, C-ABI). 
-Массивы данных начинаются строго после него (offset 64).
+Каждый массив данных начинается строго по границе **64 байт**.
 
 | Смещение | Поле | Тип | Описание |
 | :--- | :--- | :--- | :--- |
 | `0x00` | `magic` | `u32` | 0x47454E53 ("GENS") |
-| `0x04` | `version` | `u8` | Текущая версия = 1 |
+| `0x04` | `version` | `u8` | Текущая версия = **2** |
 | `0x05` | `state` | `u8` | State Machine (0=Idle, 1=NightStart, 2=Sprouting, 3=NightDone, 4=Error) |
 | `0x06` | `_pad` | `u16` | Выравнивание |
 | `0x08` | `padded_n` | `u32` | Количество нейронов (кратно 32) |
 | `0x0C` | `dendrite_slots` | `u32` | Всегда 128 |
-| `0x10` | `weights_offset` | `u32` | Смещение до i16 массива весов (обычно 64) |
-| `0x14` | `targets_offset` | `u32` | Смещение до u32 массива целей |
+| `0x10` | `weights_offset` | `u32` | Смещение до i16 массива весов (кратно 64) |
+| `0x14` | `targets_offset` | `u32` | Смещение до u32 массива целей (кратно 64) |
 | `0x18` | `epoch` | `u64` | Глобальный счетчик батчей (BSP Epoch) |
 | `0x20` | `total_axons` | `u32` | Local + Ghost + Virtual аксоны |
-| `0x24` | `handovers_offset` | `u32` | Смещение до очереди `AxonHandoverEvent` |
+| `0x24` | `handovers_offset` | `u32` | Смещение до очереди `AxonHandoverEvent` (кратно 64) |
 | `0x28` | `handovers_count` | `u32` | Количество событий в очереди |
 | `0x2C` | `zone_hash` | `u32` | FNV-1a хэш имени зоны |
-| `0x30` | `_padding` | `[u8; 16]` | Добивка до 64 байт (L2 Cache Line) |
+| `0x30` | `prunes_offset` | `u32` | Смещение до очереди `AxonHandoverPrune` (кратно 64) |
+| `0x34` | `prunes_count` | `u32` | Количество исходящих прунов |
+| `0x38` | `incoming_prunes_count`| `u32` | Количество входящих прунов от соседей |
+| `0x3C` | `flags_offset` | `u32` | Смещение до `soma_flags` (кратно 64) |
 
-*Общий размер: ровно 64 байта. Изменение структуры без повышения версии и обновления C-кода строго запрещено.*
+**Общий размер: ровно 64 байта. Ни одного свободного байта больше нет. Любое расширение потребует перехода на 128-байтный заголовок.**
+
+#### Семантика Полей v2
+
+- **`version = 2`:** Поддежка `prunes_offset`, `incoming_prunes_count` и `flags_offset` для механики Living Axons.
+- **`prunes_offset`:** Очередь `AxonHandoverPrune` — события удаления аксонов при Pruning (ночная фаза). Рантайм читает и отправляет соседям, которые удаляют Ghost Axons.
+- **`incoming_prunes_count`:** Счётчик входящих прун-событий от соседних зон. Рантайм обновляет этот счётчик для синхронизации с Baker.
+- **`flags_offset`:** Прямое смещение до массива `soma_flags[padded_n]` для быстрого доступа вне стандартной раскладки SoA.
+
+**Инвариант:** Все смещения (offset) должны быть кратны 64 байтам. Baker гарантирует это выравнивание при формировании блобов.
 
 ## 2. Архитектура Цикла: День и Ночь (Day/Night Cycle)
 

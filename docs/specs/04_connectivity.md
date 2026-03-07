@@ -63,6 +63,31 @@
 - **Закон Дейла:** Знак синапса **неизменен** после создания. GSOP модифицирует только абсолютное значение: `new_abs = abs(w) + delta`, результат = `sign(w) × new_abs`. Clamp: `0 ≤ abs ≤ 32767`.
 - **Почему это правильно:** В биологии 5 синапсов нужны для надёжности (вероятностный выброс медиатора). У нас физика **детерминированная** — 5 связей по 10 = 1 связь на 50.
 
+**Жесткий инвариант Закона Дейла (Night Phase Sprouting):**
+
+Когда во время Ночной Фазы дендрит захватывает новый аксон (Sprouting), знак начального веса `initial_synapse_weight` определяется **исключительно типом нейрона-владельца аксона** (Sender-Side Type), а не типом принимающей сомы.
+
+CPU извлекает 4-битный тип из `axon_tips_uvw[axon_id] >> 28`. Если тип аксона `is_inhibitory = true`, дендрит обязан записать **отрицательный вес** (например, `-74`). Это гарантирует, что **тормозные нейроны никогда не смогут образовать возбуждающий синапс**. Нарушение этого инварианта — признак критической ошибки в Baker или Memory Corruption.
+
+```rust
+// genesis-baker/src/bake/sprouting.rs
+fn create_new_synapse(
+    axon_id: usize,
+    axon_tips: &[u32],  // Packed UVW координаты + 4-бит тип
+    cfg: &SprintingConfig,
+) -> i16 {
+    // Extract type (верхние 4 бита)
+    let type_bits = (axon_tips[axon_id] >> 28) & 0xF;
+    let is_inhibitory = (type_bits >> 1) & 1 != 0;  // Бит 1 типа = E/I флаг
+    
+    // Знак ВСЕГДА зависит от аксона, НИКОГДА от дендрита
+    let sign = if is_inhibitory { -1 } else { 1 };
+    let initial_weight = cfg.initial_synapse_weight as i16;
+    
+    sign * initial_weight  // Если is_inhibitory: -74, иначе: +74
+}
+```
+
 ### 1.6. Стратегия Выбора (Baking Heuristics)
 
 При плотности 4–5% и длинных аксонах количество кандидатов на подключение превышает лимит (128). На этапе Baking (CPU) применяется эвристика выбора лучших кандидатов, а не рандом:
@@ -159,6 +184,81 @@ Ghost Packets **никогда не генерируются**, поведени
 При появлении пакетов — логируется предупреждение.
 
 - **Телепорты:** Только для Global Connectivity (межзональные связи через Атлас, см. [06_distributed.md §3](./06_distributed.md)). Локальный рост — всегда бесшовный.
+
+### 1.8. Living Axons (Tip Nudging)
+
+Граф Genesis не статичен после Baking. Во время Ночной Фазы аксоны продолжают физически расти сквозь воксельную сетку, постоянно обновляя пул доступных дендритов (Structural Plasticity).
+
+Чтобы этот процесс не уничтожил CPU при миллионах аксонов, применяется паттерн **Activity-Based Nudging**:
+
+#### Logic: Когда Растёт Аксон?
+
+1. **Локальные аксоны (Activity Gate):**
+   Baker Daemon читает массив `soma_flags` (доступен через `flags_offset` в SHM v4, см. [07_gpu_runtime.md §1.7](./07_gpu_runtime.md#17-shm-binary-contract-night-phase-ipc-v4)).
+   
+   Если 0-й бит сомы равен 1 (`flags & 0x01 == 1` — нейрон спайковал днём), **кончик её аксона (Tip) вычисляется** через `step_and_pack` (сдвиг на 1 сегмент).
+   
+   Если нейрон молчал — CPU **пропускает его аксон** (O(1) без работы).
+
+2. **Ghost-аксоны (Inertial Nudging):**
+   Ghost-аксоны не имеют локальной сомы (`soma_idx = usize::MAX`). Они сдвигаются **каждую ночь безусловно** по вектору своей инерции (`forward_dir`), пока их счётчик `remaining_steps` не достигнет нуля.
+
+3. **Persistence:**
+   Обновленные координаты `axon_tips_uvw` и вектора `axon_dirs_xyz` перезаписываются в файл `shard.geom` и **сразу же участвуют** в обновлении Spatial Grid для дендритного Sprouting.
+
+#### Структура данных (CPU-side, Night Phase)
+
+```rust
+// genesis-baker/src/bake/growth.rs
+
+/// Living Axon контролируется во время Night Phase
+pub struct LivingAxon {
+    pub axon_id: usize,              // Индекс в массиве axon_tips
+    pub soma_idx: usize,             // usize::MAX для Ghost-аксонов
+    pub tip_uvw: u32,                // Packed UVW + type (верхние 4 бита)
+    pub forward_dir: Vec3,           // Инерция / направление роста
+    pub remaining_steps: u32,        // Сколько шагов осталось расти
+    pub last_night_active: bool,     // Флаг активности на прошлой ночи
+}
+
+fn nudge_living_axons(
+    living: &mut [LivingAxon],
+    soma_flags: &[u8],
+    spatial_grid: &mut SpatialGrid,
+) {
+    for axon in living.iter_mut() {
+        // Decision: расти ли в эту ночь?
+        let should_grow = if axon.soma_idx == usize::MAX {
+            true  // Ghost-аксон: растёт всегда
+        } else {
+            // Локальный аксон: только если сома спайковала днём
+            soma_flags[axon.soma_idx] & 0x01 != 0
+        };
+        
+        if should_grow && axon.remaining_steps > 0 {
+            // Step: сдвиг на 1 сегмент по инерции
+            axon.tip_uvw = step_and_pack(
+                axon.tip_uvw,
+                axon.forward_dir,
+                /* gravity */ None,  // На CPU нет гравитации, только инерция
+            );
+            axon.remaining_steps -= 1;
+            
+            // Grid update: добавить новый сегмент в Spatial Grid
+            spatial_grid.insert(axon.axon_id, axon.tip_uvw);
+        }
+    }
+}
+```
+
+#### Эффект: Data-Oriented Оптимизация
+
+- **Селективность:** Только ~10–30% аксонов активны в любую ночь (зависит от стимуляции). Остальные пропускаются за O(1).
+- **Минимум CPU:** Одна ночь (~50 мс симулировано) обновляет ~10K–50K активных аксонов, 0-стоп для остальных.
+- **Строгая Причинность:** Аксон растёт **только если его сома была активна**. Это естественная связь между активностью и структурной пластичностью.
+- **Spatial Coherence:** Обновленный Spatial Grid гарантирует, что Sprouting (дендритный коннект) немедленно видит новые расученные сегменты и может подключиться к ним.
+
+*Этот DOD-паттерн гарантирует, что вычислительные ресурсы тратятся только на "живые", активные участки нейросети, позволяя графу пластично менять топологию вслед за паттернами стимуляции.*
 
 ---
 
