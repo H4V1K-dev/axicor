@@ -1,0 +1,36 @@
+name = "L4_spiny_VISp4_133"
+is_inhibitory = false
+
+# Мембрана
+threshold = 36562
+rest_potential = 9421
+leak_rate = 200
+refractory_period = 13
+spontaneous_firing_period_ticks = 978
+
+# Адаптация и Тайминги
+homeostasis_penalty = 1489
+homeostasis_decay = 2
+synapse_refractory_period = 15
+signal_propagation_length = 19
+
+# Рост и Морфология
+steering_fov_deg = 34.4
+steering_radius_um = 66.7
+growth_vertical_bias = 0.95
+dendrite_radius_um = 250.0
+type_affinity = 0.8
+sprouting_weight_distance = 0.5
+sprouting_weight_power = 0.4
+sprouting_weight_explore = 0.13
+sprouting_weight_type = 0.2
+steering_weight_inertia = 0.5
+steering_weight_sensor = 0.4
+steering_weight_jitter = 0.1
+
+# Пластичность GSOP
+initial_synapse_weight = 189
+gsop_potentiation = 129
+gsop_depression = 78
+inertia_curve = [128, 118, 110, 102, 95, 88, 81, 76, 70, 65, 60, 56, 52, 48, 45, 41]
+prune_threshold = 5

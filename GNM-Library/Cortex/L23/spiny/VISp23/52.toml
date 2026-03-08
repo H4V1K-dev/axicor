@@ -1,0 +1,36 @@
+name = "L23_spiny_VISp23_52"
+is_inhibitory = false
+
+# Мембрана
+threshold = 34499
+rest_potential = 5994
+leak_rate = 162
+refractory_period = 19
+spontaneous_firing_period_ticks = 340
+
+# Адаптация и Тайминги
+homeostasis_penalty = 3044
+homeostasis_decay = 7
+synapse_refractory_period = 15
+signal_propagation_length = 20
+
+# Рост и Морфология
+steering_fov_deg = 34.4
+steering_radius_um = 66.7
+growth_vertical_bias = 0.54
+dendrite_radius_um = 300.0
+type_affinity = 0.8
+sprouting_weight_distance = 0.5
+sprouting_weight_power = 0.4
+sprouting_weight_explore = 0.1
+sprouting_weight_type = 0.2
+steering_weight_inertia = 0.5
+steering_weight_sensor = 0.4
+steering_weight_jitter = 0.1
+
+# Пластичность GSOP
+initial_synapse_weight = 199
+gsop_potentiation = 160
+gsop_depression = 88
+inertia_curve = [128, 109, 94, 81, 69, 59, 51, 44, 37, 32, 27, 23, 20, 17, 15, 13]
+prune_threshold = 5

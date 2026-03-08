@@ -1,0 +1,36 @@
+name = "L4_spiny_ITG_1"
+is_inhibitory = false
+
+# Мембрана
+threshold = 33906
+rest_potential = 11411
+leak_rate = 446
+refractory_period = 14
+spontaneous_firing_period_ticks = 1588
+
+# Адаптация и Тайминги
+homeostasis_penalty = 1336
+homeostasis_decay = 2
+synapse_refractory_period = 15
+signal_propagation_length = 20
+
+# Рост и Морфология
+steering_fov_deg = 34.4
+steering_radius_um = 66.7
+growth_vertical_bias = 0.95
+dendrite_radius_um = 250.0
+type_affinity = 0.8
+sprouting_weight_distance = 0.5
+sprouting_weight_power = 0.4
+sprouting_weight_explore = 0.1
+sprouting_weight_type = 0.2
+steering_weight_inertia = 0.5
+steering_weight_sensor = 0.4
+steering_weight_jitter = 0.1
+
+# Пластичность GSOP
+initial_synapse_weight = 157
+gsop_potentiation = 126
+gsop_depression = 77
+inertia_curve = [128, 119, 111, 104, 97, 91, 85, 80, 75, 70, 65, 61, 57, 53, 50, 46]
+prune_threshold = 5

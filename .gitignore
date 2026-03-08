@@ -42,6 +42,7 @@ __pycache__/
 tests/tmp/
 SUMARIZER/
 PERSONAL/
+raw_data/
 _agents/
 .agents/
 _agent/

@@ -1,0 +1,36 @@
+name = "L6_spiny_MTG_13"
+is_inhibitory = false
+
+# Мембрана
+threshold = 28343
+rest_potential = 21418
+leak_rate = 335
+refractory_period = 10
+spontaneous_firing_period_ticks = 1690
+
+# Адаптация и Тайминги
+homeostasis_penalty = 1000
+homeostasis_decay = 2
+synapse_refractory_period = 15
+signal_propagation_length = 68
+
+# Рост и Морфология
+steering_fov_deg = 24.9
+steering_radius_um = 181.8
+growth_vertical_bias = 0.95
+dendrite_radius_um = 1369.0
+type_affinity = 0.8
+sprouting_weight_distance = 0.3
+sprouting_weight_power = 0.5
+sprouting_weight_explore = 0.157
+sprouting_weight_type = 0.1
+steering_weight_inertia = 0.8
+steering_weight_sensor = 0.1
+steering_weight_jitter = 0.1
+
+# Пластичность GSOP
+initial_synapse_weight = 50
+gsop_potentiation = 108
+gsop_depression = 70
+inertia_curve = [128, 121, 115, 110, 104, 99, 94, 90, 85, 81, 77, 73, 70, 66, 63, 60]
+prune_threshold = 5

@@ -1,0 +1,36 @@
+name = "L3_spiny_MTG_22"
+is_inhibitory = false
+
+# Мембрана
+threshold = 34218
+rest_potential = 10506
+leak_rate = 486
+refractory_period = 16
+spontaneous_firing_period_ticks = 1271
+
+# Адаптация и Тайминги
+homeostasis_penalty = 1254
+homeostasis_decay = 2
+synapse_refractory_period = 15
+signal_propagation_length = 26
+
+# Рост и Морфология
+steering_fov_deg = 20.0
+steering_radius_um = 500.0
+growth_vertical_bias = 0.3
+dendrite_radius_um = 521.0
+type_affinity = 0.8
+sprouting_weight_distance = 0.3
+sprouting_weight_power = 0.5
+sprouting_weight_explore = 0.203
+sprouting_weight_type = 0.1
+steering_weight_inertia = 0.8
+steering_weight_sensor = 0.1
+steering_weight_jitter = 0.1
+
+# Пластичность GSOP
+initial_synapse_weight = 165
+gsop_potentiation = 125
+gsop_depression = 76
+inertia_curve = [128, 120, 112, 106, 99, 93, 87, 82, 77, 72, 68, 64, 60, 56, 53, 49]
+prune_threshold = 5

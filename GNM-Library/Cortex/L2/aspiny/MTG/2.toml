@@ -1,0 +1,36 @@
+name = "L2_aspiny_MTG_2"
+is_inhibitory = true
+
+# Мембрана
+threshold = 21906
+rest_potential = 13204
+leak_rate = 307
+refractory_period = 19
+spontaneous_firing_period_ticks = 985
+
+# Адаптация и Тайминги
+homeostasis_penalty = 1392
+homeostasis_decay = 2
+synapse_refractory_period = 15
+signal_propagation_length = 20
+
+# Рост и Морфология
+steering_fov_deg = 135.5
+steering_radius_um = 174.4
+growth_vertical_bias = 0.13
+dendrite_radius_um = 360.9
+type_affinity = 0.2
+sprouting_weight_distance = 0.7
+sprouting_weight_power = 0.3
+sprouting_weight_explore = 0.087
+sprouting_weight_type = 0.3
+steering_weight_inertia = 0.2
+steering_weight_sensor = 0.6
+steering_weight_jitter = 0.2
+
+# Пластичность GSOP
+initial_synapse_weight = 261
+gsop_potentiation = 206
+gsop_depression = 2
+inertia_curve = [128, 119, 111, 103, 96, 90, 84, 78, 73, 68, 63, 59, 55, 51, 48, 45]
+prune_threshold = 65

@@ -1,0 +1,36 @@
+name = "L1_sparsely spiny_MTG_7"
+is_inhibitory = true
+
+# Мембрана
+threshold = 30312
+rest_potential = 21115
+leak_rate = 164
+refractory_period = 13
+spontaneous_firing_period_ticks = 635
+
+# Адаптация и Тайминги
+homeostasis_penalty = 1000
+homeostasis_decay = 3
+synapse_refractory_period = 15
+signal_propagation_length = 14
+
+# Рост и Морфология
+steering_fov_deg = 72.2
+steering_radius_um = 33.0
+growth_vertical_bias = 0.11
+dendrite_radius_um = 150.0
+type_affinity = 0.5
+sprouting_weight_distance = 0.7
+sprouting_weight_power = 0.3
+sprouting_weight_explore = 0.3
+sprouting_weight_type = 0.3
+steering_weight_inertia = 0.2
+steering_weight_sensor = 0.6
+steering_weight_jitter = 0.2
+
+# Пластичность GSOP
+initial_synapse_weight = 137
+gsop_potentiation = 153
+gsop_depression = 7
+inertia_curve = [128, 121, 115, 110, 104, 99, 94, 90, 85, 81, 77, 73, 70, 66, 63, 60]
+prune_threshold = 5

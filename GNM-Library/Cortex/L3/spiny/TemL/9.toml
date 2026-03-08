@@ -1,0 +1,36 @@
+name = "L3_spiny_TemL_9"
+is_inhibitory = false
+
+# Мембрана
+threshold = 35750
+rest_potential = 9833
+leak_rate = 201
+refractory_period = 12
+spontaneous_firing_period_ticks = 99
+
+# Адаптация и Тайминги
+homeostasis_penalty = 10000
+homeostasis_decay = 25
+synapse_refractory_period = 15
+signal_propagation_length = 50
+
+# Рост и Морфология
+steering_fov_deg = 23.4
+steering_radius_um = 199.3
+growth_vertical_bias = 0.3
+dendrite_radius_um = 1001.1
+type_affinity = 0.8
+sprouting_weight_distance = 0.3
+sprouting_weight_power = 0.5
+sprouting_weight_explore = 0.247
+sprouting_weight_type = 0.1
+steering_weight_inertia = 0.8
+steering_weight_sensor = 0.1
+steering_weight_jitter = 0.1
+
+# Пластичность GSOP
+initial_synapse_weight = 181
+gsop_potentiation = 300
+gsop_depression = 120
+inertia_curve = [128, 77, 47, 28, 17, 10, 6, 3, 2, 1, 1, 1, 1, 1, 1, 1]
+prune_threshold = 5

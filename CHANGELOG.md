@@ -8,6 +8,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.301.35] - 2026-03-08 15:55:29
+
+**IntraGPU Consolidation: Full Hardware Saturation & Stabilization**
+
+### Added
+- Implement multi-manifest CLI support via `--manifest <PATH_1> --manifest <PATH_2> ...` in main.rs
+- Redesign boot_node_with_profile to aggregate data across multiple ZoneManifests in boot.rs
+- Eliminate UDP networking between local zones by building IntraGpuChannel connections using is_src_local and is_dst_local logic
+- Fix cluster join by broadcasting all locally present zone hashes instead of just the first one
+- Create per-Shard non-blocking CUDA streams via gpu_stream_create and plumb through ffi.rs, shard.rs, and cu_step_day_phase
+- Remove all gpu_stream_synchronize calls in shard_thread.rs to overlap CPU and GPU execution
+- Reposition gpu_device_synchronize() in the Orchestrator loop after collecting BatchComplete payloads
+- Implement static CPU core locking via libc::sched_setaffinity for each Shard and the Orchestrator (Core 0) in shard_thread.rs and main.rs
+- Remove __constant__ current_dopamine and update_global_dopamine from physics.cu and bindings.cu
+- Pass dopamine as int16_t kernel argument through cu_apply_gsop_kernel, cu_step_day_phase, ffi.rs, and shard.rs
+- Add assertion in boot.rs to validate axons_blob.len() % 32 == 0 for C-ABI alignment
+- Add --clean flag to genesis-baker to wipe target baked/ directories
+- Implement sustained TPS logging every 500 batches in mod.rs, printing `[Performance] Sustained TPS:`
+
+## [0.289.35] - 2026-03-08 14:15:00
+
+**[Refactor] Minor network and node adjustments**
+
+### Added
+- Modify genesis-node/src/network/inter_node.rs, io_server.rs, and router.rs for internal logic updates
+- Adjust genesis-node/src/node/shard_thread.rs and main.rs with minor code changes
+
 ## [0.287.35] - 2026-03-08 12:23:51
 
 **Fix Critical Runtime Bugs**

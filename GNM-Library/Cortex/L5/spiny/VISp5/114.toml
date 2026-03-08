@@ -1,0 +1,36 @@
+name = "L5_spiny_VISp5_114"
+is_inhibitory = false
+
+# Мембрана
+threshold = 30218
+rest_potential = 3666
+leak_rate = 236
+refractory_period = 12
+spontaneous_firing_period_ticks = 830
+
+# Адаптация и Тайминги
+homeostasis_penalty = 3582
+homeostasis_decay = 3
+synapse_refractory_period = 15
+signal_propagation_length = 20
+
+# Рост и Морфология
+steering_fov_deg = 34.4
+steering_radius_um = 66.7
+growth_vertical_bias = 0.95
+dendrite_radius_um = 420.0
+type_affinity = 0.8
+sprouting_weight_distance = 0.5
+sprouting_weight_power = 0.4
+sprouting_weight_explore = 0.1
+sprouting_weight_type = 0.2
+steering_weight_inertia = 0.5
+steering_weight_sensor = 0.4
+steering_weight_jitter = 0.1
+
+# Пластичность GSOP
+initial_synapse_weight = 185
+gsop_potentiation = 171
+gsop_depression = 92
+inertia_curve = [128, 107, 89, 74, 62, 52, 43, 36, 30, 25, 21, 17, 14, 12, 10, 8]
+prune_threshold = 5
