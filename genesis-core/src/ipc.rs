@@ -37,7 +37,8 @@ pub struct AxonHandoverEvent {
     pub vector_z: i8,
     pub type_mask: u8,
     pub remaining_length: u16,
-    pub _padding: u16,
+    pub entry_z: u8, // [DOD FIX] Z-координата входа
+    pub _padding: u8,
 }
 const _: () = assert!(
     std::mem::size_of::<AxonHandoverEvent>() == 16,

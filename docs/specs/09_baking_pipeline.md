@@ -222,19 +222,44 @@ if let Ok(parsed) = genesis_runtime::output::GxoFile::load(path) {
 ┌─────────────────────────────────────────┐
 │ Header (20 bytes)                       │
 │   magic:           u32 = 0x47485354     │  "GHST"
-│   version:         u8  = 1             │
-│   _padding:        u8[1]               │
+│   version:         u8  = 1              │
+│   _padding:        u8[1]                │
 │   width:           u16                  │
 │   height:          u16                  │
-│   _padding:        u8[2]               │
+│   _padding:        u8[2]                │
 │   src_zone_hash:   u32                  │
 │   dst_zone_hash:   u32                  │
-├─────────────────────────────────────────┤
 │ Ghost Array (width×height × 8 bytes)    │
 │   local_axon_id:   u32                  │  индекс в axon_heads[] приёмника
 │   paired_src_soma: u32                  │  индекс сомы в зоне-источнике
 └─────────────────────────────────────────┘
+
+### 2.4. .paths (Axon Full Geometry)
+
+Файл хранит полную геометрию аксонов в виде плоской 2D-матрицы. 
+Длина аксона аппаратно ограничена 256 сегментами, так как `Segment_Offset` занимает 8 бит в структуре `PackedTarget` (01_foundations.md §1.2).
+
+**Format** (Little-Endian, Zero-Copy Mmap Ready):
+
+```text
+┌──────────────────────────────────────┐
+│ Header (16 bytes)                    │
+│   magic:         u32 = 0x50415448    │ "PATH"
+│   version:       u32 = 1             │
+│   total_axons:   u32                 │
+│   max_segments:  u32 = 256           │ Хардкод
+├──────────────────────────────────────┤
+│ Lengths Array                        │
+│   lengths:       u8[total_axons]     │ Текущая длина каждого аксона
+│   _padding:      align up to 64B     │ L2 Cache Line alignment
+├──────────────────────────────────────┤
+│ Segments Matrix (Flat SoA)           │
+│ total_axons × 256 × 4 bytes          │
+│   positions:     u32[A * 256]        │ PackedPosition (X|Y|Z|Type)
+└──────────────────────────────────────┘
 ```
+
+Загрузка в рантайм: Эксклюзивно для Baker Daemon (Night Phase) через `memmap2::MmapMut`. GPU этот файл не видит и не читает.
 
 ---
 

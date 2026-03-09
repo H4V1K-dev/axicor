@@ -181,11 +181,25 @@ pub fn build_local_topology_internal(
             burst.h0 = init_val;
             shard.axon_heads[i] = burst;
 
-            shard.axon_tips_uvw[i] = (ax.tip_z << 20) | (ax.tip_y << 10) | ax.tip_x;
+            shard.axon_tips_uvw[i] = (ax.tip_z << 22) | (ax.tip_y << 11) | ax.tip_x;
             let dx = (ax.last_dir.x * 127.0).clamp(-127.0, 127.0) as i8 as u32;
             let dy = (ax.last_dir.y * 127.0).clamp(-127.0, 127.0) as i8 as u32;
             let dz = (ax.last_dir.z * 127.0).clamp(-127.0, 127.0) as i8 as u32;
             shard.axon_dirs_xyz[i] = (dz << 16) | (dy << 8) | dx;
+            
+            // Копируем пути в плоскую матрицу
+            let len = ax.length_segments.min(256) as usize;
+            shard.axon_lengths[i] = len as u8;
+            
+            let dst_offset = i * genesis_core::layout::MAX_SEGMENTS_PER_AXON;
+            
+            // Только если длина > 0, переносим сегменты
+            if len > 0 {
+                // GrownAxon хранит все сегменты (или только до ограничения)
+                let copy_len = ax.segments.len().min(len);
+                shard.axon_paths[dst_offset..dst_offset + copy_len]
+                    .copy_from_slice(&ax.segments[..copy_len]);
+            }
         }
     }
     println!("[baker] ✓ Axon heads initialized (v_seg={})", v_seg);

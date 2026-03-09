@@ -26,17 +26,18 @@ struct NightPhaseContext {
     /// Максимальное количество аксонов (включая ghost capacity)
     _total_axons_max: u32,
     
-    // [Шаг 4] Геометрия аксонов, загруженная один раз при старте
-    /// axon_tips_uvw: Vec<u32> — упакованные Z|Y|X координаты кончиков (по одному на аксон)
-    _axon_tips_uvw: Vec<u32>,
-    /// axon_dirs_xyz: Vec<u32> — упакованные направления (по одному на аксон)
-    _axon_dirs_xyz: Vec<u32>,
-    /// axon_heads: Vec<genesis_core::layout::BurstHeads8> — состояние аксонных голов (для инициализации новых ghost аксонов)
-    _axon_heads: Vec<genesis_core::layout::BurstHeads8>,
+    _total_ghosts: u32,
+    _max_x: u32,
+    _max_y: u32,
     
-    // [Шаг 4] soma_to_axon маппинг для интеграции новых ghost axons 
-    /// soma_to_axon: Vec<u32> — маппинг soma_idx → axon_idx
+    _axon_heads: Vec<genesis_core::layout::BurstHeads8>,
     _soma_to_axon: Vec<u32>,
+
+    _geom_mmap: memmap2::MmapMut,
+
+    // НОВЫЕ ММАПЫ
+    _paths_mmap: memmap2::MmapMut,
+    _pos_mmap: memmap2::Mmap,
 }
 
 #[derive(Parser)]
@@ -275,27 +276,25 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf, zone_hash: u32
         (axon_heads, s2a)
     };
 
-    // Файл .geom: axon_tips_uvw (u32 × total_axons) + axon_dirs_xyz (u32 × total_axons)
+    // [DOD FIX] total_ghosts берется из манифеста
+    let total_ghosts = manifest.memory.ghost_capacity as u32;
+    let max_x = shard_cfg.dimensions.w;
+    let max_y = shard_cfg.dimensions.d;
+
     let geom_path = baked_dir.join("shard.geom");
-    let (axon_tips_uvw, axon_dirs_xyz) = if let Ok(geom_file) = std::fs::File::open(&geom_path) {
-        if let Ok(geom_mmap) = unsafe { memmap2::Mmap::map(&geom_file) } {
-            let count = total_axons_max as usize;
-            let expected_size = 8 * count;
-            if geom_mmap.len() >= expected_size {
-                let tips_slice = &geom_mmap[0..4 * count];
-                let dirs_slice = &geom_mmap[4 * count..8 * count];
-                (bytemuck::cast_slice(tips_slice).to_vec(), bytemuck::cast_slice(dirs_slice).to_vec())
-            } else {
-                (vec![0; count], vec![0; count])
-            }
-        } else {
-            (vec![0; total_axons_max as usize], vec![0; total_axons_max as usize])
-        }
-    } else {
-        (vec![0; total_axons_max as usize], vec![0; total_axons_max as usize])
-    };
+    let geom_file = std::fs::OpenOptions::new().read(true).write(true).open(&geom_path).ok()?;
+    let geom_mmap = unsafe { memmap2::MmapMut::map_mut(&geom_file).ok()? };
 
     println!("[Daemon] Loaded {} axon geometries (next_ghost_slot_base={})", total_axons_max, padded_n);
+
+    // Загрузка Paths (R/W) и Pos (R/O)
+    let paths_path = baked_dir.join("shard.paths");
+    let paths_file = std::fs::OpenOptions::new().read(true).write(true).open(&paths_path).ok()?;
+    let paths_mmap = unsafe { memmap2::MmapMut::map_mut(&paths_file).ok()? };
+
+    let pos_path = baked_dir.join("shard.pos");
+    let pos_file = std::fs::File::open(&pos_path).ok()?;
+    let pos_mmap = unsafe { memmap2::Mmap::map(&pos_file).ok()? };
 
 
     Some(NightPhaseContext {
@@ -307,10 +306,14 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf, zone_hash: u32
         _master_seed: master_seed,
         _next_ghost_slot_base: padded_n,
         _total_axons_max: total_axons_max,
-        _axon_tips_uvw: axon_tips_uvw,
-        _axon_dirs_xyz: axon_dirs_xyz,
+        _total_ghosts: total_ghosts,
+        _max_x: max_x,
+        _max_y: max_y,
         _axon_heads: axon_heads,
         _soma_to_axon: soma_to_axon,
+        _geom_mmap: geom_mmap,
+        _paths_mmap: paths_mmap,
+        _pos_mmap: pos_mmap,
     })
 }
 
@@ -318,7 +321,7 @@ fn run_night_phase<S: Read + Write>(
     mut stream: S,
     _zone_hash: u32,
     blueprints: Option<&BlueprintsConfig>,
-    ctx: Option<&mut NightPhaseContext>, // [DOD] Mut reference
+    mut ctx: Option<&mut NightPhaseContext>, // [DOD] Mut reference
     shm_ptr: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Read binary BakeRequest (16 bytes)
@@ -345,38 +348,95 @@ fn run_night_phase<S: Read + Write>(
     let h_count = hdr.handovers_count as usize;
     let slot_n = padded_n * MAX_DENDRITE_SLOTS;
 
+    let h_count_max = genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT as usize;
+    
     // 3. Obtain slices directly from SHM (Zero-Copy)
-    let (weights, targets, flags, _handovers) = unsafe {
+    let (weights, targets, flags, handovers) = unsafe {
         let w_ptr = shm_ptr.add(w_off) as *mut i16;
         let t_ptr = shm_ptr.add(t_off) as *mut u32;
         let f_ptr = shm_ptr.add(f_off) as *const u8;
-        let h_ptr = shm_ptr.add(h_off) as *const genesis_core::ipc::AxonHandoverEvent;
+        let h_ptr = shm_ptr.add(h_off) as *mut genesis_core::ipc::AxonHandoverEvent;
         (
             std::slice::from_raw_parts_mut(w_ptr, slot_n),
             std::slice::from_raw_parts_mut(t_ptr, slot_n),
             std::slice::from_raw_parts(f_ptr, padded_n),
-            std::slice::from_raw_parts(h_ptr, h_count),
+            std::slice::from_raw_parts_mut(h_ptr, h_count_max),
         )
     };
 
     // 4. CPU Sprouting & Living Axons (Zero-Copy)
-    let new_synapses = if let Some(ctx) = ctx {
+    let (new_synapses, generated_handovers) = if let Some(ctx) = ctx.as_deref_mut() {
+        // Каст заголовка и вычисление смещений
+        let paths_hdr = unsafe { &*(ctx._paths_mmap.as_ptr() as *const genesis_core::layout::PathsFileHeader) };
+        let paths_total_axons = paths_hdr.total_axons as usize;
+
+        let lengths_slice = unsafe {
+            std::slice::from_raw_parts_mut(
+                ctx._paths_mmap.as_mut_ptr().add(16),
+                paths_total_axons
+            )
+        };
+
+        let matrix_offset = genesis_core::layout::calculate_paths_matrix_offset(paths_total_axons);
+        let paths_slice = unsafe {
+            std::slice::from_raw_parts_mut(
+                ctx._paths_mmap.as_mut_ptr().add(matrix_offset) as *mut u32,
+                paths_total_axons * 256
+            )
+        };
+
+        let soma_positions = unsafe {
+            std::slice::from_raw_parts(
+                ctx._pos_mmap.as_ptr() as *const u32,
+                padded_n
+            )
+        };
+
+        // Извлекаем tips и dirs из _geom_mmap
+        let geom_total_axons = ctx._total_axons_max as usize;
+        let tips_slice = unsafe {
+            std::slice::from_raw_parts_mut(ctx._geom_mmap.as_mut_ptr() as *mut u32, geom_total_axons)
+        };
+        let dirs_slice = unsafe {
+            std::slice::from_raw_parts_mut(ctx._geom_mmap.as_mut_ptr().add(geom_total_axons * 4) as *mut u32, geom_total_axons)
+        };
+
         genesis_baker::bake::sprouting::run_sprouting_pass(
             targets,
             weights,
             flags,
-            &mut ctx._axon_tips_uvw,
-            &ctx._axon_dirs_xyz,
+            handovers,            // NEW: передаем очередь
+            h_count,              // НОВЫЙ ПАРАМЕТР
+            tips_slice,           // Из MmapMut
+            dirs_slice,           // Из MmapMut
             &ctx._soma_to_axon,
             padded_n,
+            ctx._total_ghosts as usize, // NEW
+            ctx._max_x,           // NEW
+            ctx._max_y,           // NEW
             blueprints,
             hdr.epoch,
+            lengths_slice,   // NEW
+            paths_slice,     // NEW
+            soma_positions,  // NEW
         )
     } else {
-        0
+        (0, 0)
     };
 
-    println!("   ↳ Sprouted {} new synapses", new_synapses);
+    // Обновляем счетчик сгенерированных хэндоверов
+    unsafe {
+        (*hdr_ptr).handovers_count = generated_handovers as u32;
+    }
+
+    if let Some(ctx) = ctx.as_deref_mut() {
+        // [DOD FIX] Асинхронный сброс грязных страниц на SSD (Crash Tolerance).
+        // Не блокирует поток, ОС сама скинет данные на диск в фоне.
+        let _ = ctx._paths_mmap.flush_async();
+        let _ = ctx._geom_mmap.flush_async();
+    }
+
+    println!("   ↳ Sprouted {} new synapses, handovers: {}", new_synapses, generated_handovers);
 
     // 5. GSOP Plasticity / Ghost Integration (TODO/Placeholders)
     // Here we would use `handovers` for GSOP or Growth logic.

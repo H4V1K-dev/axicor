@@ -54,22 +54,23 @@ pub struct GhostConnection {
 - **Runtime:** Каждая Connection описывает Ghost Axon, который уже **физически растёт** в целевом шарде (как обычный локальный аксон).
 - **Sender-Side Mapping:** При спайке soma на источнике, спайк кодируется как предвычисленный `ghost_id` (из таблицы маппинга), передаётся по сети, и на целевом шарде используется прямым индексом в массив `axon_heads`.
 
-**[PLANNED] Полная AxonHandover (V2):**
+**[MVP] Полная AxonHandover (V2):**
 При включении полнофункционального роста аксонов через границы, будет расширено до:
 
 ```rust
-struct AxonHandover {
-    coord_a: u16,              // Координата на стыке (Y при X-граница | X при Y-граница)
-    coord_b: u16,              // Z-координата
-
-    dir_x: i8,                 // Вектор роста (нормализованный)
-    dir_y: i8,
-    dir_z: i8,
-
-    type_mask: u8,             // Geo(1) | Sign(1) | Var(2)
-    remaining_segments: u16,   // TTL роста
-    _pad: u8,
-}
+#[repr(C, packed)]
+pub struct AxonHandoverEvent {
+    pub local_axon_id: u32,    // ID локального аксона-исходника
+    pub entry_x: u16,          // 3D-координаты входа в новый шард
+    pub entry_y: u16,
+    pub vector_x: i8,          // Вектор роста (направление + скорость)
+    pub vector_y: i8,
+    pub vector_z: i8,
+    pub type_mask: u8,         // Geo(1) | Sign(1) | Var(2)
+    pub remaining_length: u16, // TTL роста (оставшиеся сегменты)
+    pub entry_z: u8,           // Z-координата входа
+    pub _padding: u8,
+} // 16 bytes
 ```
 
 **Отличие:** In V1, аксон уже вырос и зафиксирован. In V2, аксон продолжал бы расти через границы динамически.
@@ -270,10 +271,12 @@ pub struct SpikeEventV2 {
 
 **Шаг 1: Рождение (Slow Path / Night Phase)**
 
-1. Аксон шарда A достигает границы X+. CPU шарда A отправляет `NewAxon { entry_point, vector, type_mask }` в шард B.
-2. CPU шарда B в фазу «Ночь» аллоцирует слот в зоне Ghost: `ghost_id = num_local + offset`.
-3. Шард B отвечает `Handshake_Ack(local_axon_id_A, ghost_id)`.
-4. CPU шарда A записывает маппинг: «Мой аксон X → Шард B, индекс `ghost_id`».
+**Шаг 1: Рождение и Абсорбция (Slow Path / Night Phase)**
+
+1. Аксон шарда A достигает 3D-границы (X, Y или Z). Ограничения шарда пробиваются, и в очередь SHM формируется `AxonHandoverEvent`.
+2. В фазу «Ночь» (внутри `run_sprouting_pass`) шард B читает входящую очередь `handovers_count`.
+3. CPU шарда B выполняет **Абсорбцию Ghost Axons**: происходит O(N) сканирование диапазона `padded_n .. padded_n + total_ghosts` (с идеальной локальностью L1 кэша) для поиска свободных слотов (`tip == 0`, что означает мёртвого призрака).
+4. Найдя свободный слот, шард распаковывает `entry_x/y/z` и `vector_x/y/z`, записывает их в `axon_tips_uvw` и `axon_dirs_xyz` и сбрасывает длину в 0. Новый Ghost Axon физически готов к росту и синаптогенезу.
 
 **Шаг 2: Активность (Fast Path / Day Phase)**
 

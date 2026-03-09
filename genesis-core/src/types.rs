@@ -65,7 +65,7 @@ pub type Voltage = i32;
 /// Axon head position (segment index). AXON_SENTINEL when inactive.
 pub type AxonHead = u32;
 
-/// Dendrite target: [31..10] axon_id (22 bits) | [9..0] segment_index (10 bits).
+/// Dendrite target: [31..24] segment_offset (8 bits) | [23..0] axon_id + 1 (24 bits).
 pub type PackedTarget = u32;
 
 /// Индекс сегмента внутри аксона. 10 бит → 0..=1023.

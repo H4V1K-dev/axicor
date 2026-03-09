@@ -53,9 +53,9 @@ pub fn build_gxo_mapping(
     let mut min_z_per_pixel = vec![u32::MAX; total_pixels];
 
     for (dense_id, &packed) in neurons_packed_pos.iter().enumerate() {
-        let vx = (packed & 0x3FF) as u32;       // X in voxels
-        let vy = ((packed >> 10) & 0x3FF) as u32; // Y in voxels
-        let vz = (packed >> 20) & 0xFF;          // Z in voxels
+        let vx = (packed & 0x7FF) as u32;       // 11 bits
+        let vy = ((packed >> 11) & 0x7FF) as u32; // 11 bits
+        let vz = (packed >> 22) & 0x3F;          // 6 bits
 
         let px = ((vx as u64 * matrix_width as u64) / zone_width_vox.max(1) as u64)
             .min(matrix_width as u64 - 1) as u32;

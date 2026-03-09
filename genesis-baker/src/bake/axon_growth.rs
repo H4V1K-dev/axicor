@@ -485,9 +485,9 @@ pub fn grow_single_axon(
 
     let length_segments = segments.len() as u32;
     let (final_x, final_y, final_z) = if let Some(last) = segments.last() {
-        let z = (last >> 20) & 0xFF;
-        let y = (last >> 10) & 0x3FF;
-        let x = last & 0x3FF;
+        let z = (last >> 22) & 0x3F;
+        let y = (last >> 11) & 0x7FF;
+        let x = last & 0x7FF;
         (x, y, z)
     } else {
         (soma_x, soma_y, soma_z)

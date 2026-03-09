@@ -117,7 +117,6 @@ mod tests {
     use genesis_core::config::blueprints::NeuronType;
     use crate::bake::axon_growth::GrownAxon;
     use crate::bake::layout::ShardSoA;
-    use genesis_core::constants::MAX_DENDRITE_SLOTS;
 
     #[test]
     fn test_concurrent_somas_connect_to_same_axon() {

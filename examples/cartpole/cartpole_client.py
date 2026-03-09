@@ -114,9 +114,9 @@ def main() -> None:
         cart_x, cart_v, pole_a, pole_av = obs
 
         # ── 2. Dopamine signal (R-STDP steering) ─────────────────
-        # Adjusted: increased reward zone and multiplier, decreased velocity penalty.
-        dopamine = int((0.05 - abs(pole_a)) * 30000 - abs(pole_av) * 2000)
-        dopamine = max(-32768, min(32767, dopamine))
+        # Re-enabled at 50% intensity as requested
+        dopamine = int((0.05 - abs(pole_a)) * 15000 - abs(pole_av) * 15000)       # abs(pole_a) * N - Максимальный импульс при идеальном балансе 
+        dopamine = max(-32768, min(32767, dopamine))                             # abs(pole_av) * N - Максимальный импульс при идеальном движении
 
         # ── 3. Encode & send ─────────────────────────────────────
         # 4 variables * 64 bits = 256 bits = 32 bytes per tick

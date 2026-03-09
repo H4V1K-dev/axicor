@@ -56,12 +56,12 @@ pub fn bake_atlas_connection(
             let mut min_dist_sq = f32::MAX;
 
             for (dense_id, &packed) in src_packed_pos.iter().enumerate() {
-                // Распаковка 10-бит X, 10-бит Y
-                let vx = (packed & 0x3FF) as f32; 
-                let vy = ((packed >> 10) & 0x3FF) as f32; 
+                // [DOD FIX] Пересчёт: Voxel Coords (0..720) -> Microns (0..18000)
+                let vx_um = (packed & 0x7FF) as f32 * 25.0; 
+                let vy_um = ((packed >> 11) & 0x7FF) as f32 * 25.0; 
                 
-                let dx = vx - target_x;
-                let dy = vy - target_y;
+                let dx = vx_um - target_x;
+                let dy = vy_um - target_y;
                 let dist_sq = dx * dx + dy * dy;
 
                 if dist_sq < min_dist_sq {
@@ -81,13 +81,26 @@ pub fn bake_atlas_connection(
     let path = out_dir.join(format!("{}_{}.ghosts", from_name, to_name));
     let mut file = BufWriter::new(File::create(path).expect("Failed to create .ghosts file"));
     
-    file.write_all(&(count as u32).to_le_bytes()).unwrap();
-    
-    let src_bytes = unsafe { std::slice::from_raw_parts(src_indices.as_ptr() as *const u8, src_indices.len() * 4) };
-    let dst_bytes = unsafe { std::slice::from_raw_parts(dst_indices.as_ptr() as *const u8, dst_indices.len() * 4) };
-    
-    file.write_all(src_bytes).unwrap();
-    file.write_all(dst_bytes).unwrap();
+    // [DOD FIX] Используем новые C-ABI структуры из ipc.rs
+    use genesis_core::ipc::{GhostsHeader, GhostConnection};
+    use genesis_core::hash::fnv1a_32;
+
+    let header = GhostsHeader::new(
+        fnv1a_32(from_name.as_bytes()),
+        fnv1a_32(to_name.as_bytes()),
+        count
+    );
+    file.write_all(header.as_bytes()).unwrap();
+
+    let mut connections = Vec::with_capacity(count as usize);
+    for i in 0..count as usize {
+        connections.push(GhostConnection {
+            src_soma_id: src_indices[i],
+            target_ghost_id: dst_indices[i],
+        });
+    }
+
+    file.write_all(GhostConnection::slice_as_bytes(&connections)).unwrap();
 
     count
 }

@@ -698,4 +698,9 @@ if batch_counter % CHECKPOINT_INTERVAL_BATCHES == 0 {
 | **Геометрия** (`axons`) | После каждой Night Phase | `.axons` |
 | **Состояние** (`weights` + `targets`) | Каждые ~5 минут | `checkpoint_weights.bin` |
 
+### 3.4. Crash Tolerance (Mmap Page Cache Flush)
 
+При работе с Zero-Copy Mmap (`.geom`, `.paths`) ОС использует Page Cache. В случае неожиданного отключения питания или Kernel Panic, "грязные" (dirty) страницы могут не успеть сброситься на энергонезависимый носитель (NVMe SSD), что приведёт к рассинхронизации топологии.
+
+**Асинхронный сброс (Flush Async):**
+Сразу после успешного структурного обновления в Night Phase (вызов `run_sprouting_pass`), Baker Daemon инициирует `flush_async()` для `mmap_geom` и `mmap_paths`. Это не блокирует дальнейший ход симуляции, но заставляет ОС приоритетно отправить грязные страницы на диск, минимизируя окно уязвимости до миллисекунд.

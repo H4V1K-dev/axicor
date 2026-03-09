@@ -138,6 +138,42 @@ impl AxonsFileHeader {
     }
 }
 
+pub const PATHS_MAGIC: u32 = 0x50415448; // "PATH"
+pub const MAX_SEGMENTS_PER_AXON: usize = 256;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct PathsFileHeader {
+    pub magic: u32,
+    pub version: u32,
+    pub total_axons: u32,
+    pub max_segments: u32,
+}
+
+const _: () = assert!(std::mem::size_of::<PathsFileHeader>() == 16, "PathsFileHeader must be 16 bytes");
+
+/// Вычисляет точный размер файла `shard.paths`.
+/// Гарантирует, что матрица segments начнётся с адреса, кратного 64 байтам.
+pub const fn calculate_paths_file_size(total_axons: usize) -> usize {
+    let header_sz = std::mem::size_of::<PathsFileHeader>(); // 16
+    let lengths_sz = total_axons;
+    
+    // Выравнивание до 64 байт
+    let padding = (64 - ((header_sz + lengths_sz) % 64)) % 64;
+    
+    let matrix_sz = total_axons * MAX_SEGMENTS_PER_AXON * 4; // 4 bytes per PackedPosition
+    
+    header_sz + lengths_sz + padding + matrix_sz
+}
+
+/// Смещение до начала матрицы
+pub const fn calculate_paths_matrix_offset(total_axons: usize) -> usize {
+    let header_sz = 16;
+    let lengths_sz = total_axons;
+    let padding = (64 - ((header_sz + lengths_sz) % 64)) % 64;
+    header_sz + lengths_sz + padding
+}
+
 /// Host-side SoA state of a shard.
 /// Used for baking and disk I/O.
 #[repr(C)]
