@@ -512,7 +512,8 @@ pub fn spawn_shard_thread(
                         }
 
                         // ФАЗА 3: Периодический сброс на диск (I/O)
-                        if batch_counter > 0 && batch_counter % 50 == 0 {
+                        let cp_interval = (desc.config.settings.save_checkpoints_interval_ticks / batch_size).max(1);
+                        if batch_counter > 0 && batch_counter % cp_interval as u64 == 0 {
                             save_hot_checkpoint(
                                 &desc.engine, 
                                 hash, 

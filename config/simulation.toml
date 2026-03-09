@@ -1,13 +1,13 @@
 [world]
-width_um = 1000
-depth_um = 1000
-height_um = 1000
+width_um = 18000
+depth_um = 6000
+height_um = 1575
 
 [simulation]
 tick_duration_us = 100
 total_ticks = 0
 master_seed = "GENESIS_REBIRTH"
-global_density = 0.05
+global_density = 0.15
 voxel_size_um = 25.0
 segment_length_voxels = 2
 signal_speed_m_s = 0.5

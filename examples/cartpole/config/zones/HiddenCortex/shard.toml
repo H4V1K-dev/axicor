@@ -1,7 +1,7 @@
-zone_id = "SensoryCortex"
+zone_id = "HiddenCortex"
 
 [world_offset]
-x = 0
+x = 240
 y = 0
 z = 0
 
@@ -13,4 +13,4 @@ h = 63
 [neighbors]
 
 [settings]
-save_checkpoints_interval_ticks = 100000
+save_checkpoints_interval_ticks = 100_000

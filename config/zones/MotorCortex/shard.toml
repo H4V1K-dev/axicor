@@ -1,13 +1,13 @@
-zone_id = "SensoryCortex"
+zone_id = "MotorCortex"
 
 [world_offset]
-x = 120
+x = 240
 y = 0
 z = 0
 
 [dimensions]
-w = 120
-d = 120
+w = 240
+d = 240
 h = 63
 
 [neighbors]

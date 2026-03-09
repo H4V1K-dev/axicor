@@ -10,9 +10,9 @@ matplotlib.use('Agg')  # Безголовый рендер
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
-GHOSTS_FILE = "/home/alex/Workflow/Genesis/baked/SensoryCortex/SensoryCortex_HiddenCortex.ghosts"
-PADDED_N_A = 8640
-PADDED_N_B = 8640
+GHOSTS_FILE = "/home/alex/Workflow/Genesis/baked/MotorCortex/SensoryCortex_MotorCortex.ghosts"
+PADDED_N_A = 145152
+PADDED_N_B = 145152
 
 def load_ghosts(path):
     with open(path, 'rb') as f:
@@ -46,9 +46,8 @@ def main():
     src_pos = np.array([axon_to_3d(a, PADDED_N_A, CUBE) for a in src_axons])
     
     # Позиции dst ghosts в кубе B (справа, со смещением по X)
-    # dst_ghosts начинаются с ~8638, это ghost_offset + i
-    # Для позиции используем i (индекс внутри ghost-массива)
-    dst_pos = np.array([axon_to_3d(i, count, CUBE) for i in range(count)])
+    # Используем относительный индекс внутри ghost-массива для 3D-раскладки
+    dst_pos = np.array([axon_to_3d(g - dst_ghosts.min(), count, CUBE) for g in dst_ghosts])
     dst_pos[:, 0] += GAP  # Сдвигаем куб B вправо
     
     # Фоновые нейроны (подвыборка)

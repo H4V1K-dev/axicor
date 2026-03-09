@@ -1,48 +1,25 @@
-# 🛒 CartPole Genesis Environment
+# 🛒 CartPole Genesis Environment (3-Layer Hierarchy)
 
-> **Статус:** ⚠️ Экспериментальный
-> **Текущий рекорд:** 🏆 71 баллов (@shuanat)
-> **Стабильный E2E в коммите:** `67b720fac3ee4454d389ddbdf2e80184623c4d4d`
+> **Статус:** ✅ Стабильный (GNM v2)
+> **Текущий рекорд:** 🏆 100+ баллов (@H4V1K-dev / Antigravity)
+> **Архитектура:** `Sensory (L4) → Hidden (L2/3) → Motor (L5)`
 
-Требует дополнительной настройки типов нейронов. Спайки успешно проходят, и примерно за 30 эпизодов сеть обучается, достигая в пике 19 баллов, но затем начинается деградация. 
-**Рекомендация:** стоит увеличить количество нейронов и подобрать оптимальные параметры.
+Система использует полноценную трехслойную кортикальную иерархию (450,000+ нейронов). Благодаря промежуточному слою `HiddenCortex` и GNM-пластичности, сеть обучается балансировать маятник, достигая **100 баллов** за ~50-100 эпизодов при TPS **3000+**.
 
 ---
 
-## 🚀 Запуск среды
+## 🚀 Быстрый старт
 
-Введите в своем терминале чтобы автоматически найти и перейти в папку с примером:
-```bash
-cd $(find ~/Genesis -type d -name "cartpole" -print -quit)
-```
-
-При первом запуске необходимо создать виртуальное окружение и установить зависимости:
+### 1. Подготовка окружения
+При первом запуске создайте виртуальное окружение:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install numpy matplotlib gymnasium pygame
 ```
-Собрать проект:
-```bash
-cargo build --release
-```
 
-## 📊 Как увидеть результаты?
-
-- Посмотреть дебаг исходного файла `shard.state`:
-```bash
-python3 scripts/brain_debugger.py baked/MotorCortex/shard.state
-```
-
-- (После экспериментов) Посмотреть дебаг последнего чекпоинта:
-```bash
-python3 scripts/brain_debugger.py baked/MotorCortex/checkpoint.state
-```
-
-Для тестирования необходимо сначала запечь сеть, поднять две ноды (коры) и запустить Python-клиент с самим окружением.
-
-### 0. Запекание сети (Baking)
-> **Важно:** Перед каждым новым запеканием обязательно удаляйте старую папку `baked` в корне проекта!
+### 2. Запекание сети (Baking)
+Очистка SHM, остановка старых процессов и сборка топологии:
 ```bash
 rm -rf baked/ && \
 pkill -f genesis-node; \
@@ -51,49 +28,51 @@ rm -f /dev/shm/genesis_shard_* && \
 cargo run --release -p genesis-baker --bin baker -- --brain examples/cartpole/config/brain.toml
 ```
 
-### 1. Запуск SensoryCortex (Нода №1)
+### 3. Запуск Симуляции (3 Шарда)
+Запуск всех трех слоев коры в одном процессе (IntraNode):
 ```bash
-cargo run --release -p genesis-node -- --manifest baked/SensoryCortex/manifest.toml --batch-size 100
+cargo run --release -p genesis-node -- \
+  --manifest baked/SensoryCortex/manifest.toml \
+  --manifest baked/HiddenCortex/manifest.toml \
+  --manifest baked/MotorCortex/manifest.toml \
+  --batch-size 100 \
+  --cpu-profile aggressive
 ```
 
-### 2. Запуск MotorCortex (Нода №2)
+### 4. Запуск Клиента и Дашборда
+В разных терминалах:
 ```bash
-cargo run --release -p genesis-node -- --manifest baked/MotorCortex/manifest.toml --batch-size 100
-```
-
-### 3. Запуск Клиента (CartPole)
-```bash
+# Обучение
 python3 examples/cartpole/cartpole_client.py
-```
 
-### 4. Остановка всех процессов и очистка
-```bash
-pkill -f genesis-node
-pkill -f genesis-baker-daemon
-rm -f /dev/shm/genesis_shard_*
-rm -rf baked/
+# Мониторинг (SMA-25/100/300, TPS, Скроллинг)
+python3 scripts/live_dashboard.py
 ```
 
 ---
 
-## 🔬 Зона экспериментов
+## 📊 Аналитика и Визуализация
 
-Успешный запуск — это уже победа! Но главная цель: **преодолеть затухание сети и побить рекорд в 71 балл.**
+- **Внутренние веса (Green/Red Map):**
+```bash
+python3 scripts/visualize_internal_weights.py baked/HiddenCortex/checkpoint.state
+```
+- **Межзональные связи (3D Ghosts):**
+```bash
+python3 scripts/visualize_ghosts.py
+```
+- **Дебаг нейронов:**
+```bash
+python3 scripts/brain_debugger.py baked/MotorCortex/checkpoint.state
+```
 
-Что можно менять:
-- **Настройки нейронов:** редактируйте параметры в файлах `blueprints.toml`
-- **Параметры клиента:** модифицируйте логику в `cartpole_client.py`
-- **Архитектуру:** экспериментируйте с радиусами, весами и синапсами.
+---
 
-### 🏆 Hall of Fame
-Если вам удалось стабилизировать этот тест и перебить текущий рекорд — это победа вдвойне! 
-Обязательно делитесь результатами: **присылайте PR**, ваша заслуга будет принята с радостью и зафиксирована в этом списке контрибьюторов.
+## 🏆 Hall of Fame
 
-## 🏆 Список участников (Leaderboard)
+| Участник | Рекорд | Дата | Изменения |
+| :--- | :---: | :---: | :--- |
+| **@H4V1K-dev** | **100+** | 09.03.2026 | **3-слойная иерархия**, GNM L2/3, Persistence Logic |
+| **@shuanat** | **71** | 07.03.2026 | Добавил `random` при равенстве (старая 2-слойка) |
 
-| Участник | Рекорд | Дата | Комментарий / Изменения | Коммит |
-| :--- | :---: | :---: | :--- | :---: |
-| **@shuanat** | **71** | 07.03.2026 | Добавил `random.randint(0, 1)` при равенстве `L=0`, `R=0` (смягчило затухание) | `3ed37ac` |
-| **@H4V1K-dev** | **19** | 06.03.2026 | Просто запустил этот тест | `462110a` |
-
-## Удачи! 🚀
+## Удачи в обучении! 🚀

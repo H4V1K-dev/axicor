@@ -1,0 +1,18 @@
+[[input]]
+name = "sensory_to_hidden"
+zone = "HiddenCortex"
+width = 16
+height = 16
+entry_z = "bottom"
+target_type = "L23_spiny_VISp"
+growth_steps = 150
+empty_pixel = "nearest"
+stride = 1
+
+[[output]]
+name = "hidden_out"
+zone = "HiddenCortex"
+width = 16
+height = 16
+target_type = "L23_spiny_VISp"
+stride = 1

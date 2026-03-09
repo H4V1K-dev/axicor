@@ -1,16 +1,16 @@
 [world]
-width_um = 1000
-depth_um = 1000
-height_um = 1000
+width_um = 18000
+depth_um = 3000
+height_um = 1575
 
 [simulation]
 tick_duration_us = 100
 total_ticks = 0
-master_seed = "GENESIS_REBIRTH"
-global_density = 0.05
+master_seed = "GENESIS"
+global_density = 0.04
 voxel_size_um = 25.0
 segment_length_voxels = 2
 signal_speed_m_s = 0.5
 sync_batch_ticks = 100
-night_interval_ticks = 15000
-axon_growth_max_steps = 250
+night_interval_ticks = 45000
+axon_growth_max_steps = 125

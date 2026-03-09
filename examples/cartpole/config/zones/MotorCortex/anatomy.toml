@@ -4,4 +4,5 @@ height_pct = 1.0
 population_pct = 1.0
 
 [layer.composition]
-"Excitatory" = 1.0
+"L5_spiny_MTG" = 0.7
+"L1_Sst" = 0.3

@@ -1,13 +1,13 @@
-zone_id = "SensoryCortex"
+zone_id = "HiddenCortex"
 
 [world_offset]
-x = 240
+x = 480
 y = 0
 z = 0
 
 [dimensions]
-w = 120
-d = 120
+w = 240
+d = 240
 h = 63
 
 [neighbors]

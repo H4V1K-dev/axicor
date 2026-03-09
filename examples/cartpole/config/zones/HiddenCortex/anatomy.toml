@@ -4,5 +4,5 @@ height_pct = 1.0
 population_pct = 1.0
 
 [layer.composition]
-"L4_spiny_VISp" = 0.8
-"L23_PV" = 0.2
+"L23_spiny_VISp" = 0.75
+"L23_PV" = 0.25

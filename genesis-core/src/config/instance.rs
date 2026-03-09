@@ -18,6 +18,24 @@ pub struct InstanceConfig {
     /// Neighborhood topology. "Self" means loopback (toroidal graph mapping),
     /// otherwise an IP:Port string. Left blank if bounded.
     pub neighbors: Neighbors,
+
+    /// Shard-specific runtime settings
+    #[serde(default)]
+    pub settings: ShardSettings,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct ShardSettings {
+    /// How often to save checkpoint.state (in ticks)
+    pub save_checkpoints_interval_ticks: u32,
+}
+
+impl Default for ShardSettings {
+    fn default() -> Self {
+        Self {
+            save_checkpoints_interval_ticks: 100_000, // Default: every 1000 batches if batch=100
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]

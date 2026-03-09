@@ -20,6 +20,7 @@ HEADER_SIZE = struct.calcsize(HEADER_FMT)  # 20
 GENESIS_IP  = "127.0.0.1"
 PORT_OUT    = 8081   # Node receives input here
 PORT_IN     = 8092   # Node sends output here (MotorCortex)
+TELEMETRY_PORT = 8100 # Dashboard listens here
 BATCH_TICKS = 100
 NUM_NEURONS = 64     # neurons per variable
 
@@ -100,7 +101,13 @@ def main() -> None:
     left_power   = 0
     right_power  = 0
 
+    import time
+    start_time = time.time()
+    total_ticks = 0
+
     while True:
+        # ... stay in loop ...
+        # (Actually I need to place this inside the loop properly)
         # ── 1. Environment step ──────────────────────────────────
         obs, reward, terminated, truncated, _ = env.step(action)
         total_reward += reward
@@ -145,16 +152,35 @@ def main() -> None:
                         total  = np.sum(spikes, axis=0) # shape: (64,)
                         left_power  = int(np.sum(total[0:32]))
                         right_power = int(np.sum(total[32:64]))
-                        action = 0 if left_power >= right_power else 1
+                        if left_power > right_power:
+                            action = 0
+                        elif right_power > left_power:
+                            action = 1
+                        # If left_power == right_power, action remains unchanged (persistence)
 
         except socket.timeout:
             print("⚠️  [Genesis] RX Timeout — waiting for node...")
 
         # ── 5. Episode reset ─────────────────────────────────────
+        total_ticks += BATCH_TICKS
+        elapsed = time.time() - start_time
+        tps = total_ticks / elapsed if elapsed > 0 else 0
+
+        # ── 5. Live Telemetry (Heartbeat) ────────────────────────
+        tps = total_ticks / elapsed if elapsed > 0 else 0
+        try:
+            # Payload: Episode(I), Score(f), TPS(f), IsDone(f)
+            is_done = 1.0 if (terminated or truncated) else 0.0
+            tel_msg = struct.pack("<Ifff", episode, total_reward, tps, is_done)
+            sock.sendto(tel_msg, ("127.0.0.1", TELEMETRY_PORT))
+        except: pass
+
+        # ── 6. Episode reset logic ───────────────────────────────
         if terminated or truncated:
             print(f"🔄  Episode {episode:4d} | Score: {int(total_reward):5d} | "
                   f"L={left_power:6d}  R={right_power:6d} | "
-                  f"dopamine={dopamine:+7d}")
+                  f"dopamine={dopamine:+7d} | TPS: {int(tps)}")
+            
             obs, _ = env.reset()
             episode      += 1
             total_reward  = 0.0

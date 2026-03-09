@@ -15,12 +15,29 @@ anatomy = "examples/cartpole/config/zones/MotorCortex/anatomy.toml"
 io = "examples/cartpole/config/zones/MotorCortex/io.toml"
 baked_dir = "baked/MotorCortex/"
 
+[[zone]]
+name = "HiddenCortex"
+blueprints = "examples/cartpole/config/zones/HiddenCortex/blueprints.toml"
+anatomy = "examples/cartpole/config/zones/HiddenCortex/anatomy.toml"
+io = "examples/cartpole/config/zones/HiddenCortex/io.toml"
+baked_dir = "baked/HiddenCortex/"
+
 [[connection]]
 from = "SensoryCortex"
-to = "MotorCortex"
+to = "HiddenCortex"
 output_matrix = "sensory_out"
 width = 16
 height = 16
-entry_z = "top"
-target_type = "All"
-growth_steps = 500
+entry_z = "bottom"
+target_type = "L23_spiny_VISp"
+growth_steps = 150
+
+[[connection]]
+from = "HiddenCortex"
+to = "MotorCortex"
+output_matrix = "hidden_out"
+width = 16
+height = 16
+entry_z = "bottom"
+target_type = "L5_spiny_MTG"
+growth_steps = 150
