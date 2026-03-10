@@ -2,31 +2,32 @@ import sys
 import os
 
 # --- Backend Selection ---
-# Force interactive backend unless --save is requested
-if "--save" not in sys.argv:
-    import matplotlib
-    # Try common interactive backends
-    found_backend = False
-    for backend in ["QtAgg", "TkAgg", "GTK3Agg"]:
-        try:
-            matplotlib.use(backend)
-            import matplotlib.pyplot as plt
-            found_backend = True
-            break
-        except:
-            continue
-    
-    if not found_backend:
-        print("\n⚠️  WARNING: Could not find an interactive backend (PyQt/Tkinter).")
-        print("Falling back to image generation mode.\n")
-        matplotlib.use("Agg")
+import matplotlib
+import sys
 
 try:
     import matplotlib.pyplot as plt
 except ImportError:
-    import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
+# Force interactive backend unless --save is requested
+if "--save" not in sys.argv:
+    # Try common interactive backends
+    found_backend = False
+    for backend in ["QtAgg", "TkAgg", "GTK3Agg"]:
+        try:
+            plt.switch_backend(backend)
+            found_backend = True
+            break
+        except Exception:
+            continue
+    
+    if not found_backend:
+        print("\n⚠️  WARNING: Could not find an interactive backend (PyQt/Tkinter).")
+        print("Falling back to image generation mode (enforcing --save).\n")
+        plt.switch_backend("Agg")
+        sys.argv.append("--save")
 
 import struct
 import numpy as np
@@ -149,9 +150,20 @@ def render_arxiv_plot(soma_xyz, axon_lines, dendrite_lines, dendrite_colors, out
     all_points = np.array(all_points)
     
     if len(all_points) > 1:
-        ax.set_xlim(all_points[:,0].min()-50, all_points[:,0].max()+50)
-        ax.set_ylim(all_points[:,1].min()-50, all_points[:,1].max()+50)
-        ax.set_zlim(all_points[:,2].min()-50, all_points[:,2].max()+50)
+        # Устанавливаем честный 1:1:1 физический масштаб
+        max_range = np.array([
+            all_points[:,0].max() - all_points[:,0].min(),
+            all_points[:,1].max() - all_points[:,1].min(),
+            all_points[:,2].max() - all_points[:,2].min()
+        ]).max() / 2.0
+        
+        mid_x = (all_points[:,0].max() + all_points[:,0].min()) * 0.5
+        mid_y = (all_points[:,1].max() + all_points[:,1].min()) * 0.5
+        mid_z = (all_points[:,2].max() + all_points[:,2].min()) * 0.5
+        
+        ax.set_xlim(mid_x - max_range - 50, mid_x + max_range + 50)
+        ax.set_ylim(mid_y - max_range - 50, mid_y + max_range + 50)
+        ax.set_zlim(mid_z - max_range - 50, mid_z + max_range + 50)
 
     ax.axis('off')
     plt.title(f"Neuron Morphology (ID: {target_id})\nGenesis HFT Engine", color='white', pad=20, fontsize=14)
@@ -176,13 +188,45 @@ def render_arxiv_plot(soma_xyz, axon_lines, dendrite_lines, dendrite_colors, out
 
 if __name__ == "__main__":
     import argparse
+    import os
+    
     parser = argparse.ArgumentParser(description="Render 3D Spiking Neuron Morphology")
-    parser.add_argument("baked_dir", help="Path to shard data (e.g., baked/SensoryCortex)")
+    parser.add_argument("zone_name", nargs="?", help="Zone name (e.g., MotorCortex)")
     parser.add_argument("-id", "--id", type=int, required=True, help="Target Soma ID")
     parser.add_argument("--save", action="store_true", help="Save to PNG instead of opening a window")
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
+    
+    zone_name = args.zone_name
+    if not zone_name:
+        for u in unknown:
+            if u.startswith("--") and u not in ["--save", "-h", "--help"]:
+                zone_name = u[2:]
+                break
+                
+    if not zone_name:
+        print("❌ ERROR: Zone name not provided. Use positional (MotorCortex) or flag (--MotorCortex).")
+        sys.exit(1)
         
-    baked_dir = args.baked_dir
+    def find_baked(start_path):
+        for root, dirs, files in os.walk(start_path):
+            if ".venv" in dirs: dirs.remove(".venv")
+            if ".git" in dirs: dirs.remove(".git")
+            if "baked" in dirs:
+                target = os.path.join(root, "baked", zone_name)
+                if os.path.exists(target) and os.path.isdir(target):
+                    return target
+        return None
+
+    baked_dir = find_baked('.')
+    if not baked_dir:
+        baked_dir = find_baked(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                
+    if not baked_dir:
+        print(f"❌ ERROR: Could not find 'baked/{zone_name}' directory.")
+        sys.exit(1)
+        
+    print(f"📁 Found baked data in: {baked_dir}")
+        
     target_soma_id = args.id
     output_file = f"neuron_{target_soma_id}_morphology.png"
     

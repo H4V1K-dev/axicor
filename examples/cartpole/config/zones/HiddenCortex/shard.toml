@@ -3,7 +3,7 @@ zone_id = "HiddenCortex"
 [world_offset]
 x = 0
 y = 0
-z = 63
+z = 0
 
 [dimensions]
 w = 120

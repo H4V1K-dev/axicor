@@ -107,10 +107,10 @@ python3 scripts/weight_checker.py
 
 ```bash
 # Визуализация нейрона 3D (ID нейрона) в SensoryCortex
-python3 scripts/visualize_neuron.py baked/SensoryCortex -id 42 --show
+python3 scripts/visualize_neuron.py --MotorCortex --id 1488
 
 # Или с сохранением в файл PNG
-python3 scripts/visualize_neuron.py baked/SensoryCortex -id 42 --save
+python3 scripts/visualize_neuron.py --MotorCortex --id 1488 --save
 ```
 
 ---
