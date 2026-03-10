@@ -84,6 +84,7 @@ pub struct NodeRuntime {
     pub manifest_metadata: Mutex<HashMap<u32, ShardMetadata>>,
     pub zone_v_segs: HashMap<u32, u32>,
     pub virtual_offset_map: HashMap<u32, u32>,
+    pub sync_batch_ticks: u32,
 }
 
 unsafe impl Send for NodeRuntime {}
@@ -106,6 +107,8 @@ impl NodeRuntime {
         egress_pool: Arc<crate::network::egress::EgressPool>,
         manifest_metadata: HashMap<u32, ShardMetadata>,
         telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
+        shared_acks_queue: Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverAck>>,
+        sync_batch_ticks: u32,
     ) -> Self {
         let (feedback_tx, feedback_rx) = bounded(shards.len() + 32);
         let total_ticks = Arc::new(AtomicU32::new(0));
@@ -156,10 +159,11 @@ impl NodeRuntime {
                 atomic_settings: metadata.atomic_settings.clone(),
                 incoming_grow: desc.incoming_grow.clone(),
                 telemetry: telemetry.clone(),
+                routing_table: routing_table.clone(), // [DOD FIX]
             };
                 
             crate::node::shard_thread::spawn_shard_thread(
-                desc, ctx, rx, feedback_tx.clone(), core_id
+                desc, ctx, rx, feedback_tx.clone(), core_id, sync_batch_ticks
             );
             core_id += 1;
         }
@@ -177,7 +181,7 @@ impl NodeRuntime {
                 inter_node_router,
                 egress_pool,
                 axon_head_ptrs,
-                routing_acks: Arc::new(crossbeam::queue::SegQueue::new()),
+                routing_acks: shared_acks_queue,
                 routing_prunes: Arc::new(crossbeam::queue::SegQueue::new()),
             },
             compute_dispatchers,
@@ -191,6 +195,7 @@ impl NodeRuntime {
             manifest_metadata: Mutex::new(manifest_metadata),
             zone_v_segs,
             virtual_offset_map,
+            sync_batch_ticks,
         };
 
         node
@@ -301,7 +306,8 @@ impl NodeRuntime {
     }
 
     // [DOD FIX] The correct Pipeline Order: Compute -> Network Tx -> Network Rx Wait
-    pub fn run_node_loop(&mut self, batch_size: u32) {
+    pub fn run_node_loop(&mut self) {
+        let batch_size = self.sync_batch_ticks;
         let mut current_tick = 0;
         let mut batch_counter: u64 = 0;
 
@@ -380,6 +386,8 @@ impl NodeRuntime {
                             pinned_out_ptr,
                             output_bytes,
                         );
+                        // [DOD FIX] Возрождаем счетчик UDP OUT!
+                        self.services.telemetry.udp_out_packets.fetch_add(1, Ordering::Relaxed);
                     }
                 }
             }

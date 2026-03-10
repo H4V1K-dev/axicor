@@ -45,6 +45,7 @@ pub struct NodeContext {
     pub incoming_grow: Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
     // [DOD FIX] Удален Mutex<DashboardState>, используем Lock-Free структуру
     pub telemetry: Arc<crate::tui::state::LockFreeTelemetry>, 
+    pub routing_table: Arc<crate::network::router::RoutingTable>, // [DOD FIX]
 }
 
 
@@ -261,6 +262,7 @@ fn execute_night_phase(
     rt_handle: &tokio::runtime::Handle,
     workspace: &mut ThreadWorkspace,
     prune_threshold: i16, // [DOD FIX] Передаем динамический порог
+    routing_table: &Arc<crate::network::router::RoutingTable>,
 ) {
     let padded_n = shard.vram.padded_n as usize;
     let dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
@@ -306,7 +308,7 @@ fn execute_night_phase(
             std::time::Duration::from_secs(10),
             prune_threshold,
         ) {
-            Ok(()) => {
+            Ok(acks) => {
                 unsafe {
                     genesis_compute::ffi::gpu_memcpy_host_to_device(
                         shard.vram.ptrs.dendrite_targets as *mut _,
@@ -323,6 +325,7 @@ fn execute_night_phase(
                 }
 
                 dispatch_handovers(client, shard_config, rt_handle);
+                dispatch_acks(acks, rt_handle, routing_table); // <--- Отправляем
                 // println!("🌅 [Shard {:08X}] Night Phase complete. Waking up.", hash);
             }
             Err(e) => {
@@ -403,6 +406,29 @@ fn dispatch_handovers(
     }
 }
 
+fn dispatch_acks(
+    acks: Vec<genesis_core::ipc::AxonHandoverAck>, 
+    rt_handle: &tokio::runtime::Handle,
+    routing_table: &Arc<crate::network::router::RoutingTable>
+) {
+    if acks.is_empty() { return; }
+
+    // Группируем по target_zone_hash (чтобы отправить одним TCP пакетом на ноду)
+    let mut grouped: std::collections::HashMap<u32, Vec<genesis_core::ipc::AxonHandoverAck>> = std::collections::HashMap::new();
+    for ack in acks {
+        grouped.entry(ack.target_zone_hash).or_default().push(ack);
+    }
+
+    for (target_hash, batch) in grouped {
+        if let Some(addr) = routing_table.get_address(target_hash) {
+            rt_handle.spawn(async move {
+                let req = crate::network::slow_path::GeometryRequest::BulkAck(batch);
+                let _ = crate::network::geometry_client::send_geometry_request(addr, &req).await;
+            });
+        }
+    }
+}
+
 // Инициализация VRAM буферов
 fn init_io_buffers(
     num_virtual_axons: u32,
@@ -440,8 +466,8 @@ pub fn spawn_shard_thread(
     rx: Receiver<ComputeCommand>,
     f_tx: crossbeam::channel::Sender<ComputeFeedback>,
     core_id: usize,
+    sync_batch_ticks: u32,
 ) {
-    let sync_batch_ticks = 100u32;
     let max_spikes_per_tick = 100_000u32;
     let output_bytes = (desc.num_outputs * sync_batch_ticks) as usize;
 
@@ -545,7 +571,7 @@ pub fn spawn_shard_thread(
                             execute_night_phase(
                                 &mut desc.engine, hash, std::path::Path::new(&socket_path), &mut baker_client,
                                 &ctx.incoming_grow, &desc.config, &ctx.rt_handle, &mut workspace,
-                                current_prune_threshold
+                                current_prune_threshold, &ctx.routing_table
                             );
                             let elapsed_ns = night_start.elapsed().as_nanos();
                             ctx.telemetry.push_log(format!("🌙 [Shard {:08X}] Night Phase completed in {} ns", hash, elapsed_ns), crate::tui::state::LogLevel::Night);

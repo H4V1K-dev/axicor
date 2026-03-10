@@ -25,10 +25,11 @@ pub const MAX_HANDOVERS_PER_NIGHT: usize = 10_000;
 use serde::{Serialize, Deserialize};
 
 /// Сетевой пакет межзональной передачи аксона (Half-Duplex SHM Data Plane).
-/// MUST remain exactly 16 bytes — SHM layout depends on this.
+/// MUST remain exactly 20 bytes — SHM layout depends on this.
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AxonHandoverEvent {
+    pub origin_zone_hash: u32, // <--- КРИТИЧНО: Обратный адрес для ACK!
     pub local_axon_id: u32,
     pub entry_x: u16,
     pub entry_y: u16,
@@ -41,8 +42,8 @@ pub struct AxonHandoverEvent {
     pub _padding: u8,
 }
 const _: () = assert!(
-    std::mem::size_of::<AxonHandoverEvent>() == 16,
-    "AxonHandoverEvent must be 16 bytes for SHM layout"
+    std::mem::size_of::<AxonHandoverEvent>() == 20,
+    "AxonHandoverEvent must be 20 bytes for SHM layout"
 );
 
 // [DOD FIX] События структурной пластичности для Dynamic Capacity Routing
@@ -110,7 +111,7 @@ pub fn default_socket_port(zone_hash: u32) -> u16 {
 pub const fn shm_size(padded_n: usize) -> usize {
     let weights_bytes = padded_n * 128 * 2;
     let targets_bytes = padded_n * 128 * 4;
-    let handovers_bytes = MAX_HANDOVERS_PER_NIGHT * 16;
+    let handovers_bytes = MAX_HANDOVERS_PER_NIGHT * std::mem::size_of::<AxonHandoverEvent>();
     64 + weights_bytes + targets_bytes + handovers_bytes
 }
 

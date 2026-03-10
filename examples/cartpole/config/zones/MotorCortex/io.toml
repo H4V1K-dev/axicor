@@ -4,4 +4,4 @@ zone = "MotorCortex"
 width = 8
 height = 8
 entry_z = "bottom"     # Финальный выход снизу (Z=0)
-target_type = "L5_spiny_MTG_1"
+stride = 1

@@ -8,6 +8,195 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.394.45] - 2026-03-10 21:57:04
+
+**Implement Dynamic Capacity Routing with hot-patching and swap-and-pop me**
+
+### Added
+- Mutate Channel structures in inter_node.rs and intra_gpu.rs to support dynamic capacity routing
+- Add pre-allocation logic in boot.rs bootloader for initial channel capacity
+- Implement hot-patching mechanics (Sprouting) in inter_node.rs and intra_gpu.rs for runtime capacity expansion
+- Implement swap-and-pop mechanics (Pruning) in inter_node.rs and intra_gpu.rs for runtime capacity reduction
+- Integrate Dynamic Capacity Routing mechanics with the Night Phase in shard_thread.rs
+- Update node/mod.rs with new routing state management and integration points
+- Extend genesis-core/src/ipc.rs with new IPC structures for capacity signaling
+- Update docs/specs/06_distributed.md with Dynamic Capacity Routing protocol details
+
+## [0.385.45] - 2026-03-10 21:16:06
+
+**Refactor axon growth and sprouting with master seed and type-aware ghost**
+
+### Added
+- Refactor axon_growth.rs to pass neuron_types to inject_ghost_axons and use ev.remaining_length in inject_handover_events
+- Refactor topology.rs to pass neuron_types to inject_ghost_axons
+- Refactor sprouting.rs to add master_seed parameter to run_sprouting_pass and rewrite synaptogenesis scoring logic
+- Refactor daemon.rs to pass ctx._master_seed to run_sprouting_pass call
+
+## [0.381.45] - 2026-03-10 20:59:38
+
+**[System] Remove default LTM slot count and update configurations**
+
+### Added
+- Remove default value for ltm_slot_count field in genesis-core/src/config/blueprints.rs
+- Fix associated tests in genesis-core/src/config/test_blueprints.rs
+- Map ltm_slot_count in genesis-baker/src/parser/blueprints.rs
+- Update ltm_slot_count in all example cartpole zone blueprints.toml files
+- Add ltm_slot_count to corresponding cartpole zone shard.toml files
+- Update _template/blueprints.toml with ltm_slot_count
+
+## [0.376.44] - 2026-03-10 20:50:50
+
+**GNM-Library  patch - add ltm slors choise**
+
+## [0.375.44] - 2026-03-10 20:43:51
+
+**[Refactor] Remove default configs and enforce strict manifest validation**
+
+### Added
+- Refactor genesis-core/src/config/instance.rs to remove Optional and Default trait implementations
+- Refactor genesis-core/src/config/mod.rs to eliminate global night_interval_ticks constant
+- Refactor genesis-core/src/config/manifest.rs to make all fields strict and non-optional
+- Refactor genesis-node/src/boot.rs to remove unwrap_or fallbacks for config loading
+- Delete all template config files (_blank_anatomy.toml, _blank_blueprints.toml, etc.) and legacy zone configurations
+- Update genesis-baker and genesis-node to handle strict configs without defaults
+
+## [0.369.44] - 2026-03-10 19:52:12
+
+**[Refactor] Replace population_pct with density, remove global_density**
+
+### Added
+- Refactor genesis-core/src/config/mod.rs to remove global_density field
+- Refactor genesis-core/src/config/anatomy.rs to change population_pct to density
+- Fix genesis-core/src/config/test_config.rs and test_anatomy.rs explicitly
+- Refactor genesis-baker/src/validator/checks.rs to remove check_layer_populations
+- Refactor genesis-baker/src/bake/neuron_placement.rs to update generate_placement_from_config
+- Fix all calls to generate_placement_from_config across genesis-baker
+- Update example configs (cartpole, ant_v4) to use density in anatomy.toml files
+- Remove deprecated ant_v4 example files including client.py and all configs
+
+## [0.363.42] - 2026-03-10 19:20:09
+
+**Visualization of each individual neuron**
+
+## [0.362.42] - 2026-03-10 18:39:23
+
+**IMPORTANT**
+
+### Added
+- The engine has reached homeostasis. The network is physiologically stable.
+- 16.96% surviving synapses with a perfect balance of 4.01 and 100.46% health.
+- Cartpole Distributed Topology Migration & GNM-Library Slot Decay Patching
+- Implement patch_gnm.py script to prepend `[[neuron_type]]` header to all .toml files in GNM-Library
+- Add calculation and appending of slot_decay_ltm and slot_decay_wm based on is_inhibitory and dendrite_radius_um
+- Apply formula: inhibitory neurons get fixed 128/128, excitatory use ltm = max(32, 128 - radius / 8) and wm = min(250, 128 + radius / 4)
+- Process 1801 .toml files across Cortex, Cerebellum, Hippocampus, Striatum, and Thalamus directories
+- Create SensoryCortex (L4), HiddenCortex (L2/3), and MotorCortex (L5) zones in examples/cartpole/config/zones/
+- Implement zone-specific blueprints.toml using GNM-Library profiles (L4_spiny_MTG_1, L2_aspiny_MTG_1, L5_spiny_MTG_1, etc.)
+- Configure anatomy.toml layers (L4_Sensory, L2_3_Hidden, L5_Motor) and shard.toml with world offsets (x=0,120,240)
+- Set up io.toml with cartpole_sensors input (stride=1) for SensoryCortex and motor_actions output for MotorCortex
+- Replace Sensorimotor zone with SensoryCortex, HiddenCortex, and MotorCortex zones in examples/cartpole/config/brain.toml
+- Add [[connection]] from SensoryCortex to HiddenCortex and from HiddenCortex to MotorCortex (width=8, height=8)
+- Update simulation.toml and remove obsolete cartpole_client.py and visualization PNGs
+- Extend docs/specs/02_configuration.md with 13 lines of new content
+- Revise docs/specs/05_signal_physics.md with 18 lines of updates to slot decay mechanics
+- Modify docs/specs/07_gpu_runtime.md with 35 lines of GPU execution details
+
+## [0.354.42] - 2026-03-10 03:11:46
+
+**Lock-Free Telemetry Refactor & Baker Critical Fixes**
+
+### Added
+- Replace Mutex<DashboardState> with LockFreeTelemetry using AtomicU64, AtomicU32, AtomicI16, and crossbeam::queue::SegQueue
+- Implement O(1) lock-free updates via telemetry.update_zone_spikes and push_log in genesis-node/src/tui/state.rs
+- Refactor shard_thread.rs to remove all .lock().unwrap() calls, using direct atomic operations and zero-cost spike reporting
+- Optimize orchestrator in node/mod.rs, replacing reporter with telemetry and using relaxed atomic stores for batch/tick counts
+- Eliminate Mutex<DashboardState> from main.rs and boot.rs, passing telemetry as the only shared state during bootstrap
+- Refine run_app and run_log_reporter in tui/mod.rs to own a local DashboardState and pull data from atomics
+- Add dynamic zone discovery to automatically initialize ZoneMetrics based on telemetry bridge hashes
+- Implement wall clock history synchronization using local_state.push_wall_ms(wall) for accurate UI sparklines
+- Optimize log drainage from the SegQueue buffer to update local UI state atomically
+- Fix type mask packing in axon_tips_uvw within topology.rs, implementing 11-11-6-4 packing with a 4-bit Type Mask in bits [31..28]
+- Correct Dale's Law implementation in dendrite_connect.rs, ensuring the presynaptic neuron (axon segment owner) dictates synapse sign using owner_type.is_inhibitory
+
+## [0.347.40] - 2026-03-10 01:00:43
+
+**Implement full axon path storage and interactive 3D visualization**
+
+### Added
+- Add ShardSoA.paths field and dump_to_disk logic in genesis-baker/src/bake/layout.rs to write 16-byte header, lengths array, and A*256 u32 segments
+- Update genesis-baker/src/bake/sprouting.rs to retain and provide segment data using 11-11-6 packed position layout
+- Fix genesis-baker/src/bake/atlas_map.rs ghost format and bit-unpacking to use 11-11-6 layout
+- Unify simulation coordinates in genesis-baker/src/bake/topology.rs, axon_growth.rs, and output_map.rs to 11-11-6
+- Fix legacy dendrite target packing (24/8) in genesis-core/src/test_tick.rs and types.rs
+- Make scripts/visualize_neuron.py interactive by default with PyQt6 or Tkinter backend, add --save flag for PNG export
+- Add interactive 3D mode to scripts/visualize_ghosts.py with --show flag, using real shard.pos for neuron 3D positions
+- Implement reading of shard.paths binary file to extract and render intermediate points of ghost axons across shards
+- Parse manifest.toml and shard.toml for world_offset and dimensions to map Node A and Node B bounding boxes in 3D
+- Add legend, metadata overlay, and statistics collection (neuron counts, ghost connection metrics) to visualize_ghosts.py
+- Add ratatui and crossterm dependencies to genesis-node/Cargo.toml
+- Implement tui module with DashboardState, ZoneMetrics, LogEntry, and responsive layout in genesis-node/src/tui/
+- Replace SimpleReporter usage in main.rs, node/mod.rs, and boot.rs with Arc<Mutex<DashboardState>>
+- Update shard_thread.rs to report zone metrics (spikes, phase) and log Night Phase latency in nanoseconds
+- Add --log flag to Cli struct for plain text fallback mode, isolate TUI output by redirecting stdout/stderr
+- Merge docs/specs/010_ide.md into 08_ide.md and delete the duplicate file
+- Update reference in 011_cli_dashboard.md from 010_ide.md to 08_ide.md
+- Fix broken links to design_specs.md in 9 spec files, replacing with README.md
+- Convert // TODO comments to > [!NOTE] **[Planned]** markers in 7 locations across spec files
+
+## [0.335.36] - 2026-03-09 19:55:46
+
+**TUI mvp**
+
+## [0.334.36] - 2026-03-09 15:07:46
+
+**Integrate HiddenCortex and Hot-Reload for 3-Layer GNM CartPole**
+
+### Added
+- Integrate HiddenCortex zone (L2/3) to establish Sensory -> Hidden -> Motor topology
+- Extend simulation.toml world definition to accommodate the three-layer architecture
+- Update all zone configs (SensoryCortex, HiddenCortex, MotorCortex) for GNM integration
+- Implement Hot-Reload of ZoneManifest with atomic settings block in NodeContext
+- Add cyclic file checking in NodeRuntime for live manifest updates without restart
+- Extend genesis-core/src/config/manifest.rs ZoneManifest to support settings block
+- Modify genesis-node/src/boot.rs and genesis-node/src/node/mod.rs to integrate hot-reload logic
+- Implement GPU Constant Memory hot-reload for physics and plasticity parameters
+- Fix genesis-baker structural synchronization in src/main.rs
+- Update example README with 3-layer guide and 100+ points record
+- Achieve record 3100+ TPS in IntraNode mode after HiddenCortex integration
+- Increase checkpoint frequency to 100,000 ticks for optimized I/O
+- Refine L4 -> L5 targeting specificity in zone configurations
+- Eliminate Action Selection Bias by removing `>=` favoring 0 and adding persistence on force equality
+- Implement live_dashboard.py for real-time training graph visualization
+- Finalize dashboard vertical layout 2.2
+- Add weight analysis visualization with Green/Red color maps for all three cortices
+- Update docs/specs/02_configuration.md and roadmap with Topology Distillation concept
+
+## [0.319.36] - 2026-03-09 05:56:48
+
+**GENESIS: Hierarchical Evolution & Training Breakthrough**
+
+### Added
+- Full 3-Layer Cortex: Deployed L4 (Sensory) -> L2/3 (Hidden) -> L5 (Motor) architecture.
+- TPS Record: Hit 3100+ across 450k neurons. Hardware is absolutely singing!
+- Training: Score surpassed 100 milestones thanks to the hidden layer and client-side bug fixes.
+- Logic: Excised random tie-breaks; implemented action persistence (inertia).
+- Analytics: Observed 99% inhibitory stabilization in the Motor layer. The network lives and thinks.
+- Dashboard 2.0: Introduced TPS tracking, multi-SMA (25/100/300), and interactive scrolling.
+- Specs: Established roadmap for graph distillation and hot-reloading for nocturnal phases.
+
+## [0.312.36] - 2026-03-09 05:56:30
+
+**GENESIS: Hierarchical Evolution & Training Breakthrough**
+
+### Added
+- Full 3-Layer Cortex: Deployed L4 (Sensory) -> L2/3 (Hidden) -> L5 (Motor) architecture.
+- TPS Record: Hit 3100+ across 450k neurons. Hardware is absolutely singing!
+- Training: Score surpassed 100 milestones thanks to the hidden layer and client-side bug fixes.
+- Logic: Excised random tie-breaks; implemented action persistence (inertia).
+- Analytics: Observed 99% inhibitory stabilization in the Motor layer. The network lives and thinks.
+- Dashboard 2.0: Introduced TPS tracking, multi-SMA (25/100/300), and interactive scrolling.
+- Specs: Established roadmap for graph distillation and hot-reloading for nocturnal phases.
+
 ## [0.305.36] - 2026-03-08 22:38:53
 
 **IMPORTANT**

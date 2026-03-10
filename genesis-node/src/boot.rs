@@ -152,9 +152,11 @@ impl Bootloader {
         
         let sim_config = sim_config.context("No manifests provided")?;
 
+        let sync_batch_ticks = sim_config.simulation.sync_batch_ticks;
+
         // 2. Hardware & VRAM Phase: Allocate weights/targets and flash physics laws
         let (shards, s2a_maps, axon_head_ptrs, io_contexts, all_geo_data, output_routes) = 
-            Self::load_all_shards_into_vram(&zone_manifests_with_paths)?;
+            Self::load_all_shards_into_vram(&zone_manifests_with_paths, sync_batch_ticks)?;
 
         let first_manifest = zone_manifests_with_paths[0].0.clone();
         unsafe { Self::flash_hardware_physics(&first_manifest)? };
@@ -185,11 +187,12 @@ impl Bootloader {
                 }
             }
         }
+        let shared_acks_queue = Arc::new(crossbeam::queue::SegQueue::new());
         let routing_table = Arc::new(RoutingTable::new(initial_routes));
 
         // 4. Network Setup: IO, Geometry, and Telemetry servers
         let (io_server, geometry_server, telemetry_swapchain, egress_pool, inter_node_router) = 
-            Self::setup_networking(&first_manifest, io_contexts, routing_table.clone()).await?;
+            Self::setup_networking(&first_manifest, io_contexts, routing_table.clone(), shared_acks_queue.clone()).await?;
 
         // 5. Orchestrator Assembly: Glue everything into NodeRuntime
         let bsp_barrier = Arc::new(BspBarrier::new(sim_config.simulation.sync_batch_ticks as usize, expected_peers).with_cpu_profile(cpu_profile));
@@ -210,6 +213,8 @@ impl Bootloader {
             egress_pool.clone(),
             manifest_metadata,
             telemetry,
+            shared_acks_queue,
+            sync_batch_ticks,
         );
 
         Ok(BootResult {
@@ -271,7 +276,7 @@ impl Bootloader {
         Ok(())
     }
 
-    fn load_all_shards_into_vram(zone_manifests_with_paths: &[(ZoneManifest, PathBuf)]) 
+    fn load_all_shards_into_vram(zone_manifests_with_paths: &[(ZoneManifest, PathBuf)], sync_batch_ticks: u32) 
         -> Result<(Vec<BootShard>, HashMap<u32, Vec<u32>>, HashMap<u32, *mut genesis_core::layout::BurstHeads8>, Vec<(u32, crate::network::io_server::ZoneIoContext)>, Vec<u32>, HashMap<u32, Vec<(String, u32)>>)> 
     {
         let mut engines = Vec::new();
@@ -360,7 +365,7 @@ impl Bootloader {
                 .collect();
             all_geo_data.extend(geo_data);
 
-            let sync_batch_ticks = 100u32;
+            // [DOD FIX] Hardcode removed: let sync_batch_ticks = 100u32;
             let input_words_per_tick = (num_virtual_axons + 31) / 32;
             let input_capacity_bytes = (input_words_per_tick * sync_batch_ticks * 4) as usize;
 
@@ -482,7 +487,8 @@ impl Bootloader {
     async fn setup_networking(
         first_manifest: &ZoneManifest,
         io_contexts: Vec<(u32, crate::network::io_server::ZoneIoContext)>,
-        routing_table: Arc<RoutingTable>
+        routing_table: Arc<RoutingTable>,
+        shared_acks_queue: Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverAck>>
     ) -> Result<(Arc<ExternalIoServer>, GeometryServer, Arc<crate::network::telemetry::TelemetrySwapchain>, Arc<crate::network::egress::EgressPool>, Arc<crate::network::inter_node::InterNodeRouter>)> {
         let local_port = first_manifest.network.fast_path_udp_local;
         let udp_in = first_manifest.network.external_udp_in;
@@ -498,7 +504,7 @@ impl Bootloader {
 
         let geo_port = local_port + 1;
         let geo_addr = format!("0.0.0.0:{}", geo_port).parse()?;
-        let geometry_server = GeometryServer::bind(geo_addr).await
+        let geometry_server = GeometryServer::bind(geo_addr, shared_acks_queue).await
             .with_context(|| format!("Failed to bind Geometry Server (TCP port {}). Port in use? Kill any running genesis-node: Get-Process genesis-node -EA 0 | Stop-Process -Force", geo_port))?;
         let telemetry_port = local_port + 2;
         let telemetry_swapchain = TelemetryServer::start(telemetry_port).await;

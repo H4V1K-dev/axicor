@@ -12,5 +12,5 @@ voxel_size_um = 25.0
 segment_length_voxels = 2
 signal_speed_m_s = 0.5
 sync_batch_ticks = 20
-night_interval_ticks = 0
+night_interval_ticks = 30_000
 axon_growth_max_steps = 250

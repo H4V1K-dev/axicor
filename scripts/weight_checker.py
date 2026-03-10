@@ -32,6 +32,6 @@ def check_shard(name, path):
         print(f"  - Balance Health:  {deviation*100:.2f}% of target")
     except Exception as e:
         print(f"[{name}] Error: {e}")
-check_shard("Sensorimotor", "examples/cartpole/baked/Sensorimotor/checkpoint.state")
-check_shard("MotorCortex", "examples/cartpole/baked/MotorCortex/checkpoint.state")
-check_shard("HiddenCortex", "examples/cartpole/baked/HiddenCortex/checkpoint.state")
+check_shard("SensoryCortex", "examples/cartpole/baked/SensoryCortex/shard.state")
+check_shard("HiddenCortex", "examples/cartpole/baked/HiddenCortex/shard.state")
+check_shard("MotorCortex", "examples/cartpole/baked/MotorCortex/shard.state")

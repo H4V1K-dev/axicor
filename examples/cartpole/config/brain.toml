@@ -1,29 +1,29 @@
 [simulation]
-config = "config/simulation.toml"
+config = "examples/cartpole/config/simulation.toml"
 
 [[zone]]
 name = "SensoryCortex"
-blueprints = "config/zones/SensoryCortex/blueprints.toml"
-anatomy = "config/zones/SensoryCortex/anatomy.toml"
-io = "config/zones/SensoryCortex/io.toml"
-shard = "config/zones/SensoryCortex/shard.toml"
-baked_dir = "baked/SensoryCortex/"
+blueprints = "examples/cartpole/config/zones/SensoryCortex/blueprints.toml"
+anatomy = "examples/cartpole/config/zones/SensoryCortex/anatomy.toml"
+io = "examples/cartpole/config/zones/SensoryCortex/io.toml"
+shard = "examples/cartpole/config/zones/SensoryCortex/shard.toml"
+baked_dir = "examples/cartpole/baked/SensoryCortex/"
 
 [[zone]]
 name = "HiddenCortex"
-blueprints = "config/zones/HiddenCortex/blueprints.toml"
-anatomy = "config/zones/HiddenCortex/anatomy.toml"
-io = "config/zones/HiddenCortex/io.toml"
-shard = "config/zones/HiddenCortex/shard.toml"
-baked_dir = "baked/HiddenCortex/"
+blueprints = "examples/cartpole/config/zones/HiddenCortex/blueprints.toml"
+anatomy = "examples/cartpole/config/zones/HiddenCortex/anatomy.toml"
+io = "examples/cartpole/config/zones/HiddenCortex/io.toml"
+shard = "examples/cartpole/config/zones/HiddenCortex/shard.toml"
+baked_dir = "examples/cartpole/baked/HiddenCortex/"
 
 [[zone]]
 name = "MotorCortex"
-blueprints = "config/zones/MotorCortex/blueprints.toml"
-anatomy = "config/zones/MotorCortex/anatomy.toml"
-io = "config/zones/MotorCortex/io.toml"
-shard = "config/zones/MotorCortex/shard.toml"
-baked_dir = "baked/MotorCortex/"
+blueprints = "examples/cartpole/config/zones/MotorCortex/blueprints.toml"
+anatomy = "examples/cartpole/config/zones/MotorCortex/anatomy.toml"
+io = "examples/cartpole/config/zones/MotorCortex/io.toml"
+shard = "examples/cartpole/config/zones/MotorCortex/shard.toml"
+baked_dir = "examples/cartpole/baked/MotorCortex/"
 
 [[connection]]
 from = "SensoryCortex"

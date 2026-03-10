@@ -44,9 +44,6 @@ struct Cli {
     #[arg(long)]
     peer: Vec<String>,
 
-    #[arg(long, default_value = "100")]
-    batch_size: u32,
-
     #[arg(long, default_value = "aggressive")]
     cpu_profile: CpuProfile,
 
@@ -133,7 +130,7 @@ fn main() -> Result<()> {
                 if res == 0 {
                     println!("🚀 [Core] Orchestrator locked to OS Thread Core 0");
                 }
-                node.run_node_loop(cli.batch_size);
+                node.run_node_loop();
             })
             .expect("Fatal: Failed to spawn orchestrator OS thread");
 

@@ -27,7 +27,8 @@ const fn fnv1a_32(bytes: &[u8]) -> u32 {
     hash
 }
 
-const ZONE_HASH: u32 = fnv1a_32(b"Sensorimotor");
+const ZONE_HASH_IN: u32 = fnv1a_32(b"SensoryCortex");
+const ZONE_HASH_OUT: u32 = fnv1a_32(b"MotorCortex");
 const MATRIX_IN: u32 = fnv1a_32(b"cartpole_sensors");
 const MATRIX_OUT: u32 = fnv1a_32(b"motor_actions");
 
@@ -93,16 +94,19 @@ fn main() {
     // Шлем на 8081 (входной порт Оркестратора)
     let sock = UdpSocket::bind("0.0.0.0:8092").expect("Failed to bind UDP 8092");
     let node_addr = "127.0.0.1:8081";
+    let dashboard_addr = "127.0.0.1:8100";
     // НЕ connect()! Egress-тред ноды шлёт с эфемерного порта, а не c 8081.
     // Connected-сокет дропает пакеты с неизвестного source — вызывая таймаут.
     sock.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
 
     println!("🚀 HFT CartPole Environment Online (Rust).");
-    println!("Hashes: Zone={:08X}, In={:08X}, Out={:08X}", ZONE_HASH, MATRIX_IN, MATRIX_OUT);
+    println!("Hashes: ZoneIn={:08X}, ZoneOut={:08X}, In={:08X}, Out={:08X}", ZONE_HASH_IN, ZONE_HASH_OUT, MATRIX_IN, MATRIX_OUT);
 
     let mut env = CartPole::new();
-    let mut episodes = 0;
-    let mut score = 0;
+    let mut episodes = 0u32;
+    let mut score = 0u32;
+    let mut tps_start = std::time::Instant::now();
+    let mut total_ticks_for_tps = 0u32;
     
     // Преаллоцированные буферы для Zero-Cost цикла
     let mut rx_buf = [0u8; 65535];
@@ -125,7 +129,7 @@ fn main() {
         // 3. Формирование пакета
         let header = ExternalIoHeader {
             magic: GSIO_MAGIC,
-            zone_hash: ZONE_HASH,
+            zone_hash: ZONE_HASH_IN,
             matrix_hash: MATRIX_IN,
             payload_size: 8,
             global_reward: dopamine,
@@ -155,7 +159,7 @@ fn main() {
                 Ok((size, _src)) => {
                     if size < 20 { continue; }
                     let hdr = unsafe { &*(rx_buf.as_ptr() as *const ExternalIoHeader) };
-                    if hdr.magic == GSOO_MAGIC && hdr.matrix_hash == MATRIX_OUT {
+                    if hdr.magic == GSOO_MAGIC && hdr.zone_hash == ZONE_HASH_OUT && hdr.matrix_hash == MATRIX_OUT {
                         payload_bytes = rx_buf[20..size].to_vec();
                         break;
                     }
@@ -183,6 +187,22 @@ fn main() {
         score += 1;
 
         if done {
+            total_ticks_for_tps += score;
+            let elapsed = tps_start.elapsed().as_secs_f32();
+            let tps = if elapsed > 0.0 { total_ticks_for_tps as f32 / elapsed } else { 0.0 };
+            
+            let mut dash_buf = [0u8; 16];
+            dash_buf[0..4].copy_from_slice(&episodes.to_le_bytes());
+            dash_buf[4..8].copy_from_slice(&(score as f32).to_le_bytes());
+            dash_buf[8..12].copy_from_slice(&tps.to_le_bytes());
+            dash_buf[12..16].copy_from_slice(&(1.0f32).to_le_bytes()); // is_done = 1.0
+            let _ = sock.send_to(&dash_buf, dashboard_addr);
+
+            if episodes % 20 == 0 {
+                tps_start = std::time::Instant::now();
+                total_ticks_for_tps = 0;
+            }
+
             // Выжигаем пути
             let mut death_hdr = header;
             death_hdr.global_reward = -255;

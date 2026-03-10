@@ -5,7 +5,7 @@
 [[layer]]
 name = "L4_Sensory_Monolith"
 height_pct = 1.0                                    # 100% высоты шарда
-density = 0.5                                       # Абсолютная плотность
+density = 0.05                                       # Абсолютная плотность
 composition = { "L4_spiny_MTG_1" = 0.8, "L4_aspiny_MTG_11" = 0.2 }
 
 

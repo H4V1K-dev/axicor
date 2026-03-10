@@ -5,7 +5,7 @@ width = 8
 height = 8
 entry_z = "top"        # Вход сверху
 target_type = "L4_spiny_MTG_1"
-stride = 1
+stride = 0
 
 [[output]]
 name = "sensory_out"
@@ -14,3 +14,4 @@ width = 8
 height = 8
 entry_z = "bottom"     # Снимаем сомы снизу (Z=0)
 target_type = "L4_spiny_MTG_1"
+stride = 1

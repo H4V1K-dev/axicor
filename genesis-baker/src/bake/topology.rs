@@ -103,6 +103,12 @@ pub fn build_local_topology_internal(
     if !io.outputs.is_empty() {
         println!("[baker] Processing Output Maps for {}...", zone_name);
         for matrix in &io.outputs {
+            let target_type_id = if matrix.target_type.is_empty() {
+                None
+            } else {
+                type_names.iter().position(|n| n == &matrix.target_type).map(|id| id as u8)
+            };
+            
             let gxo = build_gxo_mapping(
                 &matrix.name,
                 zone_name,
@@ -112,6 +118,7 @@ pub fn build_local_topology_internal(
                 shard_cfg.dimensions.d,
                 &packed_positions,
                 matrix.stride as u8,
+                target_type_id,
             );
             gxo_matrices.push(gxo);
         }

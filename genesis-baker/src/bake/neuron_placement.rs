@@ -46,12 +46,14 @@ pub fn generate_placement_from_config(
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(k, _)| k.clone())
             .unwrap_or_default();
-        let fallback_type_id = type_names.iter().position(|n| n == &most_frequent_type_name).unwrap_or(0) as u8;
+        let fallback_type_id = type_names.iter().position(|n| n == &most_frequent_type_name)
+            .unwrap_or_else(|| panic!("FATAL: Type '{}' specified in anatomy.toml is missing in blueprints.toml!", most_frequent_type_name)) as u8;
 
         let mut type_pool = Vec::with_capacity(layer_budget);
         for (type_name, &quota) in &layer.composition {
             let count = (quota * layer_budget as f32).floor() as usize;
-            let type_id = type_names.iter().position(|n| n == type_name).unwrap_or(0) as u8;
+            let type_id = type_names.iter().position(|n| n == type_name)
+                .unwrap_or_else(|| panic!("FATAL: Type '{}' specified in anatomy.toml is missing in blueprints.toml!", type_name)) as u8;
             for _ in 0..count { type_pool.push(type_id); }
         }
         while type_pool.len() < layer_budget { type_pool.push(fallback_type_id); }

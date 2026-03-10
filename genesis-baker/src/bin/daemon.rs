@@ -69,8 +69,8 @@ fn main() {
     // ShmHeader (64 байта) + Weights (128 * N * 2 байта) + Targets (128 * N * 4 байта) + Handovers
     let weights_size = padded_n * 128 * 2;
     let targets_size = padded_n * 128 * 4;
-    // [DOD FIX] Резервируем память под плоский массив Handovers (160 KB)
-    let handovers_size = (genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT * 16) as u32; // 16 bytes per AxonHandoverEvent
+    // [DOD FIX] Резервируем память под плоский массив Handovers
+    let handovers_size = (genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT * std::mem::size_of::<genesis_core::ipc::AxonHandoverEvent>()) as u32;
 
     let shm_len = 64 + weights_size + targets_size + handovers_size;
 
@@ -365,7 +365,7 @@ fn run_night_phase<S: Read + Write>(
     };
 
     // 4. CPU Sprouting & Living Axons (Zero-Copy)
-    let (new_synapses, generated_handovers) = if let Some(ctx) = ctx.as_deref_mut() {
+    let (new_synapses, generated_handovers, acks) = if let Some(ctx) = ctx.as_deref_mut() {
         // Каст заголовка и вычисление смещений
         let paths_hdr = unsafe { &*(ctx._paths_mmap.as_ptr() as *const genesis_core::layout::PathsFileHeader) };
         let paths_total_axons = paths_hdr.total_axons as usize;
@@ -420,9 +420,10 @@ fn run_night_phase<S: Read + Write>(
             paths_slice,     // NEW
             soma_positions,  // NEW
             ctx._master_seed, // <--- [DOD FIX] Проброс энтропии
+            _zone_hash,
         )
     } else {
-        (0, 0)
+        (0, 0, vec![])
     };
 
     // Обновляем счетчик сгенерированных хэндоверов
@@ -448,9 +449,20 @@ fn run_night_phase<S: Read + Write>(
         shm_ptr.add(5).write_volatile(ShmState::NightDone as u8);
     }
 
-    // 7. Binary Acknowledgement (4 bytes)
-    let ack = genesis_core::ipc::BAKE_READY_MAGIC.to_le_bytes();
-    stream.write_all(&ack)?;
+    // 7. Binary Acknowledgement с Payload'ом
+    let ack_magic = genesis_core::ipc::BAKE_READY_MAGIC.to_le_bytes();
+    stream.write_all(&ack_magic)?;
+    
+    // Пишем длину массива и сам массив сырыми байтами (Zero-Copy Cast)
+    let acks_count = acks.len() as u32;
+    stream.write_all(&acks_count.to_le_bytes())?;
+    
+    if acks_count > 0 {
+        let ack_bytes = unsafe { 
+            std::slice::from_raw_parts(acks.as_ptr() as *const u8, acks.len() * std::mem::size_of::<genesis_core::ipc::AxonHandoverAck>()) 
+        };
+        stream.write_all(ack_bytes)?;
+    }
     stream.flush()?;
 
     println!("🌅 Night Phase complete ({} new synapses)", new_synapses);

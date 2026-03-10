@@ -46,6 +46,7 @@ fn nudge_axon(
     handovers_count: &mut usize,
     max_x: u32,
     max_y: u32,
+    zone_hash: u32, // <--- НОВЫЙ ПАРАМЕТР
 ) {
     let packed_tip = tips[axon_id];
     if packed_tip == 0 { return; } // Мертвый или улетевший аксон
@@ -74,6 +75,7 @@ fn nudge_axon(
         if *handovers_count < genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT {
             let len = lengths[axon_id] as u16;
             handovers[*handovers_count] = AxonHandoverEvent {
+                origin_zone_hash: zone_hash, // [DOD FIX] Штампуем наш ID
                 local_axon_id: axon_id as u32,
                 entry_x: new_tx.clamp(0, 2047) as u16,
                 entry_y: new_ty.clamp(0, 2047) as u16,
@@ -121,12 +123,15 @@ pub fn run_sprouting_pass(
     paths: &mut [u32],
     soma_positions: &[u32],
     master_seed: u64, // <--- [DOD FIX] НОВЫЙ ПАРАМЕТР
-) -> (usize, usize) {
+    zone_hash: u32, // <--- НОВЫЙ ПАРАМЕТР
+) -> (usize, usize, Vec<genesis_core::ipc::AxonHandoverAck>) {
     let total_axons = axon_tips_uvw.len();
     let ghost_start = padded_n;
     let ghost_end = padded_n + total_ghosts;
 
     // 0. Абсорбция входящих Ghost Axons (до перезаписи SHM)
+    let mut generated_acks = Vec::with_capacity(incoming_handovers_count);
+    
     let mut next_free_ghost = ghost_start;
     for i in 0..incoming_handovers_count {
         let ev = &handovers[i];
@@ -139,6 +144,13 @@ pub fn run_sprouting_pass(
             println!("WARNING: Ghost capacity exceeded!");
             break;
         }
+
+        // [DOD FIX] Создаем ACK для отправителя
+        generated_acks.push(genesis_core::ipc::AxonHandoverAck {
+            target_zone_hash: ev.origin_zone_hash,
+            src_axon_id: ev.local_axon_id,
+            dst_ghost_id: next_free_ghost as u32,
+        });
 
         let packed_tip = ((ev.type_mask as u32) << 28)
                        | ((ev.entry_z as u32) << 22)
@@ -166,7 +178,7 @@ pub fn run_sprouting_pass(
             if axon_id != u32::MAX && (axon_id as usize) < total_axons {
                 nudge_axon(
                     axon_id as usize, axon_tips_uvw, axon_dirs_xyz, lengths, paths,
-                    handovers, &mut handovers_count, max_x, max_y
+                    handovers, &mut handovers_count, max_x, max_y, zone_hash
                 );
             }
         }
@@ -177,7 +189,7 @@ pub fn run_sprouting_pass(
     for axon_id in padded_n..ghost_end {
         nudge_axon(
             axon_id, axon_tips_uvw, axon_dirs_xyz, lengths, paths,
-            handovers, &mut handovers_count, max_x, max_y
+            handovers, &mut handovers_count, max_x, max_y, zone_hash
         );
     }
 
@@ -262,7 +274,7 @@ pub fn run_sprouting_pass(
         }
     }
 
-    (new_synapses, handovers_count)
+    (new_synapses, handovers_count, generated_acks)
 }
 
 

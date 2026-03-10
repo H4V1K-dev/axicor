@@ -18,10 +18,11 @@ pub struct IoConfig {
 
 
 #[derive(Debug, Deserialize, Clone, Default)]
-#[serde(default)]
 pub struct InputMap {
     pub name: String,
+    #[serde(alias = "zone")] 
     pub target_zone: String,
+    #[serde(default)] 
     pub target_type: String,
     pub width: u32,
     pub height: u32,
@@ -29,10 +30,11 @@ pub struct InputMap {
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
-#[serde(default)]
 pub struct OutputMap {
     pub name: String,
+    #[serde(alias = "zone")]
     pub source_zone: String,
+    #[serde(default)]
     pub target_type: String,
     pub width: u32,
     pub height: u32,

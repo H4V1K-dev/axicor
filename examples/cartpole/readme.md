@@ -26,21 +26,13 @@ pip install numpy matplotlib gymnasium pygame
 Останавливает старые процессы, очищает SHM и пересобирает топологию:
 
 ```bash
-pkill -f genesis-node 2>/dev/null; pkill -f genesis-baker-daemon 2>/dev/null
-rm -rf baked/ /dev/shm/genesis_shard_*
-cargo run --release -p genesis-baker --bin baker -- \
-  --brain examples/cartpole/config/brain.toml
+rm -rf examples/cartpole/baked/* && cargo run --release -p genesis-baker --bin baker -- --brain examples/cartpole/config/brain.toml
 ```
 
 ### 3. Запуск Симуляции (3 шарда — IntraNode)
 ## ⚠️ Если у вас слабый ПК или давно не меняли термопасту, термопрокладки, то лучше перенастроить симуляцию на меньшее количество нейронов и выбрать `--cpu-profile balanced` (средний) или `eco` (экономный), т.к. в режиме `aggressive` видеокарта и процессор будут греться как в майнинге буквально.
 ```bash
-cargo run --release -p genesis-node -- \
-  --manifest baked/SensoryCortex/manifest.toml \
-  --manifest baked/HiddenCortex/manifest.toml \
-  --manifest baked/MotorCortex/manifest.toml \
-  --batch-size 100 \
-  --cpu-profile aggressive
+cargo run --release -p genesis-node --bin genesis-node --   --manifest examples/cartpole/baked/SensoryCortex/manifest.toml   --manifest examples/cartpole/baked/HiddenCortex/manifest.toml   --manifest examples/cartpole/baked/MotorCortex/manifest.toml   --cpu-profile aggressive   --log
 ```
 
 ### 4. Запуск клиента и мониторинга
@@ -49,7 +41,7 @@ cargo run --release -p genesis-node -- \
 
 ```bash
 # Обучение
-python3 examples/cartpole/cartpole_client.py
+cargo run --release --bin cartpole_htf
 
 # Live-мониторинг: SMA-25/100/300, TPS, скроллинг
 python3 scripts/live_dashboard.py

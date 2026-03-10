@@ -6,12 +6,12 @@ y = 0
 z = 0
 
 [dimensions]
-w = 120
-d = 120
+w = 64
+d = 64
 h = 63
 
 [settings]
-night_interval_ticks = 100_000
+night_interval_ticks = 3_000_000
 save_checkpoints_interval_ticks = 250_000
 
 [neighbors]
