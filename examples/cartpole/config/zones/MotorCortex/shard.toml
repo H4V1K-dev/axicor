@@ -15,3 +15,5 @@ night_interval_ticks = 100_000
 save_checkpoints_interval_ticks = 250_000
 
 [neighbors]
+x = "Self"
+y = "Self"

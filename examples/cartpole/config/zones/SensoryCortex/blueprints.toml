@@ -39,6 +39,7 @@ prune_threshold = 5
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 96
 slot_decay_wm = 190
+ltm_slot_count = 103
 
 [[neuron_type]]
 name = "L4_aspiny_MTG_11"
@@ -81,3 +82,4 @@ prune_threshold = 5
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 128
 slot_decay_wm = 128
+ltm_slot_count = 64

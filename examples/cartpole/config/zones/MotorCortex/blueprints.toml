@@ -39,6 +39,7 @@ prune_threshold = 5
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 75
 slot_decay_wm = 233
+ltm_slot_count = 64
 
 
 [[neuron_type]]
@@ -82,3 +83,4 @@ prune_threshold = 60
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 128
 slot_decay_wm = 128
+ltm_slot_count = 64

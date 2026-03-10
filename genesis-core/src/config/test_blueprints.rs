@@ -63,6 +63,7 @@ fn test_blueprints_parse_minimal_with_defaults() {
         homeostasis_decay = 5
         slot_decay_ltm = 120
         slot_decay_wm = 100
+        ltm_slot_count = 80
     "#;
 
     let bp = BlueprintsConfig::parse(toml).unwrap();
@@ -97,6 +98,7 @@ fn test_blueprints_whitelist_and_initial_weight() {
         homeostasis_decay = 5
         slot_decay_ltm = 120
         slot_decay_wm = 100
+        ltm_slot_count = 80
         dendrite_whitelist = ["Inhibitory", "Relay"]
         initial_synapse_weight = 90
         is_inhibitory = false
@@ -113,6 +115,7 @@ fn test_blueprints_whitelist_and_initial_weight() {
         homeostasis_decay = 3
         slot_decay_ltm = 100
         slot_decay_wm = 80
+        ltm_slot_count = 60
         is_inhibitory = true
     "#;
 
