@@ -128,8 +128,8 @@ impl Bootloader {
                 .unwrap_or_else(|_| SystemTime::now());
             
             let atomic_settings = Arc::new(crate::node::shard_thread::ShardAtomicSettings {
-                night_interval_ticks: std::sync::atomic::AtomicU64::new(zm.settings.night_interval_ticks.unwrap_or(0)),
-                save_checkpoints_interval_ticks: std::sync::atomic::AtomicU64::new(zm.settings.save_checkpoints_interval_ticks.unwrap_or(100_000) as u64),
+                night_interval_ticks: std::sync::atomic::AtomicU64::new(zm.settings.night_interval_ticks),
+                save_checkpoints_interval_ticks: std::sync::atomic::AtomicU64::new(zm.settings.save_checkpoints_interval_ticks),
                 prune_threshold: std::sync::atomic::AtomicI16::new(zm.settings.plasticity.prune_threshold),
             });
 
@@ -151,19 +151,6 @@ impl Bootloader {
         }
         
         let sim_config = sim_config.context("No manifests provided")?;
-        // Local night_interval from first manifest or global from simulation.toml
-        let first_zm = &zone_manifests_with_paths[0].0;
-        let night_interval = first_zm.settings.night_interval_ticks
-            .unwrap_or(sim_config.simulation.night_interval_ticks as u64);
-
-        // [DOD FIX] Telemetry doesn't own the global interval yet, shards do.
-
-        // Update all shards with global night_interval if they don't have local override
-        for (_, meta) in manifest_metadata.iter() {
-            if meta.atomic_settings.night_interval_ticks.load(std::sync::atomic::Ordering::Relaxed) == 0 {
-                meta.atomic_settings.night_interval_ticks.store(night_interval, std::sync::atomic::Ordering::Relaxed);
-            }
-        }
 
         // 2. Hardware & VRAM Phase: Allocate weights/targets and flash physics laws
         let (shards, s2a_maps, axon_head_ptrs, io_contexts, all_geo_data, output_routes) = 

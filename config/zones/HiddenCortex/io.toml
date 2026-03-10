@@ -1,9 +1,0 @@
-readout_batch_ticks = 100
-
-[[output]]
-name = "hidden_out"
-source_zone = "HiddenCortex"
-target_type = "All"
-width = 16
-height = 16
-stride = 1

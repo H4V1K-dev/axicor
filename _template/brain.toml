@@ -1,0 +1,30 @@
+# ==============================================================================
+# Макро-архитектура мозга (Zone Map & Connectome)
+# ==============================================================================
+[simulation]
+config = "config/simulation.toml"
+
+# --- ИЗОЛИРОВАННАЯ ЗОНА (Монолит или Шард) ---
+[[zone]]
+name = "TemplateZone"
+blueprints = "config/zones/_template/blueprints.toml"
+anatomy = "config/zones/_template/anatomy.toml"
+io = "config/zones/_template/io.toml"
+baked_dir = "baked/TemplateZone/"
+
+# Примечание: Если тебе нужны другие зоны (например, HiddenCortex),
+# просто добавляешь новый блок [[zone]] с путями к их папкам.
+
+# --- МЕЖЗОНАЛЬНАЯ МАРШРУТИЗАЦИЯ (Пример) ---
+# Закомментировано, так как требует наличия второй зоны в конфиге.
+# Если раскомментируешь, Baker заспавнит Ghost-аксоны из TemplateZone -> TargetZone.
+
+# [[connection]]
+# from = "TemplateZone"
+# to = "TargetZone"
+# output_matrix = "template_out"  # Имя матрицы из io.toml зоны "from"
+# width = 8
+# height = 8
+# entry_z = "top"                 # С какой стороны "to" втыкаются аксоны
+# target_type = "All"
+# growth_steps = 50

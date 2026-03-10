@@ -96,10 +96,8 @@ pub struct ZoneManifest {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ManifestSettings {
-    #[serde(default)]
-    pub night_interval_ticks: Option<u64>,
-    #[serde(default)]
-    pub save_checkpoints_interval_ticks: Option<u32>,
+    pub night_interval_ticks: u64,
+    pub save_checkpoints_interval_ticks: u64,
     #[serde(default)]
     pub plasticity: ManifestPlasticity,
 }

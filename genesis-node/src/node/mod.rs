@@ -204,13 +204,8 @@ impl NodeRuntime {
                         if let Ok(toml_str) = std::fs::read_to_string(&metadata.manifest_path) {
                             if let Ok(zm) = toml::from_str::<genesis_core::config::manifest::ZoneManifest>(&toml_str) {
                                 // 1. Update Atomic Settings
-                                if let Some(ni) = zm.settings.night_interval_ticks {
-                                    metadata.atomic_settings.night_interval_ticks.store(ni, Ordering::Relaxed);
-                                }
-                                
-                                if let Some(cp) = zm.settings.save_checkpoints_interval_ticks {
-                                    metadata.atomic_settings.save_checkpoints_interval_ticks.store(cp as u64, Ordering::Relaxed);
-                                }
+                                metadata.atomic_settings.night_interval_ticks.store(zm.settings.night_interval_ticks, Ordering::Relaxed);
+                                metadata.atomic_settings.save_checkpoints_interval_ticks.store(zm.settings.save_checkpoints_interval_ticks, Ordering::Relaxed);
                                 
                                     metadata.atomic_settings.prune_threshold.store(zm.settings.plasticity.prune_threshold, Ordering::Relaxed);
                                     
@@ -227,7 +222,7 @@ impl NodeRuntime {
                                         );
                                     }
                                     self.services.telemetry.push_log(format!("Zone 0x{:08X} updated (Night: {}, Prune: {}, GPU Physics reflashed)", 
-                                        hash, zm.settings.night_interval_ticks.unwrap_or(0), zm.settings.plasticity.prune_threshold), crate::tui::state::LogLevel::Info);
+                                        hash, zm.settings.night_interval_ticks, zm.settings.plasticity.prune_threshold), crate::tui::state::LogLevel::Info);
                                 } else {
                                     self.services.telemetry.push_log(format!("Failed to parse manifest at {:?}", metadata.manifest_path), crate::tui::state::LogLevel::Error);
                                 }

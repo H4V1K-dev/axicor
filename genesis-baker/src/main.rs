@@ -274,8 +274,8 @@ fn serialize_artifacts(
                 .collect(),
         },
         settings: genesis_core::config::manifest::ManifestSettings {
-            night_interval_ticks: Some(workspace.sim.simulation.night_interval_ticks as u64),
-            save_checkpoints_interval_ticks: Some(100_000),
+            night_interval_ticks: 0,
+            save_checkpoints_interval_ticks: 100_000,
             plasticity: genesis_core::config::manifest::ManifestPlasticity {
                 prune_threshold: 15,
             },

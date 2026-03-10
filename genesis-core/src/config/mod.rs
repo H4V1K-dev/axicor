@@ -49,9 +49,6 @@ pub struct SimulationParams {
     
     #[serde(default = "default_max_steps")]
     pub axon_growth_max_steps: u32,
-    
-    #[serde(default)] // default 0
-    pub night_interval_ticks: u32,
 }
 
 fn default_segment_length() -> u32 { 5 }

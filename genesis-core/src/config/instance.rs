@@ -4,7 +4,7 @@ use std::fs;
 
 /// Configures exactly *what* piece of the brain this node simulates, 
 /// and *where* its neighbors are located.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct InstanceConfig {
     /// Reference to the zone folder name (e.g. "V1")
     pub zone_id: String,
@@ -20,7 +20,6 @@ pub struct InstanceConfig {
     pub neighbors: Neighbors,
 
     /// Shard-specific runtime settings
-    #[serde(default)]
     pub settings: ShardSettings,
 }
 
@@ -30,13 +29,7 @@ pub struct ShardSettings {
     pub save_checkpoints_interval_ticks: u32,
 }
 
-impl Default for ShardSettings {
-    fn default() -> Self {
-        Self {
-            save_checkpoints_interval_ticks: 100_000, // Default: every 1000 batches if batch=100
-        }
-    }
-}
+
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct Coordinate {
