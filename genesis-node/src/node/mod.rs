@@ -48,6 +48,8 @@ pub struct NetworkTopology {
     pub inter_node_router: Arc<crate::network::inter_node::InterNodeRouter>,
     pub egress_pool: Arc<crate::network::egress::EgressPool>,
     pub axon_head_ptrs: HashMap<u32, *mut genesis_core::layout::BurstHeads8>,
+    pub routing_acks: std::sync::Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverAck>>,
+    pub routing_prunes: std::sync::Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverPrune>>,
 }
 
 // Safety: raw pointers in NetworkTopology are pinned GPU pointers owned by ShardEngine.
@@ -175,6 +177,8 @@ impl NodeRuntime {
                 inter_node_router,
                 egress_pool,
                 axon_head_ptrs,
+                routing_acks: Arc::new(crossbeam::queue::SegQueue::new()),
+                routing_prunes: Arc::new(crossbeam::queue::SegQueue::new()),
             },
             compute_dispatchers,
             feedback_sender: feedback_tx,
@@ -233,6 +237,39 @@ impl NodeRuntime {
         }
     }
 
+    fn patch_routing_tables(&mut self) {
+        let stream = std::ptr::null_mut(); 
+
+        while let Some(ack) = self.network.routing_acks.pop() {
+            // Ищем Inter-Node канал (если сосед на другой машине)
+            if let Some((_, channel)) = self.network.inter_node_channels.iter_mut()
+                .find(|(_, c)| c.target_zone_hash == ack.target_zone_hash) 
+            {
+                unsafe { channel.push_route(ack.src_axon_id, ack.dst_ghost_id, stream); }
+            }
+            // Ищем Intra-GPU канал (если обе зоны сидят в нашей VRAM)
+            else if let Some((_, _, channel)) = self.network.intra_gpu_channels.iter_mut()
+                // [DOD FIX] Точный матчинг по хэшам без магических заглушек!
+                .find(|(_, _, c)| c.target_zone_hash == ack.target_zone_hash) 
+            {
+                unsafe { channel.push_route(ack.src_axon_id, ack.dst_ghost_id, stream); }
+            }
+        }
+
+        while let Some(prune) = self.network.routing_prunes.pop() {
+            if let Some((_, channel)) = self.network.inter_node_channels.iter_mut()
+                .find(|(_, c)| c.target_zone_hash == prune.target_zone_hash) 
+            {
+                unsafe { channel.prune_route(prune.dst_ghost_id, stream); }
+            }
+            else if let Some((_, _, channel)) = self.network.intra_gpu_channels.iter_mut()
+                .find(|(_, _, c)| c.target_zone_hash == prune.target_zone_hash) 
+            {
+                unsafe { channel.prune_route(prune.dst_ghost_id, stream); }
+            }
+        }
+    }
+
     fn spawn_baker_daemons(
         shards: &[crate::node::shard_thread::ShardDescriptor],
     ) -> Vec<Child> {
@@ -264,7 +301,7 @@ impl NodeRuntime {
     }
 
     // [DOD FIX] The correct Pipeline Order: Compute -> Network Tx -> Network Rx Wait
-    pub fn run_node_loop(&self, batch_size: u32) {
+    pub fn run_node_loop(&mut self, batch_size: u32) {
         let mut current_tick = 0;
         let mut batch_counter: u64 = 0;
 
@@ -390,6 +427,10 @@ impl NodeRuntime {
             self.services.bsp_barrier.wait_for_data_sync();
 
             self.services.bsp_barrier.sync_and_swap();
+
+            // [DOD FIX] 8. Dynamic Capacity Routing: Hot-Patching VRAM
+            // Барьер пройден, GPU стоит. Идеальное время переписать 8 байт по шине PCIe.
+            self.patch_routing_tables();
 
             let wall_ms = batch_start.elapsed().as_millis() as u64;
             batch_start = std::time::Instant::now();

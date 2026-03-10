@@ -414,8 +414,10 @@ impl Bootloader {
 
         let mut all_connections = Vec::new();
         let mut receiver_dirs: HashMap<u32, PathBuf> = HashMap::new();
+        let mut receiver_manifests: HashMap<u32, &ZoneManifest> = HashMap::new();
         for (zm, path) in zone_manifests_with_paths {
             receiver_dirs.insert(zm.zone_hash, path.clone());
+            receiver_manifests.insert(zm.zone_hash, zm);
             all_connections.extend(zm.connections.clone());
         }
 
@@ -446,6 +448,8 @@ impl Bootloader {
 
             // We are the RECEIVER (is_dst_local). Ghost file must be in OUR baked_dir.
             let root_dir = receiver_dirs.get(&dst_hash).unwrap();
+            let receiver_manifest = receiver_manifests.get(&dst_hash).unwrap();
+            let capacity = receiver_manifest.memory.ghost_capacity as u32;
             let ghosts_path = root_dir.join(format!("{}_{}.ghosts", conn.from, conn.to));
 
             if ghosts_path.exists() {
@@ -464,9 +468,9 @@ impl Bootloader {
 
                 let src_ptr = *axon_head_ptrs.get(&src_hash).unwrap();
                 let dst_ptr = *axon_head_ptrs.get(&dst_hash).unwrap();
-                let channel = unsafe { IntraGpuChannel::from_slices(&src_axons, &dst_ghosts) };
+                let channel = unsafe { IntraGpuChannel::from_slices(src_hash, dst_hash, &src_axons, &dst_ghosts, capacity) };
                 intra_gpu.push((src_ptr, dst_ptr, channel));
-                println!("[Boot] Built IntraGpuChannel: {} -> {} ({} links)", conn.from, conn.to, src_axons.len());
+                println!("[Boot] Built IntraGpuChannel: {} -> {} ({} links, capacity: {})", conn.from, conn.to, src_axons.len(), capacity);
             } else {
                 // В режиме Ant-v4 это критично!
                 panic!("CRITICAL TOPOLOGY ERROR: Incoming ghost file not found: {:?}", ghosts_path);

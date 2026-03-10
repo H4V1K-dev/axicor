@@ -45,6 +45,25 @@ const _: () = assert!(
     "AxonHandoverEvent must be 16 bytes for SHM layout"
 );
 
+// [DOD FIX] События структурной пластичности для Dynamic Capacity Routing
+
+/// Подтверждение от соседа, что Ghost-аксон создан. Содержит выделенный слот.
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AxonHandoverAck {
+    pub target_zone_hash: u32,
+    pub src_axon_id: u32,
+    pub dst_ghost_id: u32, // Индекс в VRAM соседа
+}
+
+/// Уведомление соседу (или себе), что связь разорвана и слот нужно очистить.
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AxonHandoverPrune {
+    pub target_zone_hash: u32,
+    pub dst_ghost_id: u32,
+}
+
 pub fn shm_name(zone_hash: u32) -> String {
     format!("genesis_shard_{:08X}", zone_hash)
 }

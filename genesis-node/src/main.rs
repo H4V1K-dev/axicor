@@ -123,7 +123,7 @@ fn main() -> Result<()> {
 
         // 7. Enter the high-performance Node Loop (Synchronous GPU / Asynchronous IO)
         // [Architectural Invariant] This loop dispatches work to dedicated OS threads.
-        let node = boot_result.node_runtime;
+        let mut node = boot_result.node_runtime;
         std::thread::Builder::new()
             .name("genesis-orchestrator".into())
             .spawn(move || {
