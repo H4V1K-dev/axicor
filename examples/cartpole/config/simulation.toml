@@ -10,6 +10,6 @@ master_seed = "GENESIS"
 voxel_size_um = 25.0
 segment_length_voxels = 2
 signal_speed_m_s = 0.5
-sync_batch_ticks = 100
+sync_batch_ticks = 20
 night_interval_ticks = 1_000_000
 axon_growth_max_steps = 250

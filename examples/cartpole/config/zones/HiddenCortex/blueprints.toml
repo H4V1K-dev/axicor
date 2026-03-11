@@ -31,10 +31,10 @@ steering_weight_jitter = 0.2
 
 # Пластичность GSOP
 initial_synapse_weight = 303
-gsop_potentiation = 202
-gsop_depression = 2
-inertia_curve = [128, 121, 115, 110, 104, 99, 94, 90, 85, 81, 77, 73, 70, 66, 63, 60]
-prune_threshold = 75
+gsop_potentiation = 100
+gsop_depression = 59
+inertia_curve = [128, 123, 118, 112, 107, 101, 95, 89, 82, 75, 68, 60, 51, 40, 27, 2]
+prune_threshold = 25
 
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 128
@@ -74,10 +74,10 @@ steering_weight_jitter = 0.1
 
 # Пластичность GSOP
 initial_synapse_weight = 179
-gsop_potentiation = 222
-gsop_depression = 105
-inertia_curve = [128, 94, 69, 51, 37, 27, 20, 15, 11, 8, 5, 4, 3, 2, 1, 1]
-prune_threshold = 5
+gsop_potentiation = 78
+gsop_depression = 57
+inertia_curve = [128, 123, 118, 113, 108, 102, 97, 91, 84, 77, 70, 62, 53, 43, 30, 2]
+prune_threshold = 25
 
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 90
@@ -117,10 +117,10 @@ steering_weight_jitter = 0.2
 
 # Пластичность GSOP
 initial_synapse_weight = 50
-gsop_potentiation = 200
-gsop_depression = 2
-inertia_curve = [128, 121, 115, 110, 104, 99, 94, 90, 85, 81, 77, 73, 70, 66, 63, 60]
-prune_threshold = 5
+gsop_potentiation = 100
+gsop_depression = 58
+inertia_curve = [128, 122, 115, 109, 102, 95, 88, 81, 74, 66, 58, 49, 40, 30, 19, 2]
+prune_threshold = 25
 
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 128
@@ -160,10 +160,10 @@ steering_weight_jitter = 0.1
 
 # Пластичность GSOP
 initial_synapse_weight = 138
-gsop_potentiation = 109
-gsop_depression = 70
-inertia_curve = [128, 121, 115, 110, 104, 99, 94, 90, 85, 81, 77, 73, 70, 66, 63, 60]
-prune_threshold = 5
+gsop_potentiation = 60
+gsop_depression = 43
+inertia_curve = [128, 123, 118, 113, 107, 101, 95, 89, 83, 76, 68, 60, 51, 41, 28, 3]
+prune_threshold = 25
 
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 90
@@ -203,10 +203,10 @@ steering_weight_jitter = 0.2
 
 # Пластичность GSOP
 initial_synapse_weight = 229
-gsop_potentiation = 226
-gsop_depression = 2
-inertia_curve = [128, 98, 75, 58, 45, 34, 26, 20, 15, 12, 9, 7, 5, 4, 3, 2]
-prune_threshold = 57
+gsop_potentiation = 111
+gsop_depression = 64
+inertia_curve = [128, 119, 111, 102, 93, 85, 76, 68, 59, 51, 42, 34, 26, 17, 10, 2]
+prune_threshold = 25
 
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 128
@@ -246,10 +246,10 @@ steering_weight_jitter = 0.1
 
 # Пластичность GSOP
 initial_synapse_weight = 138
-gsop_potentiation = 113
-gsop_depression = 72
-inertia_curve = [128, 121, 115, 110, 104, 99, 94, 90, 85, 81, 77, 73, 70, 66, 63, 60]
-prune_threshold = 5
+gsop_potentiation = 60
+gsop_depression = 39
+inertia_curve = [128, 123, 117, 112, 106, 100, 94, 88, 81, 74, 66, 58, 49, 39, 26, 3]
+prune_threshold = 25
 
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 96
@@ -289,10 +289,10 @@ steering_weight_jitter = 0.2
 
 # Пластичность GSOP
 initial_synapse_weight = 231
-gsop_potentiation = 203
-gsop_depression = 2
-inertia_curve = [128, 121, 115, 110, 104, 99, 94, 90, 85, 81, 77, 73, 70, 66, 63, 60]
-prune_threshold = 57
+gsop_potentiation = 100
+gsop_depression = 61
+inertia_curve = [128, 122, 117, 111, 105, 99, 92, 86, 79, 71, 64, 55, 46, 36, 24, 2]
+prune_threshold = 25
 
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 128
@@ -332,10 +332,10 @@ steering_weight_jitter = 0.1
 
 # Пластичность GSOP
 initial_synapse_weight = 115
-gsop_potentiation = 474
-gsop_depression = 140
-inertia_curve = [128, 50, 19, 7, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-prune_threshold = 5
+gsop_potentiation = 125
+gsop_depression = 93
+inertia_curve = [128, 123, 118, 113, 108, 102, 97, 91, 84, 77, 70, 62, 53, 43, 30, 2]
+prune_threshold = 25
 
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 75
@@ -375,10 +375,10 @@ steering_weight_jitter = 0.2
 
 # Пластичность GSOP
 initial_synapse_weight = 535
-gsop_potentiation = 209
-gsop_depression = 2
-inertia_curve = [128, 116, 105, 95, 87, 79, 71, 65, 59, 53, 48, 44, 40, 36, 33, 30]
-prune_threshold = 133
+gsop_potentiation = 102
+gsop_depression = 69
+inertia_curve = [128, 123, 118, 113, 108, 102, 97, 91, 84, 77, 70, 62, 53, 43, 30, 2]
+prune_threshold = 25
 
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 128

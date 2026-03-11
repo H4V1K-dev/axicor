@@ -31,10 +31,10 @@ steering_weight_jitter = 0.1
 
 # Пластичность GSOP
 initial_synapse_weight = 53
-gsop_potentiation = 175
-gsop_depression = 93
-inertia_curve = [128, 106, 87, 72, 60, 49, 41, 34, 28, 23, 19, 16, 13, 11, 9, 7]
-prune_threshold = 5
+gsop_potentiation = 70
+gsop_depression = 48
+inertia_curve = [128, 122, 117, 111, 105, 99, 92, 86, 79, 71, 64, 55, 46, 36, 24, 2]
+prune_threshold = 25
 
 # --- Динамический Slot Decay (Derived) ---
 slot_decay_ltm = 75

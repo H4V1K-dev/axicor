@@ -112,6 +112,9 @@ fn main() {
     let mut rx_buf = [0u8; 65535];
     let mut tx_buf = [0u8; 28]; // 20 bytes header + 8 bytes payload (64 bits)
 
+    // Константа задержки нашего конвейера
+    const CAUSAL_DELAY_BATCHES: u32 = 3;
+
     loop {
         // 1. Кодирование состояния (4 переменные по 16 нейронов = 64 бита = 8 байт)
         let mut bitmask = [0u8; 8];
@@ -123,8 +126,10 @@ fn main() {
         // 2. Расчет нейромодулятора (Dopamine)
         let angle_penalty = (env.theta.abs() / 0.209) * 100.0;
         let vel_penalty = (env.theta_dot.abs() * 20.0).min(50.0);
-        let mut dopamine = (80.0 - angle_penalty - vel_penalty) as i16;
-        dopamine = dopamine.clamp(-50, 100);
+        
+        // Базовая линия = 0. Наказываем за отклонения.
+        let mut dopamine = (10.0 - angle_penalty * 1.5 - vel_penalty) as i16;
+        dopamine = dopamine.clamp(-100, 50); // Не даем слишком много позитива
 
         // 3. Формирование пакета
         let header = ExternalIoHeader {
@@ -136,53 +141,57 @@ fn main() {
             _padding: 0,
         };
 
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                &header as *const _ as *const u8,
-                tx_buf.as_mut_ptr(),
-                20
-            );
-            std::ptr::copy_nonoverlapping(
-                bitmask.as_ptr(),
-                tx_buf.as_mut_ptr().add(20),
-                8
-            );
-        }
+        let mut left_spikes_accum = 0;
+        let mut right_spikes_accum = 0;
 
-        // 4. Отправка в Оркестратор
-        sock.send_to(&tx_buf, node_addr).unwrap();
-
-        // 5. Strict Lockstep: ждём реакции мотора (Day Phase + DMA)
-        let payload_bytes: Vec<u8>;
-        loop {
-            match sock.recv_from(&mut rx_buf) {
-                Ok((size, _src)) => {
-                    if size < 20 { continue; }
-                    let hdr = unsafe { &*(rx_buf.as_ptr() as *const ExternalIoHeader) };
-                    if hdr.magic == GSOO_MAGIC && hdr.zone_hash == ZONE_HASH_OUT && hdr.matrix_hash == MATRIX_OUT {
-                        payload_bytes = rx_buf[20..size].to_vec();
-                        break;
-                    }
+        // [DOD FIX] Action Repeat Loop (Ждем пока сигнал пробьет 3 зоны)
+        for step in 0..CAUSAL_DELAY_BATCHES {
+            unsafe {
+                std::ptr::copy_nonoverlapping(&header as *const _ as *const u8, tx_buf.as_mut_ptr(), 20);
+                // Шлем сенсоры только в первый батч (вспышка), остальные батчи шлем нули (тишина), 
+                // чтобы не перестимулировать L4 и дать хвосту сигнала пройти дальше.
+                if step == 0 {
+                    std::ptr::copy_nonoverlapping(bitmask.as_ptr(), tx_buf.as_mut_ptr().add(20), 8);
+                } else {
+                    std::ptr::write_bytes(tx_buf.as_mut_ptr().add(20), 0, 8);
                 }
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::WouldBlock {
-                        println!("⚠️ Node timeout. Waiting for Genesis...");
-                        // Повторяем отправку последнего стейта, чтобы разбудить
-                        let _ = sock.send_to(&tx_buf, node_addr);
-                    } else {
-                        panic!("Socket error: {}", e);
+            }
+
+            sock.send_to(&tx_buf, node_addr).unwrap();
+
+            // Strict Lockstep: ждём ответа (Оркестратор работает на частоте сети)
+            let payload_bytes: Vec<u8>;
+            loop {
+                match sock.recv_from(&mut rx_buf) {
+                    Ok((size, _src)) => {
+                        if size < 20 { continue; }
+                        let hdr = unsafe { &*(rx_buf.as_ptr() as *const ExternalIoHeader) };
+                        if hdr.magic == GSOO_MAGIC && hdr.zone_hash == ZONE_HASH_OUT && hdr.matrix_hash == MATRIX_OUT {
+                            payload_bytes = rx_buf[20..size].to_vec();
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        if e.kind() == std::io::ErrorKind::WouldBlock {
+                            println!("⚠️ Node timeout. Waiting for Genesis...");
+                            let _ = sock.send_to(&tx_buf, node_addr);
+                        } else {
+                            panic!("Socket error: {}", e);
+                        }
                     }
                 }
             }
+
+            // Аккумулируем спайки за все 3 батча задержки
+            let mid = payload_bytes.len() / 2;
+            left_spikes_accum += payload_bytes[..mid].iter().map(|&b| b as u32).sum::<u32>();
+            right_spikes_accum += payload_bytes[mid..].iter().map(|&b| b as u32).sum::<u32>();
         }
 
-        // 6. Population Decoding (u8 array, 64 neurons total)
-        let mid = payload_bytes.len() / 2;
-        let left_spikes: u32 = payload_bytes[..mid].iter().map(|&b| b as u32).sum();
-        let right_spikes: u32 = payload_bytes[mid..].iter().map(|&b| b as u32).sum();
-        let action = if left_spikes > right_spikes { 0 } else { 1 };
+        // 6. Population Decoding по итогам 3 батчей
+        let action = if left_spikes_accum > right_spikes_accum { 0 } else { 1 };
 
-        // 7. Физика
+        // 7. Делаем шаг физики РАЗ В 30 мс
         let done = env.step(action);
         score += 1;
 
