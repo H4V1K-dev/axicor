@@ -3,7 +3,7 @@ members = [
     "genesis-core",
     "genesis-baker",
     
-    "genesis-ide", "genesis-compute", "genesis-node",
+    "genesis-ide", "genesis-compute", "genesis-node", "genesis-retina",
 ]
 resolver = "2"
 

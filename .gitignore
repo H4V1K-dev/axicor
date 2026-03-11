@@ -38,6 +38,7 @@ Thumbs.db
 *.tmp
 
 # Папки
+genesis-retina/
 __pycache__/
 tests/tmp/
 SUMARIZER/
