@@ -10,8 +10,8 @@ refractory_period = 16
 spontaneous_firing_period_ticks = 390
 
 # Адаптация и Тайминги
-homeostasis_penalty = 1020
-homeostasis_decay = 6
+homeostasis_penalty = 2000
+homeostasis_decay = 15
 synapse_refractory_period = 15
 signal_propagation_length = 17
 
@@ -31,8 +31,8 @@ steering_weight_jitter = 0.2
 
 # Пластичность GSOP
 initial_synapse_weight = 417
-gsop_potentiation = 100
-gsop_depression = 66
+gsop_potentiation = 80
+gsop_depression = 40
 inertia_curve = [128, 122, 116, 110, 104, 98, 91, 84, 77, 70, 62, 53, 44, 34, 22, 2]
 prune_threshold = 25
 
@@ -53,8 +53,8 @@ refractory_period = 10
 spontaneous_firing_period_ticks = 1380
 
 # Адаптация и Тайминги
-homeostasis_penalty = 1000
-homeostasis_decay = 2
+homeostasis_penalty = 15000
+homeostasis_decay = 25
 synapse_refractory_period = 15
 signal_propagation_length = 14
 
@@ -74,8 +74,8 @@ steering_weight_jitter = 0.1
 
 # Пластичность GSOP
 initial_synapse_weight = 217
-gsop_potentiation = 60
-gsop_depression = 38
+gsop_potentiation = 50
+gsop_depression = 80
 inertia_curve = [128, 123, 118, 113, 108, 103, 97, 91, 85, 78, 71, 63, 54, 43, 30, 3]
 prune_threshold = 25
 
@@ -96,8 +96,8 @@ refractory_period = 16
 spontaneous_firing_period_ticks = 709
 
 # Адаптация и Тайминги
-homeostasis_penalty = 1000
-homeostasis_decay = 3
+homeostasis_penalty = 2000
+homeostasis_decay = 15
 synapse_refractory_period = 15
 signal_propagation_length = 17
 
@@ -117,8 +117,8 @@ steering_weight_jitter = 0.2
 
 # Пластичность GSOP
 initial_synapse_weight = 966
-gsop_potentiation = 100
-gsop_depression = 54
+gsop_potentiation = 80
+gsop_depression = 40
 inertia_curve = [128, 123, 118, 112, 107, 101, 95, 89, 82, 75, 68, 60, 51, 40, 27, 2]
 prune_threshold = 25
 
@@ -139,8 +139,8 @@ refractory_period = 15
 spontaneous_firing_period_ticks = 1357
 
 # Адаптация и Тайминги
-homeostasis_penalty = 1338
-homeostasis_decay = 2
+homeostasis_penalty = 15000
+homeostasis_decay = 25
 synapse_refractory_period = 15
 signal_propagation_length = 22
 
@@ -160,8 +160,8 @@ steering_weight_jitter = 0.1
 
 # Пластичность GSOP
 initial_synapse_weight = 129
-gsop_potentiation = 61
-gsop_depression = 43
+gsop_potentiation = 50
+gsop_depression = 80
 inertia_curve = [128, 123, 118, 113, 108, 103, 97, 91, 85, 78, 71, 63, 54, 43, 30, 3]
 prune_threshold = 25
 
@@ -182,7 +182,7 @@ refractory_period = 22
 spontaneous_firing_period_ticks = 164
 
 # Адаптация и Тайминги
-homeostasis_penalty = 1000
+homeostasis_penalty = 2000
 homeostasis_decay = 15
 synapse_refractory_period = 15
 signal_propagation_length = 23
@@ -203,8 +203,8 @@ steering_weight_jitter = 0.2
 
 # Пластичность GSOP
 initial_synapse_weight = 554
-gsop_potentiation = 100
-gsop_depression = 54
+gsop_potentiation = 80
+gsop_depression = 40
 inertia_curve = [128, 120, 112, 104, 96, 88, 80, 71, 63, 55, 46, 38, 29, 21, 12, 2]
 prune_threshold = 25
 
@@ -225,8 +225,8 @@ refractory_period = 19
 spontaneous_firing_period_ticks = 681
 
 # Адаптация и Тайминги
-homeostasis_penalty = 1000
-homeostasis_decay = 3
+homeostasis_penalty = 15000
+homeostasis_decay = 25
 synapse_refractory_period = 15
 signal_propagation_length = 20
 
@@ -246,8 +246,8 @@ steering_weight_jitter = 0.1
 
 # Пластичность GSOP
 initial_synapse_weight = 89
-gsop_potentiation = 60
-gsop_depression = 45
+gsop_potentiation = 50
+gsop_depression = 80
 inertia_curve = [128, 123, 118, 113, 107, 101, 95, 89, 83, 76, 68, 60, 51, 41, 28, 3]
 prune_threshold = 25
 
@@ -268,8 +268,8 @@ refractory_period = 22
 spontaneous_firing_period_ticks = 348
 
 # Адаптация и Тайминги
-homeostasis_penalty = 1000
-homeostasis_decay = 7
+homeostasis_penalty = 2000
+homeostasis_decay = 15
 synapse_refractory_period = 15
 signal_propagation_length = 23
 
@@ -289,8 +289,8 @@ steering_weight_jitter = 0.2
 
 # Пластичность GSOP
 initial_synapse_weight = 200
-gsop_potentiation = 100
-gsop_depression = 72
+gsop_potentiation = 80
+gsop_depression = 40
 inertia_curve = [128, 122, 116, 110, 103, 96, 90, 83, 75, 68, 60, 51, 42, 32, 20, 2]
 prune_threshold = 25
 
@@ -311,8 +311,8 @@ refractory_period = 19
 spontaneous_firing_period_ticks = 740
 
 # Адаптация и Тайминги
-homeostasis_penalty = 1000
-homeostasis_decay = 3
+homeostasis_penalty = 15000
+homeostasis_decay = 25
 synapse_refractory_period = 15
 signal_propagation_length = 20
 
@@ -332,8 +332,8 @@ steering_weight_jitter = 0.1
 
 # Пластичность GSOP
 initial_synapse_weight = 50
-gsop_potentiation = 60
-gsop_depression = 45
+gsop_potentiation = 50
+gsop_depression = 80
 inertia_curve = [128, 123, 118, 113, 107, 101, 95, 89, 83, 76, 68, 60, 51, 41, 28, 3]
 prune_threshold = 25
 
@@ -354,8 +354,8 @@ refractory_period = 23
 spontaneous_firing_period_ticks = 318
 
 # Адаптация и Тайминги
-homeostasis_penalty = 1000
-homeostasis_decay = 7
+homeostasis_penalty = 2000
+homeostasis_decay = 15
 synapse_refractory_period = 15
 signal_propagation_length = 24
 
@@ -375,8 +375,8 @@ steering_weight_jitter = 0.2
 
 # Пластичность GSOP
 initial_synapse_weight = 269
-gsop_potentiation = 100
-gsop_depression = 59
+gsop_potentiation = 80
+gsop_depression = 40
 inertia_curve = [128, 122, 116, 110, 103, 96, 90, 83, 75, 68, 60, 51, 42, 32, 20, 2]
 prune_threshold = 25
 

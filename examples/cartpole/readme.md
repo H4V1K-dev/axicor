@@ -40,8 +40,11 @@ cargo run --release -p genesis-node --bin genesis-node --   --manifest examples/
 В отдельных терминалах:
 
 ```bash
-# Обучение
+# Обучение на Rust
 cargo run --release --bin cartpole_htf
+
+# Или с Python SDK
+python3 scripts/cartpole_client.py
 
 # Live-мониторинг: SMA-25/100/300, TPS, скроллинг
 python3 scripts/live_dashboard.py
