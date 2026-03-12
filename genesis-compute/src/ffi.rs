@@ -45,7 +45,8 @@ unsafe impl Send for ShardVramPtrs {}
 unsafe impl Sync for ShardVramPtrs {}
 
 
-#[cfg_attr(not(feature = "mock-gpu"), link(name = "genesis_cuda", kind = "static"))]
+#[cfg_attr(all(not(feature = "mock-gpu"), not(feature = "amd")), link(name = "genesis_cuda", kind = "static"))]
+#[cfg_attr(all(not(feature = "mock-gpu"), feature = "amd"), link(name = "genesis_amd", kind = "static"))]
 extern "C" {
     // =====================================================================
     // § Новый Zero-Cost контракт (cu_* функции)

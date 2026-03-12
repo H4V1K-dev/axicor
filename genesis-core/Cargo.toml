@@ -10,3 +10,6 @@ license.workspace = true
 bytemuck = { version = "1.25.0", features = ["derive"] }
 serde = { workspace = true }
 toml = { workspace = true }
+
+[features]
+amd = []

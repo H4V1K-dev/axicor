@@ -48,11 +48,11 @@ def main():
     striatum.add_layer("Matrix", 1.0, 0.08).add_population(striatum_inh, 1.0)
 
     # 6. Motor Cortex (Исполнение)
-    motor = b.add_zone("Motor_Cortex", 120, 120, 60)
+    motor = b.add_zone("Motor_Cortex", 60, 60, 60)
     motor.add_layer("L5_Output", 1.0, 0.05).add_population(motor_l5, 1.0)
 
     # 7. Cerebellum (Координация и баланс)
-    cerebellum = b.add_zone("Cerebellum", 120, 120, 20)
+    cerebellum = b.add_zone("Cerebellum", 60, 60, 20)
     cerebellum.add_layer("Purkinje_Layer", 1.0, 0.03).add_population(purkinje, 1.0)
 
     print("🔌 Configuring I/O Matrices...")

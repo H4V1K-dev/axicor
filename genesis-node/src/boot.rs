@@ -279,6 +279,9 @@ impl Bootloader {
     fn load_all_shards_into_vram(zone_manifests_with_paths: &[(ZoneManifest, PathBuf)], sync_batch_ticks: u32) 
         -> Result<(Vec<BootShard>, HashMap<u32, Vec<u32>>, HashMap<u32, *mut genesis_core::layout::BurstHeads8>, Vec<(u32, crate::network::io_server::ZoneIoContext)>, Vec<u32>, HashMap<u32, Vec<(String, u32)>>)> 
     {
+        // [DOD FIX] Явно биндим контекст устройства к главному потоку перед загрузкой!
+        unsafe { genesis_compute::ffi::gpu_set_device(0); }
+
         let mut engines = Vec::new();
         let mut io_contexts = Vec::new();
         let mut all_geo_data = Vec::new();

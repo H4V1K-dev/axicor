@@ -39,6 +39,7 @@ Thumbs.db
 
 # Папки
 genesis-retina/
+Genesis_Models/
 __pycache__/
 tests/tmp/
 SUMARIZER/
@@ -50,7 +51,6 @@ _agent/
 .agent/
 brains/
 config/
-Genesis_Models/
 .venv/
 baked/
 venv/

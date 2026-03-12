@@ -18,6 +18,7 @@ cc = "1.0"
 
 [features]
 mock-gpu = []
+amd = []
 
 [dev-dependencies]
 tempfile = "3"

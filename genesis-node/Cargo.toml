@@ -30,3 +30,6 @@ crossterm = "0.28"
 
 [dev-dependencies]
 tempfile = "3.10"
+
+[features]
+amd = ["genesis-core/amd", "genesis-compute/amd"]
