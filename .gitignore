@@ -50,6 +50,7 @@ _agent/
 .agent/
 brains/
 config/
+Genesis_Models/
 .venv/
 baked/
 venv/

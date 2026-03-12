@@ -2,13 +2,8 @@
   <img src="neuron_874_morphology.png" alt="Genesis Neural Network" width="720"/>
 </p>
 
-<h3 align="center"> 🚧⚠️ UNSTABLE MVP ⚠️🚧</h3>
-Все крейты находятся в состоянии нестабильного MVP.
-Иногда то, что работало час назад, сейчас может не работать - и наоборот.
-API, структуры данных и поведение меняются иногда без предупреждения.
-
-**Стабилизация MVP ожидается ~Май 2026.**
-До этого момента не рассчитывайте на стабильный запуск и работу.
+<h3 align="center">STABLE MVP</h3>
+<p align="center">Все крейты находятся в состоянии стабильного MVP.
 
 <h1 align="center">Genesis</h1>
 
@@ -209,6 +204,7 @@ cargo run --release -p genesis-ide
 | [`04_connectivity.md`](./docs/specs/04_connectivity.md) | Cone Tracing, GSOP, Inertia Curves, Ghost Axons |
 | [`08_io_matrix.md`](./docs/specs/08_io_matrix.md) | Input/Output матрицы, Population Coding |
 | [`09_baking_pipeline.md`](./docs/specs/09_baking_pipeline.md) | `.state`/`.axons` формат, Sort & Prune |
+| [`10_hardware_backends.md`](./docs/specs/10_hardware_backends.md) | Роадмап: AMD ROCm, ESP32, Нейроморфы |
 | [`00_glossary.md`](./docs/specs/00_glossary.md) | Глоссарий терминов |
 
 ---

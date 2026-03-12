@@ -12,7 +12,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 def main():
     print("🐁 Assembling Mouse Embodied Agent (7 Zones)...")
     # Инициализация конструктора
-    b = BrainBuilder(project_name="MouseAgent", output_dir="config/mouse_agent", gnm_lib_path="GNM-Library")
+    b = BrainBuilder(project_name="MouseAgent", output_dir="Genesis_Models/mouse_agent", gnm_lib_path="GNM-Library")
 
     print("🧬 Loading Allen Brain Genetics...")
     # Точные пути из GNM-Library
@@ -94,7 +94,7 @@ def main():
     b.build()
 
     print("\n🔥 Firing up genesis-baker on the massive cluster...")
-    brain_path = "config/mouse_agent/brain.toml"
+    brain_path = "Genesis_Models/mouse_agent/brain.toml"
     
     # Запускаем компилятор напрямую из скрипта
     result = subprocess.run(

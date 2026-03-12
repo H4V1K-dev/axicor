@@ -1,5 +1,6 @@
 [package]
 name = "genesis-node"
+default-run = "genesis-node"
 description = "Distributed runtime node, networking, and orchestrator for Genesis"
 version.workspace = true
 edition.workspace = true

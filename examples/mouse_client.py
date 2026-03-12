@@ -19,8 +19,8 @@ def fnv1a_32(data: bytes) -> int:
         hash_val = (hash_val * 0x01000193) & 0xFFFFFFFF
     return hash_val
 
-ZONE_SENSORY = fnv1a_32(b"SensoryCortex")
-MATRIX_SENSORS = fnv1a_32(b"cartpole_sensors")
+ZONE_SENSORY = fnv1a_32(b"LGN_Thalamus")
+MATRIX_SENSORS = fnv1a_32(b"retina_rgb")
 
 # 4 переменные среды * 16 нейронов = 64 виртуальных аксона = 8 байт
 PAYLOAD_SIZE = 8
@@ -56,7 +56,7 @@ def sum_spikes_wta(memory_view) -> tuple[int, int]:
     return int(arr[:, :64].sum()), int(arr[:, 64:].sum())
 
 def main():
-    print("🚀 Booting Genesis E2E CartPole Client...")
+    print("🚀 Booting Genesis Mouse Embodied Agent Client...")
 
     # 1. Инициализация HFT-Транспорта (Data Plane)
     client = genesis.GenesisMultiClient(
@@ -71,9 +71,8 @@ def main():
         
     input_view = client.payload_views[0] # Исправлено: payload_views это список
 
-    # 2. Инициализация Управления (Control Plane)
     try:
-        manifest_path = "examples/cartpole/baked/SensoryCortex/manifest.toml"
+        manifest_path = "Genesis_Models/mouse_agent/baked/LGN_Thalamus/manifest.toml"
         ctrl = genesis.GenesisControl(manifest_path)
         # Инициализируем AutoTuner (цель: 500 очков)
         tuner = genesis.GenesisAutoTuner(ctrl, target_score=500, window_size=15)

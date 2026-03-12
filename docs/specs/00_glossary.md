@@ -1,8 +1,8 @@
 # Genesis Architecture Glossary
 
-**Version:** 0.0.1 ***"Hello World"***  
-**Last Updated:** 2026-02-28  
-**Scope:** Complete terminology reference across all 10 Genesis specifications
+**Version:** 0.0.2 ***"Stable MVP"***  
+**Last Updated:** 2026-03-12  
+**Scope:** Complete terminology reference across all 11 Genesis specifications
 
 ---
 
@@ -101,6 +101,15 @@ Inter-zone synchronization primitive ensuring all zones complete Day Phase befor
 
 **See also:** Day Phase, Night Phase, Distributed Mode  
 **Specs:** 06_distributed.md (§6.2), 07_gpu_runtime.md (§7.5)
+
+---
+
+### Bare Metal Runtime (Genesis-Lite)
+
+A streamlined, C/C++ implementation of the Genesis compute kernel designed for microcontrollers (e.g., ESP32-S3) and embedded systems. Operates without a full OS, targeting direct hardware interactions.
+
+**See also:** ESP32, I/O Matrix  
+**Specs:** 10_hardware_backends.md (§3.1)
 
 ---
 
@@ -313,6 +322,15 @@ Genesis implements GLIF with 64-dimensional voltage state per neuron.
 
 ---
 
+### HIP / ROCm (AMD Backend)
+
+The C++ heterogeneous-compute interface (HIP) and open-source platform (ROCm) for AMD GPUs. Genesis targets HIP as its primary alternative to CUDA for server-grade hardware diversification.
+
+**See also:** Day Phase, GPU Runtime  
+**Specs:** 10_hardware_backends.md (§2.1), 07_gpu_runtime.md (§1.6)
+
+---
+
 ### GSOP (Growth, Stasis, Prune Operator)
 
 State machine controlling synapse lifespan:
@@ -441,6 +459,15 @@ Integrated via Euler method in UpdateNeurons kernel.
 
 **See also:** GLIF, Hodgkin-Huxley, UpdateNeurons  
 **Specs:** 03_neuron_model.md (entire)
+
+---
+
+### Neuromorphic Computing
+
+Hardware architectures that emulate biological neural structures (e.g., Intel Loihi). Genesis biospecs (GSOP, GLIF) are designed for future mapping onto event-driven, asynchronous neuromorphic silicon.
+
+**See also:** ASIC, GNM  
+**Specs:** 10_hardware_backends.md (§4.1)
 
 ---
 

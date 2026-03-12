@@ -186,6 +186,8 @@ pub struct GenesisConstantMemory {        // 1024 bytes
 
 **Инвариант:** Идеал Zero-Copy Загрузки (§1.4) реализуется одинаково эффективно на всех платформах. Отказ от Linux-exclusive конструкций (`/dev/shm`, Unix Sockets).
 
+// TODO: [Planned] Поддержка AMD ROCm/HIP для диверсификации GPU-бэкендов. См. [10_hardware_backends.md](./10_hardware_backends.md).
+
 #### 1.6.1. Архитектура: Платформа-Специфичные Фолбэки
 
 | Платформа | Память (Night Phase) | Синхронизация (Network) |

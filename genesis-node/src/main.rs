@@ -35,20 +35,25 @@ pub enum CpuProfile {
     version
 )]
 struct Cli {
-    #[arg(long, required = true)]
-    manifest: Vec<PathBuf>,
+    /// Путь к файлу brain.toml для автоматического запуска всех зон
+    #[arg(long)]
+    pub brain: Option<PathBuf>,
+
+    /// Пути к манифестам зон (можно использовать вместе или вместо --brain)
+    #[arg(long = "manifest")]
+    pub manifests: Vec<PathBuf>,
 
     #[arg(long, default_value = "9000")]
-    fast_path_port: u16,
+    pub fast_path_port: u16,
 
     #[arg(long)]
-    peer: Vec<String>,
+    pub peer: Vec<String>,
 
     #[arg(long, default_value = "aggressive")]
-    cpu_profile: CpuProfile,
+    pub cpu_profile: CpuProfile,
 
     #[arg(long)]
-    log: bool,
+    pub log: bool,
 }
 
 fn main() -> Result<()> {
@@ -62,6 +67,41 @@ fn main() -> Result<()> {
     rt.block_on(async {
         let cli = Cli::parse();
         
+        let mut manifest_paths = cli.manifests.clone();
+
+        // Если указан --brain, читаем топологию и добавляем все манифесты автоматически
+        if let Some(brain_arg) = cli.brain {
+            // Умный резолвер путей (Convention over Configuration)
+            let brain_path = if brain_arg.exists() || brain_arg.to_string_lossy().ends_with(".toml") {
+                brain_arg // Это явный путь к файлу
+            } else {
+                // Это просто имя модели (например, "mouse_agent")
+                let models_root = std::env::var("GENESIS_MODELS_PATH")
+                    .unwrap_or_else(|_| "Genesis_Models".to_string());
+                std::path::PathBuf::from(models_root).join(brain_arg).join("brain.toml")
+            };
+
+            println!("🧠 Loading cluster topology from: {:?}", brain_path);
+            match genesis_core::config::brain::parse_brain_config(&brain_path) {
+                Ok(brain_cfg) => {
+                    for zone in brain_cfg.zones {
+                        let manifest_path = zone.baked_dir.join("manifest.toml");
+                        println!("  + Discovered zone: {} -> {:?}", zone.name, manifest_path);
+                        manifest_paths.push(manifest_path);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("❌ FATAL: Failed to parse brain config: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        if manifest_paths.is_empty() {
+            eprintln!("❌ FATAL: No manifests provided. Use --brain <path/to/brain.toml> or --manifest <path>");
+            std::process::exit(1);
+        }
+
         // 0. Initialize CLI Monitor (TUI or Log)
         let telemetry = Arc::new(crate::tui::state::LockFreeTelemetry::default());
         let log_mode = cli.log;
@@ -69,7 +109,7 @@ fn main() -> Result<()> {
         println!("[Node] Starting Genesis Distributed Daemon...");
         
         // 2-5. Execution of the 5-Component Fail-Fast Boot Sequence
-        let boot_result = Bootloader::boot_node_with_profile(&cli.manifest, telemetry.clone(), cli.cpu_profile).await
+        let boot_result = Bootloader::boot_node_with_profile(&manifest_paths, telemetry.clone(), cli.cpu_profile).await
             .context("Node Bootstrap Failed")?;
 
         // [DOD FIX] Immediate Cluster Join
