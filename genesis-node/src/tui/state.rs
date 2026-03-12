@@ -7,6 +7,12 @@ pub enum Phase { Day, Night, Sleep }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum LogLevel { Info, Warning, Night, Error }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum FocusedPanel {
+    ZoneTable,
+    EventLog,
+}
+
 pub struct LogEntry {
     pub timestamp: String,
     pub message: String,
@@ -60,6 +66,7 @@ pub struct DashboardState {
     pub events: VecDeque<LogEntry>,
 
     // UI State
+    pub focus: FocusedPanel,
     pub zone_scroll: usize,
     pub log_scroll: usize,
     pub selected_zone_idx: Option<usize>,
@@ -88,6 +95,7 @@ impl DashboardState {
             night_interval_ticks: 200_000,
             global_phase: Phase::Day,
             events: VecDeque::with_capacity(200),
+            focus: FocusedPanel::ZoneTable,
             zone_scroll: 0,
             log_scroll: 0,
             selected_zone_idx: None,

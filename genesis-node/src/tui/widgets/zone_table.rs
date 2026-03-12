@@ -4,15 +4,22 @@ use ratatui::{
     widgets::{Block, Borders, Row, Cell, Table, BorderType},
     Frame,
 };
-use crate::tui::state::{DashboardState, Phase};
+use crate::tui::state::{DashboardState, Phase, FocusedPanel};
 
 pub fn draw(f: &mut Frame, area: Rect, state: &mut DashboardState) {
+    let border_color = if state.focus == FocusedPanel::ZoneTable { Color::Cyan } else { Color::DarkGray };
+    let title = if state.focus == FocusedPanel::ZoneTable { "▶ PER-ZONE NEURAL TELEMETRY (Active) " } else { " PER-ZONE NEURAL TELEMETRY " };
+
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" PER-ZONE NEURAL TELEMETRY ")
+        .border_style(Style::default().fg(border_color))
+        .title(title)
         .border_type(BorderType::Plain);
 
-    let rows: Vec<Row> = state.zones.iter().map(|z| {
+    // Scrolling: show max 7 zones
+    let visible_zones = state.zones.iter().skip(state.zone_scroll).take(7);
+
+    let rows: Vec<Row> = visible_zones.map(|z| {
         // Phase + time-to-night
         let ticks_in_phase = state.total_ticks % z.night_interval_ticks.max(1);
         let ticks_to_night = z.night_interval_ticks.saturating_sub(ticks_in_phase);
@@ -42,7 +49,9 @@ pub fn draw(f: &mut Frame, area: Rect, state: &mut DashboardState) {
             Color::Red
         };
 
-        let rate_str = format!("{:.2}%", rate);
+        // Visual activity bar
+        let bars = (rate.min(10.0) / 1.0) as usize;
+        let rate_str = format!("{:>5.2}% {}", rate, "█".repeat(bars));
 
         Row::new(vec![
             Cell::from(z.short_name.clone()),
@@ -59,12 +68,12 @@ pub fn draw(f: &mut Frame, area: Rect, state: &mut DashboardState) {
             Constraint::Length(12),
             Constraint::Length(7),
             Constraint::Length(7),
-            Constraint::Length(10),
-            Constraint::Length(11), // wider for "DAY MM:SS"
+            Constraint::Min(15), 
+            Constraint::Length(11), 
         ]
     )
     .header(
-        Row::new(vec!["ZONE ID", "NEUR", "AXON", "SPIKE", "PHASE"])
+        Row::new(vec!["ZONE ID", "NEUR", "AXON", "ACTIVITY RATE", "PHASE"])
             .style(Style::default().add_modifier(Modifier::BOLD))
             .bottom_margin(1)
     )
