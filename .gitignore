@@ -49,6 +49,7 @@ _agents/
 _agent/
 .agent/
 brains/
+config/
 .venv/
 baked/
 venv/

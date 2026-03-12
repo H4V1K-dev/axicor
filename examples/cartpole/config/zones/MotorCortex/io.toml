@@ -1,8 +1,0 @@
-[[output]]
-name = "motor_actions"
-zone = "MotorCortex"
-width = 8
-height = 8
-# [DOD FIX] Собираем спайки исключительно с моторных пирамид
-target_type = "L5_spiny_MFG_1"
-stride = 1

@@ -1,8 +1,0 @@
-[[output]]
-name = "hidden_out"
-zone = "HiddenCortex"
-width = 16
-height = 16
-# [DOD FIX] Собираем аксоны строго с выходного слоя пирамидальных клеток L5
-target_type = "L5_spiny_MTG_1"
-stride = 1
