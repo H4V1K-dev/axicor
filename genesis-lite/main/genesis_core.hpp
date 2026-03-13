@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include <atomic>
 
 #define MAX_DENDRITE_SLOTS 32
 #define AXON_SENTINEL 0x80000000
@@ -50,4 +51,37 @@ struct SramState {
 
     int16_t* dendrite_weights;
     BurstHeads8* axon_heads;
+};
+
+// [DOD] Сетевой пакет (8 байт)
+struct alignas(8) SpikeEvent {
+    uint32_t ghost_id;
+    uint32_t tick_offset;
+};
+
+#define SPIKE_QUEUE_SIZE 256
+
+// [DOD] Zero-Lock SPSC Queue (Core 0 -> Core 1)
+struct alignas(32) LockFreeSpikeQueue {
+    // Разносим head и tail по разным кэш-линиям процессора Xtensa (False Sharing protection)
+    alignas(32) std::atomic<uint32_t> head{0};
+    alignas(32) std::atomic<uint32_t> tail{0};
+    SpikeEvent buffer[SPIKE_QUEUE_SIZE];
+
+    bool push(const SpikeEvent& ev) {
+        uint32_t curr_head = head.load(std::memory_order_relaxed);
+        uint32_t next_head = (curr_head + 1) % SPIKE_QUEUE_SIZE;
+        if (next_head == tail.load(std::memory_order_acquire)) return false; // Full
+        buffer[curr_head] = ev;
+        head.store(next_head, std::memory_order_release);
+        return true;
+    }
+
+    bool pop(SpikeEvent& ev) {
+        uint32_t curr_tail = tail.load(std::memory_order_relaxed);
+        if (curr_tail == head.load(std::memory_order_acquire)) return false; // Empty
+        ev = buffer[curr_tail];
+        tail.store((curr_tail + 1) % SPIKE_QUEUE_SIZE, std::memory_order_release);
+        return true;
+    }
 };

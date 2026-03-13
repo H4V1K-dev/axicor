@@ -4,18 +4,25 @@
 #include "freertos/task.h"
 #include "esp_timer.h"
 #include <inttypes.h>
+#include "nvs_flash.h"
+#include "esp_wifi.h"
+#include "esp_now.h"
+#include "esp_netif.h"
+#include "esp_event.h"
 #include "genesis_core.hpp"
 
 VariantParameters VARIANT_LUT[2];
 SramState sram;
 FlashTopology flash;
-int16_t global_dopamine = 0; // Для R-STDP
+int16_t global_dopamine = 0; 
+
+// [DOD] Глобальный Ring Buffer между ядрами
+LockFreeSpikeQueue rx_queue;
 
 void init_brain(uint32_t num_neurons) {
     sram.padded_n = num_neurons;
     sram.total_axons = num_neurons;
 
-    // SRAM Allocations (Hot Data)
     sram.voltage = (int32_t*)calloc(num_neurons, sizeof(int32_t));
     sram.flags = (uint8_t*)calloc(num_neurons, sizeof(uint8_t));
     sram.threshold_offset = (int32_t*)calloc(num_neurons, sizeof(int32_t));
@@ -23,7 +30,6 @@ void init_brain(uint32_t num_neurons) {
     sram.dendrite_weights = (int16_t*)calloc(num_neurons * MAX_DENDRITE_SLOTS, sizeof(int16_t));
     sram.axon_heads = (BurstHeads8*)calloc(num_neurons, sizeof(BurstHeads8));
 
-    // Flash Allocations (В реальном чипе это будет mmap_ptr)
     flash.dendrite_targets = (uint32_t*)calloc(num_neurons * MAX_DENDRITE_SLOTS, sizeof(uint32_t));
     flash.soma_to_axon = (uint32_t*)calloc(num_neurons, sizeof(uint32_t));
 
@@ -31,7 +37,6 @@ void init_brain(uint32_t num_neurons) {
         sram.axon_heads[i].h0 = AXON_SENTINEL;
     }
 
-    // Базовый профиль с GSOP
     VARIANT_LUT[0].threshold = 400;
     VARIANT_LUT[0].rest_potential = 0;
     VARIANT_LUT[0].leak_rate = 10;
@@ -40,8 +45,8 @@ void init_brain(uint32_t num_neurons) {
     VARIANT_LUT[0].gsop_potentiation = 60;
     VARIANT_LUT[0].gsop_depression = 30;
     VARIANT_LUT[0].ltm_slot_count = 16;
-    VARIANT_LUT[0].slot_decay_ltm = 128; // 1.0x
-    VARIANT_LUT[0].slot_decay_wm = 64;   // 0.5x
+    VARIANT_LUT[0].slot_decay_ltm = 128; 
+    VARIANT_LUT[0].slot_decay_wm = 64;   
     VARIANT_LUT[0].d1_affinity = 128;
     VARIANT_LUT[0].d2_affinity = 128;
     for(int i=0; i<15; i++) VARIANT_LUT[0].inertia_curve[i] = 128 - (i * 8);
@@ -49,18 +54,28 @@ void init_brain(uint32_t num_neurons) {
     printf("🧠 Genesis-Lite: %" PRIu32 " neurons. Memory Split: SRAM / Flash.\n", num_neurons);
 }
 
-// Branchless min distance для BurstHeads8
 inline uint32_t check_head_dist(uint32_t head, uint32_t seg_idx, uint32_t prop_len, uint32_t current_min) {
     uint32_t d = head - seg_idx;
     return (d <= prop_len && d < current_min) ? d : current_min;
 }
 
+// =========================================================
+// CORE 1: Day Phase (HFT Compute)
+// =========================================================
 void day_phase_task(void *pvParameter) {
     uint32_t tick = 0;
     uint32_t v_seg = 1; 
+    SpikeEvent ev;
 
     while(1) {
         int64_t start_time = esp_timer_get_time();
+
+        // 0. Apply Spike Batch (Zero-Cost Injection)
+        while (rx_queue.pop(ev)) {
+            if (ev.ghost_id < sram.total_axons) {
+                sram.axon_heads[ev.ghost_id].h0 = 0; 
+            }
+        }
 
         // 1. Propagate Axons
         for(uint32_t i = 0; i < sram.total_axons; i++) {
@@ -86,7 +101,6 @@ void day_phase_task(void *pvParameter) {
             for (int slot = 0; slot < MAX_DENDRITE_SLOTS; slot++) {
                 uint32_t col_idx = slot * sram.padded_n + tid;
                 uint32_t target_packed = flash.dendrite_targets[col_idx];
-                
                 if (target_packed == 0) break; 
 
                 uint32_t seg_idx = target_packed >> 24;
@@ -95,7 +109,7 @@ void day_phase_task(void *pvParameter) {
                 BurstHeads8 h = sram.axon_heads[axon_id];
                 uint32_t prop = p.signal_propagation_length;
 
-                bool hit = ((h.h0 - seg_idx) <= prop) || ((h.h1 - seg_idx) <= prop); // Упрощено для скорости
+                bool hit = ((h.h0 - seg_idx) <= prop) || ((h.h1 - seg_idx) <= prop); 
                 if (hit) {
                     i_in += sram.dendrite_weights[col_idx];
                 }
@@ -112,9 +126,8 @@ void day_phase_task(void *pvParameter) {
             if (current_voltage >= effective_threshold) {
                 current_voltage = p.rest_potential;
                 sram.refractory_timer[tid] = p.refractory_period;
-                sram.flags[tid] = (flags & 0xFE) | 0x01; // Устанавливаем бит спайка
+                sram.flags[tid] = (flags & 0xFE) | 0x01; 
                 
-                // Сдвиг пулеметной очереди
                 sram.axon_heads[tid].h1 = sram.axon_heads[tid].h0;
                 sram.axon_heads[tid].h0 = 0; 
             } else {
@@ -124,10 +137,10 @@ void day_phase_task(void *pvParameter) {
             sram.voltage[tid] = current_voltage;
         }
 
-        // 3. Apply GSOP (R-STDP Plasticity)
+        // 3. Apply GSOP 
         for(uint32_t tid = 0; tid < sram.padded_n; tid++) {
             uint8_t flags = sram.flags[tid];
-            if ((flags & 0x01) == 0) continue; // Пластичность только при спайке сомы
+            if ((flags & 0x01) == 0) continue; 
 
             uint8_t variant_id = (flags >> 4) & 0x0F;
             VariantParameters p = VARIANT_LUT[variant_id]; 
@@ -188,8 +201,62 @@ void day_phase_task(void *pvParameter) {
         }
 
         if (tick % 10 == 0) {
-            vTaskDelay(1 / portTICK_PERIOD_MS); // Watchdog yield
+            vTaskDelay(1 / portTICK_PERIOD_MS); 
         }
+    }
+}
+
+// [DOD] Выполняется в контексте задачи Wi-Fi. Никаких аллокаций.
+void on_esp_now_recv(const esp_now_recv_info_t *esp_now_info, const uint8_t *data, int data_len) {
+    if (data_len == sizeof(SpikeEvent)) {
+        SpikeEvent* ev = (SpikeEvent*)data;
+        // Мгновенный атомарный вброс в кольцевой буфер
+        if (!rx_queue.push(*ev)) {
+            // Buffer full - легализованная амнезия (Biological Drop)
+        }
+    }
+}
+
+// =========================================================
+// CORE 0: Pro Phase (Sensors / Network MOCK)
+// =========================================================
+void pro_core_task(void *pvParameter) {
+    printf("📡 [Core 0] Initializing ESP-NOW Swarm Protocol...\n");
+
+    // 1. Инициализация NVS (требуется для Wi-Fi)
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
+    // 2. Инициализация Wi-Fi
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    
+    ret = esp_wifi_init(&cfg);
+    if (ret != ESP_OK) {
+        printf("⚠️ [Core 0] Wi-Fi init failed (QEMU environment?). Falling back to Mock Sensor.\n");
+        while(1) {
+            vTaskDelay(500 / portTICK_PERIOD_MS);
+            SpikeEvent ev = {0, 0};
+            rx_queue.push(ev);
+        }
+    }
+
+    // 3. Запуск реального радио
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_now_init());
+    ESP_ERROR_CHECK(esp_now_register_recv_cb(on_esp_now_recv));
+
+    printf("✅ [Core 0] ESP-NOW initialized. Listening for spikes...\n");
+
+    // Задача переходит в ждущий режим, прерывания ESP-NOW сделают всё сами
+    while(1) {
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
 }
 
@@ -197,7 +264,14 @@ extern "C" void app_main(void) {
     printf("🚀 Booting Genesis-Lite on FreeRTOS (Dual-Core)...\n");
     init_brain(256);
 
+    // Поднимаем PRO Core (Сеть) на нулевом ядре
+    xTaskCreatePinnedToCore(
+        pro_core_task, "ProPhase", 4096, NULL, 5, NULL, 0 
+    );
+
+    // Поднимаем APP Core (Физика) на первом ядре
     xTaskCreatePinnedToCore(
         day_phase_task, "DayPhase", 8192, NULL, configMAX_PRIORITIES - 1, NULL, 1 
     );
 }
+
