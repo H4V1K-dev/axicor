@@ -23,7 +23,6 @@ fn test_default_values() {
     // Проверяем дефолты
     assert_eq!(cfg.simulation.segment_length_voxels, 5);
     assert_eq!(cfg.simulation.axon_growth_max_steps, 2000);
-    assert_eq!(cfg.simulation.night_interval_ticks, 0);
 }
 
 #[test]

@@ -15,7 +15,7 @@ fn emulate_gsop_math(
     let rank = (abs_w >> 11) as usize;
     
     // Защита от выхода за пределы (хотя clamp ниже не даст весу стать > 32767)
-    let rank_safe = rank.min(15);
+    let rank_safe = rank.min(14);
     let inertia = p.inertia_curve[rank_safe] as u16;
 
     // 6. Branchless GSOP Math
@@ -59,7 +59,7 @@ fn test_neuron() -> NeuronType {
     nt.ltm_slot_count = 80;
     nt.slot_decay_ltm = 120; // ~0.93x
     nt.slot_decay_wm = 64;   // ~0.50x
-    nt.inertia_curve = [128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8];
+    nt.inertia_curve = [128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16];
     nt
 }
 
@@ -123,10 +123,10 @@ fn test_gsop_sign_preserved() {
 fn test_inertia_rank_boundaries() {
     let mut nt = test_neuron();
     // Custom inertia, чтобы точно видеть ранги
-    nt.inertia_curve = [0; 16];
-    nt.inertia_curve[0] = 64;  // rank 0
-    nt.inertia_curve[1] = 128; // rank 1
-    nt.inertia_curve[15] = 255; // rank 15
+    nt.inertia_curve = [0; 15];
+	nt.inertia_curve[0] = 64;
+	nt.inertia_curve[1] = 128;
+	nt.inertia_curve[14] = 255;
 
     // rank 0: 0..2047
     let w0 = emulate_gsop_math(2000, true, 0, &nt);

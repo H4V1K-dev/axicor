@@ -18,6 +18,8 @@ fn test_parse_instance_config() {
         [neighbors]
         x_minus = "127.0.0.1:8000"
         y_plus = "Self"
+		
+		[settings]
     "#;
 
     let config = InstanceConfig::parse(toml_str).expect("Failed to parse");

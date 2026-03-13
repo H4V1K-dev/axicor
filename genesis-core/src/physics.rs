@@ -133,7 +133,7 @@ pub const fn update_homeostasis(
 #[inline(always)]
 pub const fn inertia_rank(abs_weight: i32) -> usize {
     let rank = (abs_weight >> 11) as usize;
-    if rank > 15 { 15 } else { rank }
+    if rank > 14 { 14 } else { rank }
 }
 
 /// Вычисляет новый вес синапса с учетом GSOP, инерции и слот-декея.
@@ -335,8 +335,8 @@ mod tests {
         assert_eq!(inertia_rank(2048), 1);
         assert_eq!(inertia_rank(4095), 1);
         assert_eq!(inertia_rank(4096), 2);
-        assert_eq!(inertia_rank(32767), 15);
-        assert_eq!(inertia_rank(40000), 15); // clamped
+        assert_eq!(inertia_rank(32767), 14);
+		assert_eq!(inertia_rank(40000), 14);
     }
 
     #[test]

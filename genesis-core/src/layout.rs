@@ -204,7 +204,7 @@ impl ShardStateSoA {
     /// - `padded_n`: кол-во нейронов (кратно 32).
     /// - `total_axons`: общее кол-во аксонов (локальные + ghost + виртуальные).
     pub fn new(padded_n: usize, total_axons: usize) -> Self {
-        debug_assert!(padded_n % 32 == 0, "padded_n must be warp-aligned (multiple of 32)");
+        assert!(padded_n % 32 == 0, "padded_n must be warp-aligned (multiple of 32)");
         
         Self {
             padded_n,
@@ -224,7 +224,8 @@ impl ShardStateSoA {
     /// Вычисляет плоский индекс для Coalesced Access на GPU
     #[inline(always)]
     pub fn columnar_idx(padded_n: usize, neuron_idx: usize, slot: usize) -> usize {
-        debug_assert!(neuron_idx < padded_n && slot < MAX_DENDRITES);
+        assert!(neuron_idx < padded_n && slot < MAX_DENDRITES,
+    "columnar_idx: neuron_idx={neuron_idx} >= padded_n={padded_n} or slot={slot} >= {MAX_DENDRITES}");
         slot * padded_n + neuron_idx
     }
 }
