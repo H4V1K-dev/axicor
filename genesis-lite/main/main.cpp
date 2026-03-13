@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h> // Для эмуляции датчика
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
@@ -15,6 +16,14 @@ VariantParameters VARIANT_LUT[2];
 SramState sram;
 FlashTopology flash;
 int16_t global_dopamine = 0; 
+
+// [DOD] Zero-Lock Motor Output (Core 1 -> Core 0)
+struct alignas(32) MotorOut {
+    std::atomic<uint32_t> left{0};
+    std::atomic<uint32_t> right{0};
+};
+
+MotorOut motors;
 
 // [DOD] Глобальный Ring Buffer между ядрами
 LockFreeSpikeQueue rx_queue;
@@ -195,6 +204,17 @@ void day_phase_task(void *pvParameter) {
         }
 
         int64_t end_time = esp_timer_get_time();
+
+        // 4. Record Readout (Motor Cortex)
+        // Если нейрон 254 выстрелил - даем импульс на левый мотор
+        if (sram.flags[254] & 0x01) {
+            motors.left.fetch_add(1, std::memory_order_relaxed);
+        }
+        // Если нейрон 255 выстрелил - даем импульс на правый мотор
+        if (sram.flags[255] & 0x01) {
+            motors.right.fetch_add(1, std::memory_order_relaxed);
+        }
+
         tick++;
         if (tick % 100 == 0) {
             printf("⚡ Tick %" PRIu32 " | Hot loop time: %" PRId64 " us\n", tick, (int64_t)(end_time - start_time));
@@ -218,12 +238,11 @@ void on_esp_now_recv(const esp_now_recv_info_t *esp_now_info, const uint8_t *dat
 }
 
 // =========================================================
-// CORE 0: Pro Phase (Sensors / Network MOCK)
+// CORE 0: Pro Phase (Sensors I2C / PWM Motors / Network)
 // =========================================================
 void pro_core_task(void *pvParameter) {
     printf("📡 [Core 0] Initializing ESP-NOW Swarm Protocol...\n");
 
-    // 1. Инициализация NVS (требуется для Wi-Fi)
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -231,32 +250,50 @@ void pro_core_task(void *pvParameter) {
     }
     ESP_ERROR_CHECK(ret);
 
-    // 2. Инициализация Wi-Fi
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    
+
     ret = esp_wifi_init(&cfg);
     if (ret != ESP_OK) {
-        printf("⚠️ [Core 0] Wi-Fi init failed (QEMU environment?). Falling back to Mock Sensor.\n");
-        while(1) {
-            vTaskDelay(500 / portTICK_PERIOD_MS);
-            SpikeEvent ev = {0, 0};
-            rx_queue.push(ev);
-        }
+        printf("⚠️ [Core 0] Wi-Fi init failed (QEMU environment). Falling back to Offline Mode.\n");
+    } else {
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+        ESP_ERROR_CHECK(esp_wifi_start());
+        ESP_ERROR_CHECK(esp_now_init());
+        ESP_ERROR_CHECK(esp_now_register_recv_cb(on_esp_now_recv));
+        printf("✅ [Core 0] ESP-NOW initialized.\n");
     }
 
-    // 3. Запуск реального радио
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_ERROR_CHECK(esp_now_init());
-    ESP_ERROR_CHECK(esp_now_register_recv_cb(on_esp_now_recv));
+    printf("🤖 [Core 0] Hardware I/O Loop Started.\n");
 
-    printf("✅ [Core 0] ESP-NOW initialized. Listening for spikes...\n");
-
-    // Задача переходит в ждущий режим, прерывания ESP-NOW сделают всё сами
     while(1) {
-        vTaskDelay(10000 / portTICK_PERIOD_MS);
+        // 1. I2C Gyroscope Stub (Генерируем синусоиду наклона робота)
+        float t = (float)esp_timer_get_time() / 1000000.0f;
+        float angle = sinf(t * 2.0f); // Наклон от -1.0 до 1.0
+
+        // 2. Population Coding (Сенсорный энкодер: float -> spikes)
+        // Проецируем наклон на 10 рецепторных нейронов (аксоны 0..9)
+        int center_id = (int)((angle + 1.0f) * 4.5f);
+        if (center_id < 0) center_id = 0;
+        if (center_id > 9) center_id = 9;
+
+        SpikeEvent ev;
+        ev.ghost_id = center_id; // Бьем спайком в конкретный сенсор
+        ev.tick_offset = 0;
+        rx_queue.push(ev);
+
+        // 3. PWM Motor Out (Декодер: spikes -> Duty Cycle)
+        // Вычитываем накопленные импульсы от Core 1 и обнуляем счетчик за 1 операцию
+        uint32_t p_left = motors.left.exchange(0, std::memory_order_relaxed);
+        uint32_t p_right = motors.right.exchange(0, std::memory_order_relaxed);
+
+        if (p_left > 0 || p_right > 0) {
+            printf("⚙️ [Motors] Angle: %5.2f | PWM Left: %3" PRIu32 " | PWM Right: %3" PRIu32 "\n", angle, p_left, p_right);
+        }
+
+        // Работаем на 20 Гц (типично для сервоприводов)
+        vTaskDelay(50 / portTICK_PERIOD_MS); 
     }
 }
 
