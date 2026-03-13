@@ -14,14 +14,18 @@ class GenesisMemory:
     SHM_HEADER_SIZE = 64
     MAGIC = 0x47454E53 # "GENS"
 
-    def __init__(self, zone_hash: int):
+    def __init__(self, zone_hash: int, read_only: bool = False):
         self.zone_hash = zone_hash
         path = f"/dev/shm/genesis_shard_{zone_hash:08X}"
         
-        # Открываем строго на чтение (Zero-Copy Introspection)
-        # Если открыть на запись, numpy мутации могут крашнуть GPU-рантайм
-        fd = os.open(path, os.O_RDONLY)
-        self._mm = mmap.mmap(fd, 0, prot=mmap.PROT_READ)
+        # Если read_only=True, открываем строго на чтение (Zero-Copy Introspection).
+        # Если открыть на запись, numpy мутации могут крашнуть GPU-рантайм, 
+        # используйте осторожно для дистилляции (Pruning).
+        mode = os.O_RDONLY if read_only else os.O_RDWR
+        prot = mmap.PROT_READ if read_only else mmap.PROT_READ | mmap.PROT_WRITE
+        
+        fd = os.open(path, mode)
+        self._mm = mmap.mmap(fd, 0, prot=prot)
         os.close(fd)
         
         # 1. Читаем заголовок
@@ -95,6 +99,34 @@ class GenesisMemory:
             "avg_weight": float(np.mean(np.abs(active_weights))),
             "max_weight": int(np.max(np.abs(active_weights)))
         }
+
+    def distill_graph(self, prune_threshold: int) -> int:
+        """
+        Zero-Copy дистилляция графа (In-place Pruning).
+        Выжигает исследовательский шум (слабые связи) напрямую в памяти ОС (VRAM-дамп).
+        
+        :param prune_threshold: Порог отсечения. Связи с abs(weight) < prune_threshold удаляются.
+        :return: Количество выжженных (удаленных) связей.
+        """
+        # Векторизованный поиск (SIMD-accelerated).
+        # self.targets != 0 гарантирует, что мы не трогаем уже пустые слоты (Zero-Index Trap)
+        weak_mask = (self.targets != 0) & (np.abs(self.weights) < prune_threshold)
+        
+        pruned_count = int(np.sum(weak_mask))
+        
+        # Физическое уничтожение связей в Shared Memory (Zero-Copy).
+        # Для CUDA-ядра target == 0 означает аппаратный Early Exit.
+        self.targets[weak_mask] = 0
+        self.weights[weak_mask] = 0
+        
+        return pruned_count
+
+    def clear_weights(self):
+        """
+        Tabula Rasa: Полное обнуление всех весов в шарде.
+        Оставляет топологию (связи), но делает их "невесомыми".
+        """
+        self.weights.fill(0)
 
     def close(self):
         self._mm.close()

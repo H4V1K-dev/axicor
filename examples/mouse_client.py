@@ -3,8 +3,8 @@ import gymnasium as gym
 import sys
 import os
 
-DOPAMINE_REWARD = 10
-DEATH_PENALTY = -255
+DOPAMINE_REWARD = 2
+DEATH_PENALTY = -128
 
 # Добавляем путь к genesis-client если не установлен системно
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "genesis-client")))
@@ -20,6 +20,7 @@ def fnv1a_32(data: bytes) -> int:
     return hash_val
 
 ZONE_SENSORY = fnv1a_32(b"LGN_Thalamus")
+ZONE_MOTOR = fnv1a_32(b"Motor_Cortex")
 MATRIX_SENSORS = fnv1a_32(b"retina_rgb")
 
 # 4 переменные среды * 16 нейронов = 64 виртуальных аксона = 8 байт
@@ -39,7 +40,7 @@ def encode_state_in_place(state: np.ndarray, out_view: np.ndarray):
     norm = np.clip((state - BOUNDS[:, 0]) / (BOUNDS[:, 1] - BOUNDS[:, 0]), 0.0, 1.0)
     # Вычисление квадрата дистанции до 16 центров (Shape: 4 x 16)
     dist = norm[:, None] - CENTERS
-    prob = np.exp(-(dist * dist) / (2.0 * 0.15 * 0.15))
+    prob = np.exp(-(dist * dist) / (2.0 * 0.2 * 0.2)) # broadened sigma 0.15 -> 0.2
     # Запись битов напрямую в память пакета
     packed = np.packbits((prob > 0.5).ravel(), bitorder='little')
     out_view[:] = packed
@@ -76,8 +77,8 @@ def main():
         ctrl = genesis.GenesisControl(manifest_path)
         # Инициализируем AutoTuner (цель: 500 очков)
         tuner = genesis.GenesisAutoTuner(ctrl, target_score=500, window_size=15)
-        # Подключаем Memory Plane для аналитики
-        memory = genesis.GenesisMemory(ZONE_SENSORY)
+        # Подключаем Memory Plane для аналитики Motor Cortex (где связи)
+        memory = genesis.GenesisMemory(ZONE_MOTOR)
     except FileNotFoundError:
         print("⚠️ manifest.toml не найден. Control Plane отключен.")
         ctrl = None
