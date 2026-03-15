@@ -8,6 +8,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.596.99] - 2026-03-15 21:59:44
+
+**Implement TARGET_TIME as primary termination driver for Ant agent**
+
+### Added
+- Add steps counter to hot loop, incrementing on every successful env.step
+- Implement time_reached logic that triggers reset if steps >= TARGET_TIME
+- Check TARGET_TIME alongside and prioritized over TARGET_SCORE
+- Update console feedback to show step count: Ep 0000 | Score: 2000+ | Steps: 2000 | [Time Reached]
+- Implement build_brain.py for 3-zone topology with ThoracicGanglion split into L_Lower/L_Upper
+- Set hardware-locked plasticity with pot=0, dep=2
+- Increase inhibitor density to 60% in MotorCortex L5_Lower for Winner-Takes-All competition
+- Align VRAM Stride to 28x16 = 448 pixels
+- Implement bottom-z motor routing with WTA dynamics
+- Apply batch size reduction from 100 to 20, setting sync_batch_ticks to 20 for 2ms HFT batches
+- Refactor ant_agent.py to remove OOP in hot loop and preallocate all arrays outside the loop
+- Implement offset=20 for C-ABI compatibility and zero-copy spike summation logic
+- Remove TARGET_FPS and sleep logic
+- Implement 15-batch Death Signal
+- Boost Motor_Pyramidal initial_synapse_weight to 12000 and dendrite_radius_um to 500.0
+- Delete obsolete CartPole-example model files and examples/DELETE.py
+- Move cartpole example to experimental directory and update genesis-client modules
+
+## [0.592.99] - 2026-03-15 16:17:13
+
+**ESP32 Telemetry & Desktop Bridge Pipeline**
+
+### Added
+- Implement DashboardFrame struct in genesis_core.hpp with 16-byte aligned layout for dashboard parser compatibility
+- Add metrics calculation (TPS, Score) within the pro_core_task in main.cpp
+- Implement esp_now_send broadcast of the DashboardFrame for zero-copy telemetry egress
+- Create scripts/esp_now_bridge.py as a Serial-to-UDP bridge script for HFT telemetry routing
+- Fix broadcast_mac array size to 6 bytes to prevent stack corruption
+- Standardize bridge script argument parsing, using sys.argv[1] for serial port
+- Update README.md with bridge usage information
+- Perform final build check of genesis-lite to validate struct and FFI calls
+
+## [0.584.98] - 2026-03-15 15:20:50
+
+**[Documentation] Update technical specs for BDP and neuron model**
+
+### Added
+- Update the bit map in `docs/specs/03_neuron_model.md`
+- Update BDP mathematical descriptions in `docs/specs/05_signal_physics.md`
+
+## [0.582.98] - 2026-03-15 15:01:33
+
+**Implement Burst-Dependent Plasticity (BDP) across CUDA and ESP32 stacks**
+
+### Added
+- Implement 3-bit burst counter in `soma_flags` bits [3:1], saturating at 7
+- Add CUDA kernel `cu_reset_burst_counter` to clear burst bits at each sync batch
+- Update `cu_update_neurons_kernel` to increment burst counter on every spike
+- Modify `cu_apply_gsop_kernel` to multiply `delta_pot` and `delta_dep` by `burst_mult`
+- Implement identical BDP logic in ESP32 `genesis-lite/main/main.cpp`, resetting counters every epoch (100 ticks)
+- Call `cu_reset_burst_counters` from `genesis-compute/src/compute/shard.rs` at start of each batch
+- Relocate `cu_reset_burst_counters` FFI wrapper from `bindings.cu` to `physics.cu` to fix circular dependency
+- Add FFI signature for `cu_reset_burst_counters` in `genesis-compute/src/ffi.rs`
+- Enforce branchless arithmetic for burst multiplier scaling in both CUDA and ESP32 kernels
+
 ## [0.574.97] - 2026-03-15 13:32:04
 
 **ESP32 Blob Inflation: Bidirectional Distillation Cycle**

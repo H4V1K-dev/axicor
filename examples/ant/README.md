@@ -1,37 +1,38 @@
-# 🐜 Genesis HFT: Ant-v4 (DOD/WTA Architecture)
+# 🤖 Genesis HFT: Ant-v4 Example
 
-Высокопроизводительный Embodied AI агент для среды Gymnasium Ant-v4. Реализован на принципах Data-Oriented Design (DOD) с Winner-Takes-All (WTA) динамикой в моторной коре.
+Высокопроизводительный Embodied AI агент для среды Ant-v4, построенный на базе Spiking Neural Networks (SNN) с использованием 3-зонной архитектуры (DOD/WTA) и обучения через инъекции дофамина (R-STDP).
 
-## 🧠 Архитектура: 3-Zone minimalist DOD
-Сеть разделена на три функциональные зоны с жестким выравниванием памяти (VRAM Stride):
-1. **SensoryCortex**: Принимает 28 входных переменных (448 нейронов). Выровнено по 56 байт на тик для идеального страйда шины GPU.
-2. **ThoracicGanglion**: Скрытый хаб, выполняющий роль CPG (Central Pattern Generator) для координации конечностей.
-3. **MotorCortex**: Выходная зона с **60% плотностью тормозных нейронов**. Реализует WTA-выбор движения, подавляя шум и выделяя доминантный вектор тяги.
+## 🚀 Как запустить (Zero-Magic Pipeline)
 
-## 🚀 Быстрый старт
+**Шаг 0. Активируйте виртуальное окружение**
+```bash
+source .venv/bin/activate
+```
 
-**Шаг 1. Запекание коннектома**
-Скрипт генерирует топологию и нарезает бинарные дампы VRAM. Пластичность зафиксирована в режиме `pot=0, dep=2` (Learning-on-Demand).
+**Шаг 1. Сгенерируйте и запеките мозг (WTA Architecture)**
+Скрипт создаст 3-зонную топологию (Sensory, Thoracic, Motor) с 60% плотностью тормозных нейронов в моторной коре для реализации Winner-Takes-All динамики.
 ```bash
 python3 examples/ant/build_brain.py
 ```
 
-**Шаг 2. Запуск ядра Genesis (GPU)**
-Нода загружает дампы и переходит в режим ожидания тиков.
+**Шаг 2. Запустите HFT-реактор на GPU (Dual-Backend)**
+Оркестратор загрузит бинарные дампы VRAM и перейдет в режим ожидания тиков от агента.
+
+# Для NVIDIA (CUDA)
 ```bash
-./target/release/genesis-node --brain Genesis-Models/AntConnectome/brain.toml
+cargo run --release -p genesis-node -- --brain AntConnectome --log
 ```
 
-**Шаг 3. Запуск агента (DOD Hot Loop)**
-Агент работает в Zero-Allocation цикле без сборщика мусора.
+# Для AMD (ROCm / HIP)
+```bash
+cargo run --release -p genesis-node --features amd -- --brain AntConnectome --log
+```
+
+**Шаг 3. Подключите среду (DOD Hot Loop)**
+Запустите Python-шлюз. Он работает в бесконечном цикле без аллокаций, передавая состояния среды и управляя обучением через `TARGET_TIME` и `TARGET_SCORE`.
+
 ```bash
 python3 examples/ant/ant_agent.py
 ```
 
-## ⚙️ Контроль обучения
-В файле `ant_agent.py` доступны следующие параметры:
-- `TARGET_TIME = 10_000`: Основной лимит шагов. При достижении уровня 10k шагов срабатывает сброс.
-- `TARGET_SCORE = 50_000`: Целевой скор.
-- `BATCH_SIZE = 20`: Пакетная синхронизация (HFT 2ms).
-
-При любом сбросе (падение или успех) агент отправляет 15 батчей **DOPAMINE_PUNISHMENT**, чтобы закрепить последнюю фазу движения в памяти синапсов.
+Смотрите на TUI-графики и логи. Вы увидите, как 3-зонная сеть стабилизирует локомоцию муравья, используя аппаратную пластичность (`pot=0, dep=2`) и высокочастотный контроль (2ms)!
