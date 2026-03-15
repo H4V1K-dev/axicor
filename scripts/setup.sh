@@ -62,6 +62,18 @@ GPU_FOUND=0
 
 if command -v nvcc >/dev/null 2>&1; then
     NVCC_VER=$(nvcc --version | grep "release" | awk '{print $6}' | cut -c2-)
+    
+    # Извлекаем Major и Minor версии
+    NVCC_MAJOR=$(echo $NVCC_VER | cut -d'.' -f1)
+    NVCC_MINOR=$(echo $NVCC_VER | cut -d'.' -f2)
+    
+    # DOD Check: Требуется минимум CUDA 12.4 для корректной развертки 32-байтных структур и __shfl_sync
+    if [ "$NVCC_MAJOR" -lt 12 ] || ( [ "$NVCC_MAJOR" -eq 12 ] && [ "$NVCC_MINOR" -lt 4 ] ); then
+        echo -e "  ${RED}✗${NC} NVIDIA CUDA version too old (nvcc ${NVCC_VER}). Genesis requires >= 12.4."
+        echo -e "  Old nvcc heuristic analyzers crash on branchless AST unrolling."
+        exit 1
+    fi
+    
     echo -e "  ${GREEN}✓${NC} NVIDIA CUDA found (nvcc ${NVCC_VER})"
     GPU_FEATURES="--features cuda"
     GPU_FOUND=1

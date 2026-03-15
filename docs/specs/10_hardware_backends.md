@@ -21,11 +21,24 @@ pub trait GenesisBackend {
 
 ---
 
-## 2. Tier 1: High-Performance Compute (AMD ROCm/HIP)
+## 2. Tier 1: High-Performance Compute (NVIDIA CUDA)
 
 **Статус: [MVP - Реализовано]**
 
-### 2.1. Архитектура: Dual-Backend C-ABI
+Для компиляции CUDA-бекенда (`genesis-compute/src/cuda/`) применяются строгие аппаратные инварианты:
+
+*   **Архитектура GPU:** Pascal (GTX 10-серия) и выше. Поддерживаются мобильные версии (например, GTX 1060 Mobile).
+*   **Версия CUDA Toolkit:** Строго `>= 12.4`. Старые компиляторы `nvcc` имеют баги эвристического анализатора при развертке циклов (`#pragma unroll`) поверх 32-байтных `alignas` структур и не могут корректно распределить регистры для `__shfl_sync` и `__popc` в наших HFT-ядрах.
+*   **Хост ОС:** Ubuntu 22.04 LTS / 24.04 LTS. 
+*   **Виртуализация:** Компиляция на хостах гипервизоров (например, Proxmox 9.1 на Debian 13) не поддерживается из-за конфликта системных линкеров GCC с проприетарными хидерами. Для виртуальных машин используйте исключительно прямой проброс устройства (PCIe Passthrough) в гостевую Ubuntu.
+
+---
+
+## 3. Tier 1: High-Performance Compute (AMD ROCm/HIP)
+
+**Статус: [MVP - Реализовано]**
+
+### 3.1. Архитектура: Dual-Backend C-ABI
 
 Вместо хрупкого инструментария вроде `hipify-perl` (автоматическая трансляция CUDA→HIP) был реализован более чистый подход - **Dual-Backend C-ABI абстракция**.
 
@@ -51,7 +64,7 @@ cargo build -p genesis-node
 cargo build -p genesis-node --features amd
 ```
 
-### 2.2. Почему Портирование Обошлось Дёшево
+### 3.2. Почему Портирование Обошлось Дёшево
 
 Благодаря изначальной **Data-Oriented архитектуре без графов вычислений** (никакого PyTorch/cuDNN/cuBLAS) портирование математики свелось к механическим заменам API:
 
@@ -66,11 +79,11 @@ cargo build -p genesis-node --features amd
 
 ---
 
-## 3. Tier 2: Edge Bare Metal (ESP32 & Embedded)
+## 4. Tier 2: Edge Bare Metal (ESP32 & Embedded)
 
 **Цель:** Автономные воплощенные агенты (робототехника) на сверхдешевом железе.
 
-### 3.1. Bare Metal Runtime
+### 4.1. Bare Metal Runtime
 Реализацию архитектуры памяти, двухъядерного распараллеливания и сетевого стека см. в [11_edge_bare_metal.md](11_edge_bare_metal.md).
 // - **ESP32-S3 (AI Instruction Set):** Использование векторных инструкций Xtensa для ускорения целочисленной физики GLIF.
 // - **Ограничения:** Уменьшенный размер `dendrite_slots` (32 вместо 128) для вписывания в SRAM.
@@ -79,16 +92,16 @@ cargo build -p genesis-node --features amd
 
 ---
 
-## 4. Tier 3: Future Silicon (Neuromorphic & ASICs)
+## 5. Tier 3: Future Silicon (Neuromorphic & ASICs)
 
 **Цель:** Энергоэффективность уровня биологического мозга (на порядки выше GPU).
 
-### 4.1. Neuromorphic Integration (Loihi, SpiNNaker)
+### 5.1. Neuromorphic Integration (Loihi, SpiNNaker)
 // TODO: Исследовать мапинг GNM на асинхронные нейроморфные архитектуры.
 // - **Event-Driven Execution:** Отказ от глобального тика (BSP) в пользу асинхронных спайков.
 // - **On-Chip Learning:** Адаптация GSOP под аппаратные реализации STDP.
 
-### 4.2. ASIC / FPGA (Verilog & VHDL)
+### 5.2. ASIC / FPGA (Verilog & VHDL)
 // TODO: Проектирование RTL-описания ядра GLIF.
 // - **Pipeline Logic:** Нейрон как конечный автомат (FSM) на FPGA.
 // - **NoC (Network on Chip):** Аппаратная реализация Ring Buffer для пересылки Ghost Axons между ядрами чипа.

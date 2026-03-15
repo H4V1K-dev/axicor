@@ -17,6 +17,12 @@ SramState sram;
 FlashTopology flash;
 std::atomic<int16_t> global_dopamine{0}; 
 
+#define SAFE_CALLOC(n, size) ({ \
+    void* ptr = calloc((n), (size)); \
+    if (!ptr) { printf("FATAL OOM: size %d\n", (int)((n)*(size))); abort(); } \
+    ptr; \
+})
+
 // [DOD] Zero-Lock Motor Output (Core 1 -> Core 0)
 struct alignas(32) MotorOut {
     std::atomic<uint32_t> left{0};
@@ -32,34 +38,26 @@ void init_brain(uint32_t num_neurons) {
     sram.padded_n = num_neurons;
     sram.total_axons = num_neurons;
 
-    sram.voltage = (int32_t*)calloc(num_neurons, sizeof(int32_t));
-    sram.flags = (uint8_t*)calloc(num_neurons, sizeof(uint8_t));
-    sram.threshold_offset = (int32_t*)calloc(num_neurons, sizeof(int32_t));
-    sram.refractory_timer = (uint8_t*)calloc(num_neurons, sizeof(uint8_t));
-    sram.dendrite_weights = (int16_t*)calloc(num_neurons * MAX_DENDRITE_SLOTS, sizeof(int16_t));
-    sram.axon_heads = (BurstHeads8*)calloc(num_neurons, sizeof(BurstHeads8));
+    sram.voltage = (int32_t*)SAFE_CALLOC(num_neurons, sizeof(int32_t));
+    sram.flags = (uint8_t*)SAFE_CALLOC(num_neurons, sizeof(uint8_t));
+    sram.threshold_offset = (int32_t*)SAFE_CALLOC(num_neurons, sizeof(int32_t));
+    sram.refractory_timer = (uint8_t*)SAFE_CALLOC(num_neurons, sizeof(uint8_t));
+    sram.dendrite_weights = (int16_t*)SAFE_CALLOC(num_neurons * MAX_DENDRITE_SLOTS, sizeof(int16_t));
+    sram.axon_heads = (BurstHeads8*)SAFE_CALLOC(num_neurons, sizeof(BurstHeads8));
 
-    flash.dendrite_targets = (uint32_t*)calloc(num_neurons * MAX_DENDRITE_SLOTS, sizeof(uint32_t));
-    flash.soma_to_axon = (uint32_t*)calloc(num_neurons, sizeof(uint32_t));
-
-    // Проверка всех аллокаций одним блоком
-    if (!sram.voltage || !sram.flags || !sram.threshold_offset ||
-        !sram.refractory_timer || !sram.dendrite_weights || !sram.axon_heads ||
-        !flash.dendrite_targets || !flash.soma_to_axon) {
-        printf("❌ FATAL: SRAM allocation failed for %" PRIu32 " neurons\n", num_neurons);
-        abort();
-    }
+    flash.dendrite_targets = (uint32_t*)SAFE_CALLOC(num_neurons * MAX_DENDRITE_SLOTS, sizeof(uint32_t));
+    flash.soma_to_axon = (uint32_t*)SAFE_CALLOC(num_neurons, sizeof(uint32_t));
 
     for(uint32_t i = 0; i < num_neurons; i++) {
-		sram.axon_heads[i].h0 = AXON_SENTINEL;
-		sram.axon_heads[i].h1 = AXON_SENTINEL;
-		sram.axon_heads[i].h2 = AXON_SENTINEL;
-		sram.axon_heads[i].h3 = AXON_SENTINEL;
-		sram.axon_heads[i].h4 = AXON_SENTINEL;
-		sram.axon_heads[i].h5 = AXON_SENTINEL;
-		sram.axon_heads[i].h6 = AXON_SENTINEL;
-		sram.axon_heads[i].h7 = AXON_SENTINEL;
-	}
+        sram.axon_heads[i].h0 = AXON_SENTINEL;
+        sram.axon_heads[i].h1 = AXON_SENTINEL;
+        sram.axon_heads[i].h2 = AXON_SENTINEL;
+        sram.axon_heads[i].h3 = AXON_SENTINEL;
+        sram.axon_heads[i].h4 = AXON_SENTINEL;
+        sram.axon_heads[i].h5 = AXON_SENTINEL;
+        sram.axon_heads[i].h6 = AXON_SENTINEL;
+        sram.axon_heads[i].h7 = AXON_SENTINEL;
+    }
 
     VARIANT_LUT[0].threshold = 400;
     VARIANT_LUT[0].rest_potential = 0;
@@ -150,10 +148,11 @@ void day_phase_task(void *pvParameter) {
                 BurstHeads8 h = sram.axon_heads[axon_id];
                 uint32_t prop = p.signal_propagation_length;
 
-                bool hit = ((h.h0 - seg_idx) <= prop) || ((h.h1 - seg_idx) <= prop) ||
-						   ((h.h2 - seg_idx) <= prop) || ((h.h3 - seg_idx) <= prop) ||
-						   ((h.h4 - seg_idx) <= prop) || ((h.h5 - seg_idx) <= prop) ||
-						   ((h.h6 - seg_idx) <= prop) || ((h.h7 - seg_idx) <= prop); 
+                // [DOD FIX] Branchless 8-head bitwise OR (Hit Detection)
+                bool hit = ((h.h0 - seg_idx) < prop) | ((h.h1 - seg_idx) < prop) |
+                           ((h.h2 - seg_idx) < prop) | ((h.h3 - seg_idx) < prop) |
+                           ((h.h4 - seg_idx) < prop) | ((h.h5 - seg_idx) < prop) |
+                           ((h.h6 - seg_idx) < prop) | ((h.h7 - seg_idx) < prop);
                 if (hit) {
                     i_in += sram.dendrite_weights[col_idx];
                 }
@@ -211,15 +210,16 @@ void day_phase_task(void *pvParameter) {
                 BurstHeads8 h = sram.axon_heads[axon_id];
                 uint32_t prop = p.signal_propagation_length;
 
+                // [DOD FIX] Опрос всего сдвигового регистра (8-Way Min Dist)
                 uint32_t min_dist = 0xFFFFFFFF;
                 min_dist = check_head_dist(h.h0, seg_idx, prop, min_dist);
-				min_dist = check_head_dist(h.h1, seg_idx, prop, min_dist);
-				min_dist = check_head_dist(h.h2, seg_idx, prop, min_dist);
-				min_dist = check_head_dist(h.h3, seg_idx, prop, min_dist);
-				min_dist = check_head_dist(h.h4, seg_idx, prop, min_dist);
-				min_dist = check_head_dist(h.h5, seg_idx, prop, min_dist);
-				min_dist = check_head_dist(h.h6, seg_idx, prop, min_dist);
-				min_dist = check_head_dist(h.h7, seg_idx, prop, min_dist);
+                min_dist = check_head_dist(h.h1, seg_idx, prop, min_dist);
+                min_dist = check_head_dist(h.h2, seg_idx, prop, min_dist);
+                min_dist = check_head_dist(h.h3, seg_idx, prop, min_dist);
+                min_dist = check_head_dist(h.h4, seg_idx, prop, min_dist);
+                min_dist = check_head_dist(h.h5, seg_idx, prop, min_dist);
+                min_dist = check_head_dist(h.h6, seg_idx, prop, min_dist);
+                min_dist = check_head_dist(h.h7, seg_idx, prop, min_dist);
                 bool is_active = (min_dist != 0xFFFFFFFF);
                 int16_t w = sram.dendrite_weights[col_idx];
                 int32_t w_sign = (w >= 0) ? 1 : -1;
