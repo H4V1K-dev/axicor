@@ -59,6 +59,23 @@ struct alignas(8) SpikeEvent {
     uint32_t tick_offset;
 };
 
+// [DOD FIX] Control Plane для ESP-NOW
+#define CTRL_MAGIC_DOPA 0x41504F44 // "DOPA" в Little-Endian
+
+struct alignas(8) ControlPacket {
+    uint32_t magic;     // Обязано быть CTRL_MAGIC_DOPA
+    int16_t dopamine;   // Инъекция R-STDP (-32768..32767)
+    uint16_t _pad;      // Выравнивание до 8 байт
+};
+
+// [DOD] Телеметрия для совместимости с live_dashboard.py (16 bytes: <Ifff)
+struct alignas(16) DashboardFrame {
+    uint32_t episode;
+    float score;
+    float tps;
+    float is_done;
+};
+
 #define SPIKE_QUEUE_SIZE 256
 
 // [DOD] Zero-Lock SPSC Queue (Core 0 -> Core 1)

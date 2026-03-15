@@ -10,12 +10,15 @@
 #include "esp_now.h"
 #include "esp_netif.h"
 #include "esp_event.h"
+#include "driver/i2c.h"
+#include "driver/ledc.h"
 #include "genesis_core.hpp"
 
 VariantParameters VARIANT_LUT[2];
 SramState sram;
 FlashTopology flash;
 std::atomic<int16_t> global_dopamine{0}; 
+std::atomic<uint32_t> global_tick{0};
 
 #define SAFE_CALLOC(n, size) ({ \
     void* ptr = calloc((n), (size)); \
@@ -85,13 +88,13 @@ inline uint32_t check_head_dist(uint32_t head, uint32_t seg_idx, uint32_t prop_l
 // CORE 1: Day Phase (HFT Compute)
 // =========================================================
 void day_phase_task(void *pvParameter) {
-    uint32_t tick = 0;
     uint32_t v_seg = 1; 
     SpikeEvent ev;
 
     while(1) {
         int64_t start_time = esp_timer_get_time();
 
+        uint32_t tick = global_tick.load(std::memory_order_relaxed);
         // [DOD FIX] Сброс счетчиков Burst-Dependent Plasticity перед началом нового батча (каждые 100 тиков)
         if (tick % 100 == 0) {
             for(uint32_t tid = 0; tid < sram.padded_n; tid++) {
@@ -278,7 +281,7 @@ void day_phase_task(void *pvParameter) {
             motors.right.fetch_add(1, std::memory_order_relaxed);
         }
 
-        tick++;
+        global_tick.fetch_add(1, std::memory_order_relaxed);
         if (tick % 100 == 0) {
             printf("⚡ Tick %" PRIu32 " | Hot loop time: %" PRId64 " us\n", tick, (int64_t)(end_time - start_time));
         }
@@ -289,10 +292,72 @@ void day_phase_task(void *pvParameter) {
     }
 }
 
+// [DOD] Hardware Pins & Config
+#define I2C_MASTER_SCL_IO 22
+#define I2C_MASTER_SDA_IO 21
+#define I2C_MASTER_NUM I2C_NUM_0
+#define MPU6050_ADDR 0x68
+
+#define MOTOR_LEFT_PIN 18
+#define MOTOR_RIGHT_PIN 19
+
+void init_hardware() {
+    printf("⚙️ [Hardware] Initializing I2C & PWM...\n");
+    // 1. I2C Master Init
+    i2c_config_t conf = {};
+    conf.mode = I2C_MODE_MASTER;
+    conf.sda_io_num = (gpio_num_t)I2C_MASTER_SDA_IO;
+    conf.scl_io_num = (gpio_num_t)I2C_MASTER_SCL_IO;
+    conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
+    conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
+    conf.master.clk_speed = 400000;
+    i2c_param_config(I2C_MASTER_NUM, &conf);
+    i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0);
+
+    // Выводим MPU6050 из спящего режима
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (MPU6050_ADDR << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, 0x6B, true); // PWR_MGMT_1
+    i2c_master_write_byte(cmd, 0x00, true); // Wake up
+    i2c_master_stop(cmd);
+    i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(100));
+    i2c_cmd_link_delete(cmd);
+
+    // 2. LEDC (PWM) Init for Motors/Servos (50 Hz, 13-bit)
+    ledc_timer_config_t ledc_timer = {};
+    ledc_timer.speed_mode       = LEDC_LOW_SPEED_MODE;
+    ledc_timer.duty_resolution  = LEDC_TIMER_13_BIT;
+    ledc_timer.timer_num        = LEDC_TIMER_0;
+    ledc_timer.freq_hz          = 50;
+    ledc_timer.clk_cfg          = LEDC_AUTO_CLK;
+    ledc_timer_config(&ledc_timer);
+
+    ledc_channel_config_t ledc_ch[2] = {
+        { .gpio_num = MOTOR_LEFT_PIN,  .speed_mode = LEDC_LOW_SPEED_MODE, .channel = LEDC_CHANNEL_0, .intr_type = LEDC_INTR_DISABLE, .timer_sel = LEDC_TIMER_0, .duty = 0, .hpoint = 0, .flags = { .output_invert = 0 } },
+        { .gpio_num = MOTOR_RIGHT_PIN, .speed_mode = LEDC_LOW_SPEED_MODE, .channel = LEDC_CHANNEL_1, .intr_type = LEDC_INTR_DISABLE, .timer_sel = LEDC_TIMER_0, .duty = 0, .hpoint = 0, .flags = { .output_invert = 0 } }
+    };
+    for (int i = 0; i < 2; i++) {
+        ledc_channel_config(&ledc_ch[i]);
+    }
+}
+
 // [DOD] Выполняется в контексте задачи Wi-Fi. Никаких аллокаций.
 void on_esp_now_recv(const esp_now_recv_info_t *esp_now_info, const uint8_t *data, int data_len) {
-    if (data_len == sizeof(SpikeEvent)) {
-        SpikeEvent* ev = (SpikeEvent*)data;
+    if (data_len < 8) return; // Мусор
+
+    // 1. Control Plane (Dopamine Injection)
+    uint32_t magic = *(const uint32_t*)data;
+    if (magic == CTRL_MAGIC_DOPA) {
+        const ControlPacket* ctrl = (const ControlPacket*)data;
+        global_dopamine.store(ctrl->dopamine, std::memory_order_relaxed);
+        return;
+    }
+
+    // 2. Data Plane (Spike Events)
+    int count = data_len / sizeof(SpikeEvent);
+    for (int i = 0; i < count; i++) {
+        SpikeEvent* ev = (SpikeEvent*)(data + i * sizeof(SpikeEvent));
         // Мгновенный атомарный вброс в кольцевой буфер
         if (!rx_queue.push(*ev)) {
             // Buffer full - легализованная амнезия (Biological Drop)
@@ -328,35 +393,74 @@ void pro_core_task(void *pvParameter) {
         printf("✅ [Core 0] ESP-NOW initialized.\n");
     }
 
+    init_hardware();
     printf("🤖 [Core 0] Hardware I/O Loop Started.\n");
 
     while(1) {
-        // 1. I2C Gyroscope Stub (Генерируем синусоиду наклона робота)
-        float t = (float)esp_timer_get_time() / 1000000.0f;
-        float angle = sinf(t * 2.0f); // Наклон от -1.0 до 1.0
+        // 1. I2C Gyroscope Read (Zero-Blocking for Core 1)
+        uint8_t data[2] = {0};
+        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, (MPU6050_ADDR << 1) | I2C_MASTER_WRITE, true);
+        i2c_master_write_byte(cmd, 0x3B, true); // ACCEL_XOUT_H
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, (MPU6050_ADDR << 1) | I2C_MASTER_READ, true);
+        i2c_master_read(cmd, data, 2, I2C_MASTER_LAST_NACK);
+        i2c_master_stop(cmd);
+        i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(10));
+        i2c_cmd_link_delete(cmd);
+
+        int16_t accel_x = (int16_t)((data[0] << 8) | data[1]);
+        float angle = (float)accel_x / 16384.0f; // Нормализация от -1.0 до 1.0 (зависит от настроек акселерометра)
+        if (angle < -1.0f) angle = -1.0f;
+        if (angle > 1.0f) angle = 1.0f;
 
         // 2. Population Coding (Сенсорный энкодер: float -> spikes)
-        // Проецируем наклон на 10 рецепторных нейронов (аксоны 0..9)
         int center_id = (int)((angle + 1.0f) * 4.5f);
         if (center_id < 0) center_id = 0;
         if (center_id > 9) center_id = 9;
 
         SpikeEvent ev;
-        ev.ghost_id = center_id; // Бьем спайком в конкретный сенсор
+        ev.ghost_id = center_id; 
         ev.tick_offset = 0;
         rx_queue.push(ev);
 
-        // 3. PWM Motor Out (Декодер: spikes -> Duty Cycle)
-        // Вычитываем накопленные импульсы от Core 1 и обнуляем счетчик за 1 операцию
+        // 3. PWM Motor Out (Декодер: rate -> Duty Cycle)
         uint32_t p_left = motors.left.exchange(0, std::memory_order_relaxed);
         uint32_t p_right = motors.right.exchange(0, std::memory_order_relaxed);
 
-        if (p_left > 0 || p_right > 0) {
-            printf("⚙️ [Motors] Angle: %5.2f | PWM Left: %3" PRIu32 " | PWM Right: %3" PRIu32 "\n", angle, p_left, p_right);
-        }
+        // Конвертируем спайки (за 50мс) в Duty Cycle (13-bit PWM = 0..8191)
+        // Для стандартного серво: 1ms..2ms (5%..10% от 20мс) -> 400..800 duty
+        // Множитель '8' означает, что ~50 спайков дадут 100% мощности (800)
+        uint32_t duty_left = 400 + (p_left * 8);
+        if (duty_left > 800) duty_left = 800;
+        uint32_t duty_right = 400 + (p_right * 8);
+        if (duty_right > 800) duty_right = 800;
 
-        // Работаем на 20 Гц (типично для сервоприводов)
-        vTaskDelay(pdMS_TO_TICKS(50)); 
+        ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty_left);
+        ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+        ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty_right);
+        ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
+
+        // [DOD FIX] Telemetry Egress (Zero-Copy Broadcast)
+        static uint32_t last_tick = 0;
+        uint32_t current_tick = global_tick.load(std::memory_order_relaxed);
+        float tps = (float)(current_tick - last_tick) * 20.0f; // pro_core_task работает на 20 Hz
+        last_tick = current_tick;
+
+        DashboardFrame frame;
+        frame.episode = current_tick / 100;
+        // Оценка баланса: 1.0 = идеальное равновесие (0 градусов), 0.0 = падение
+        frame.score = 1.0f - std::abs(angle); 
+        frame.tps = tps;
+        frame.is_done = 0.0f;
+
+        // Broadcast MAC для ESP-NOW
+        uint8_t broadcast_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+        esp_now_send(broadcast_mac, (const uint8_t*)&frame, sizeof(DashboardFrame));
+
+        // Работаем на 20 Гц (50 мс)
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
