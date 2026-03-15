@@ -159,6 +159,20 @@ __global__ void apply_spike_batch_kernel(u32 num_spikes,
    int32_t final_dep = max(0, p.gsop_depression - dep_mod);
    ```
 
+4.5. **Burst-Dependent Plasticity (BDP):** В процесс обучения интегрирован аппаратный счетчик бурстов `burst_count` (биты `[3:1]` массива `flags`). 
+   - **Фильтрация шума:** Если нейрон спайкует случайно (`burst_count = 1`), он получает базовую пластичность.
+   - **Квадратичная кристаллизация:** Если нейрон истерит по делу (`burst_count > 1`), базовая дельта умножается на количество спайков в серии (до x7).
+   - **Branchless Math:** 
+     ```cpp
+     // Инкремент в UpdateNeurons (без warp divergence)
+     burst_count += final_spike * (burst_count < 7);
+     
+     // Умножение в ApplyGSOP
+     int32_t burst_mult = (burst_count > 0) ? burst_count : 1;
+     int32_t delta_pot = (raw_pot * inertia * burst_mult) >> 7;
+     ```
+   Это позволяет работать в режиме "Near-Zero Economy", где фоновый дофамин отрицателен (выжигает случайные связи), а BDP-множитель пробивает эту эрозию только для плотных, причинно-следственных паттернов моторики.
+
 5. **Двухфакторный STDP:**
    - Вычисляем ранг инерции синапса: `rank = abs(weight) >> 11`.
    - Достаём инерцию: `inertia = p.inertia_curve[rank]`.
