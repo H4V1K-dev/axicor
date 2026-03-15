@@ -21,6 +21,13 @@ struct ShardVramPtrs {
 
 #define AXON_SENTINEL 0x80000000
 
+__global__ void cu_reset_burst_counters_kernel(ShardVramPtrs vram, uint32_t padded_n) {
+    uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= padded_n) return;
+    // Сохраняем Type ID (0xF0) и флаг спайка (0x01), обнуляем биты [3:1]
+    vram.soma_flags[tid] &= 0xF1;
+}
+
 __device__ __forceinline__ void push_burst_head(BurstHeads8* h) {
   h->h7 = h->h6;
   h->h6 = h->h5;
@@ -241,7 +248,10 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
 
   // 8. Запись в VRAM
   vram.soma_voltage[tid] = current_voltage;
-  vram.soma_flags[tid] = flags;
+  // [DOD FIX] Branchless BDP Counter update
+  uint8_t burst_count = (flags >> 1) & 0x07;
+  burst_count += final_spike * (burst_count < 7);
+  vram.soma_flags[tid] = (flags & 0xF0) | (burst_count << 1) | (uint8_t)final_spike;
   vram.threshold_offset[tid] = thresh_offset;
   vram.timers[tid] = new_timer;
 }
@@ -255,8 +265,11 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
     return;
 
   uint8_t flags = vram.soma_flags[tid];
-  if ((flags & 0x01) == 0)
-    return;
+  if ((flags & 0x01) == 0) return;
+  
+  // Извлекаем количество спайков за батч (минимум 1, так как мы прошли if)
+  uint8_t burst_count = (flags >> 1) & 0x07;
+  int32_t burst_mult = (burst_count > 0) ? burst_count : 1;
 
   uint8_t variant_id = (flags >> 4) & 0x0F;
   VariantParameters p = VARIANT_LUT[variant_id];
@@ -315,8 +328,9 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
     // Anti-causal LTD не может инвертироваться в рост (оставляем clamp)
     int32_t final_dep = raw_dep & ~(raw_dep >> 31);
 
-    int32_t delta_pot = (raw_pot * inertia) >> 7;
-    int32_t delta_dep = (final_dep * inertia) >> 7;
+    // Умножаем сырую пластичность на количество спайков в серии
+    int32_t delta_pot = (raw_pot * inertia * burst_mult) >> 7;
+    int32_t delta_dep = (final_dep * inertia * burst_mult) >> 7;
     // Экспоненциальный сдвиг. Каждые 16 тиков сила обучения падает вдвое (>> 1)
     uint32_t cooling_shift = is_active ? (min_dist >> 4) : 0;
 
@@ -458,6 +472,12 @@ int32_t cu_step_day_phase(const ShardVramPtrs *vram, uint32_t padded_n,
   }
 
   return 0;
+}
+
+extern "C" void cu_reset_burst_counters(const ShardVramPtrs *vram, uint32_t padded_n, cudaStream_t stream) {
+  int threads = 256;
+  int blocks = (padded_n + threads - 1) / threads;
+  cu_reset_burst_counters_kernel<<<blocks, threads, 0, stream>>>(*vram, padded_n);
 }
 
 // Позволяет заливать параметры вариантов в константную память GPU

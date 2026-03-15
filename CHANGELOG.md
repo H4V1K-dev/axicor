@@ -8,6 +8,132 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.574.97] - 2026-03-15 13:32:04
+
+**ESP32 Blob Inflation: Bidirectional Distillation Cycle**
+
+### Added
+- Add scripts/inflate_esp32.py for high-speed expansion of 32-slot ESP32 blobs to 128-slot desktop format
+- Implement zero-copy memory extraction using mmap for efficient reading of ESP32 C-ABI blobs
+- Use vectorized NumPy broadcasting to move weights, targets, and timers from 32 slots into 128 slots
+- Pack the resulting data back into a standard C-ABI blob format with strict size assertions
+- Fix memory safety bugs (BufferError) in scripts/distill_esp32.py
+- Refactor code to ensure reliable bidirectional conversion between formats
+- Test conversion from shard.state (128 slots) to esp32_test.blob (32 slots, 862.75 KB) and back to desktop_reinflated.blob (128 slots, 3.22 MB)
+- Verify re-inflated blob matches exact byte-size of standard desktop shard (padded_n * 910 bytes)
+
+## [0.569.96] - 2026-03-15 12:48:16
+
+**Fix medium sec findings: pin python deps & add destructive action barrie**
+
+## [0.569.95] - 2026-03-15 12:45:38
+
+**[Security] Implement Cluster Secret Zero-Cost Authentication**
+
+### Added
+- Add `cluster_secret: u64` field to `RouteUpdate` C-ABI struct in `genesis-core/src/ipc.rs`
+- Enforce 24-byte size assertion for `RouteUpdate` to maintain 8-byte alignment
+- Inject `cluster_secret` into `NodeRuntime` struct and `boot` method in `genesis-node/src/node/mod.rs`
+- Update `broadcast_route_update` in `genesis-node/src/node/recovery.rs` to sign outgoing packets
+- Add O(1) validation in `ExternalIoServer::process_incoming_udp` in `genesis-node/src/network/io_server.rs` for `ROUT_MAGIC` packets
+- Derive and propagate `cluster_secret` from `master_seed` in `genesis-node/src/boot.rs`
+- Inject `-ccbin=gcc-13` and `-w` flags into CUDA build configuration in `genesis-compute/build.rs`
+- Add `gcc-13` dependency check to `scripts/setup.sh`
+
+## [0.561.95] - 2026-03-15 12:37:41
+
+**Lock NVCC host compiler to GCC-13 and suppress heuristic warnings**
+
+## [0.561.94] - 2026-03-15 12:26:21
+
+**[System] Add ESP32 model distillation tool with zero‑copy parsing**
+
+### Added
+- Implement scripts/distill_esp32.py for analyzing and distilling Genesis models for ESP32 deployment
+- Support universal format auto‑detection: Live SHM (GENS), Snapshots (SNAP), and Raw SoA blobs
+- Use mmap and numpy.frombuffer for Zero‑Copy parsing of multi‑gigabyte models without RAM overhead
+- Perform topological scan to analyze synaptic density and identify neurons exceeding ESP32 hardware limits (32 connections)
+- Verify tool against CartPole‑example/SensoryCortex, detecting 471,808 active synapses and warning of 128 connections/neuron
+
+## [0.556.94] - 2026-03-15 12:16:41
+
+**[Security] Fix unaligned memory access and secure network defaults**
+
+### Added
+- Replace unsafe pointer reference casting with std::ptr::read_unaligned for ExternalIoHeader and RouteUpdate in io_server.rs
+- Replace unsafe pointer reference casting with std::ptr::read_unaligned for SpikeBatchHeader in router.rs
+- Bind I/O Server UDP socket and geometry server address to 127.0.0.1 in boot.rs
+- Bind Telemetry server WebSocket to 127.0.0.1 in telemetry.rs
+- Bind inter-node Ghost axon listener to 127.0.0.1 in inter_node.rs
+
+## [0.551.89] - 2026-03-15 12:05:13
+
+**Axicor 8-Way Burst Synchronization & Kernel Hardening**
+
+### Added
+- Implement SAFE_CALLOC macro in genesis-lite/main/main.cpp for fail-fast SRAM allocation in init_brain
+- Expand initialization loop to explicitly set AXON_SENTINEL across all 8 heads of BurstHeads8 structure
+- Replace logical OR with branchless bitwise OR in day_phase_task GLIF hit detection (h.h0 - seg_idx) < prop
+- Extend GSOP potentiation logic to poll the full 8-head shift register for min distance calculation
+- Add strict CUDA Toolkit version check (>= 12.4) to scripts/setup.sh, exit 1 on older versions
+- Document NVIDIA CUDA as Tier 1 backend in docs/specs/10_hardware_backends.md with Pascal+ GPU and Ubuntu 22.04/24.04 requirements
+- Enforce exclusive PCIe Passthrough virtualization requirement and renumber subsequent backend tiers
+- Rebase and resolve conflicts to integrate local neuromorphic kernel fixes with upstream 8-head cascade changes
+
+## [0.544.89] - 2026-03-15 10:57:52
+
+**Merge pull request #3 from aaaab000/fix/burst-heads-full-cascade**
+
+### Added
+- Fix duplicate BurstHeads8 shift register operations in spike path
+- Implement proper refractory timer reset during spike emission
+- Enforce DOD-compliant flag clearing for non-spike state
+- Correct instantaneous spike accumulation logic with proper threshold comparison
+- Maintain accumulator state between evaluation cycles per DOD specification
+- Set spike flag (0x01) and refractory bits (0x02) atomically during firing
+
+## [0.538.83] - 2026-03-15 10:11:56
+
+**Resolve conflict: keep upstream flag bits, apply full 8-head cascade shi**
+
+## [0.538.82] - 2026-03-15 03:07:34
+
+**Public rename to Axicor**
+
+### Added
+- Update root Cargo.toml repository URL to https://github.com/H4V1K-dev/Axicor
+- Update sub-package Cargo.toml descriptions for genesis-core, genesis-node, genesis-compute, and genesis-baker to use "Axicor"
+- Update README.md title to "Axicor Alpha 0.0.1", marketing text, and GitHub clone URLs
+- Update Credits.md project references and repository link
+- Update Python SDK documentation titles and descriptions in QuickStart_SDK.md, Client_SDK.md, Brain_Builder.md, SDK_Encoders_Decoders.md, and SDK_Surgery_Dopamine.md
+- Preserve internal codename GENESIS by not modifying any .rs files, Cargo.toml name fields, or internal technical identifiers
+
+## [0.532.82] - 2026-03-15 00:22:08
+
+**Alpha 0.0.1: HFT Synchronization & Nuclear Reservoir Refactor**
+
+### Added
+- Compress SensoryCortex zone from 64x64x63 to 16x16x16 voxels (400x400x400 μm) in build_brain.py
+- Replace L4_Input, L23_Hidden, L5_Motor layers with unified Nuclear layer at 0.4 density
+- Set dendrite_radius_um to 400.0 for all neuron types for universal Small-World connectivity
+- Distribute excitatory (50%), inhibitory (20%), and motor (30%) neurons uniformly across zone height
+- Align environment tau to 0.002 and sync_batch_ticks to 20 for 2ms lockstep in agent.py and build_brain.py
+- Replace discrete dopamine logic with branchless continuous error gradient based on pole angle and velocity
+- Implement Spike Accumulator in physics.cu and physics.hip using Bit 1 of soma_flags for 100-tick batch capture
+- Increase DOPAMINE_PULSE to -15 and lower DOPAMINE_REWARD to 35 for aggressive R-STDP background erosion
+- Implement non-linear kinetic pain shock: shock = BASE + (score >> 5) + (velocity * 5) capped at 100 batches
+- Extract D1_AFFINITY, D2_AFFINITY, LEAK_RATE, HOMEOS_PENALTY, HOMEOS_DECAY, ANGLE_SCALE, VELOCITY_SCALE to global constants in agent.py
+- Create benchmark.py with 10s stress test using GenesisMultiClient, compute TPS via (packets * BATCH_SIZE) / 10.0
+- Add idle mode and simulated 20ms environment delay latency wall to benchmark.py
+- Fix synapse counting in benchmark.py by debugging SHM read for targets to count synapses before training
+- Add entry_z to InputMap DTO in genesis-core/src/config/io.rs for dynamic cable routing
+- Implement flags_offset in ThreadWorkspace and flags_slice_mut in genesis-node/src/node/shard_thread.rs
+- Inject soma_flags DMA at top of execute_night_phase and clear accumulator in bindings.cu and bindings.hip
+- Switch to Bit 1 check in genesis-baker/src/bake/sprouting.rs for spike detection
+- Remove GCC-13 hardcoding (std::env::set_var("CXX", "g++-13")) in genesis-compute/build.rs
+- Add checks for nvcc and hipcc in scripts/setup.sh with mock-gpu feature prompt for CPU-only simulation
+- Update README.md to clarify GPU recommendation and CPU-only mock mode availability
+
 ## [0.514.81] - 2026-03-15 00:22:08
 
 **Alpha 0.0.1: HFT Synchronization & Nuclear Reservoir Refactor**

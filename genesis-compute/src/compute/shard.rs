@@ -66,6 +66,9 @@ impl ShardEngine {
             );
         }
 
+        // [DOD FIX] Сброс счетчиков Burst-Dependent Plasticity перед началом нового батча
+        unsafe { crate::ffi::cu_reset_burst_counters(&self.vram.ptrs, self.vram.padded_n, self.stream); }
+
         // 2. Hot Loop по тикам
 
         for tick in 0..sync_batch_ticks {

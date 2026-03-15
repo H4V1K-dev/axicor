@@ -60,6 +60,12 @@ extern "C" {
         out_vram:    *mut ShardVramPtrs,
     ) -> i32;
 
+    pub fn cu_reset_burst_counters(
+        ptrs: *const ShardVramPtrs,
+        padded_n: u32,
+        stream: CudaStream,
+    );
+
     /// Zero-Cost DMA Upload: один cudaMemcpyAsync для всего .state блоба.
     /// state_blob — плоский массив байт в порядке полей ShardVramPtrs.
     /// Возвращает 0 при успехе.

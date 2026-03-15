@@ -92,6 +92,13 @@ void day_phase_task(void *pvParameter) {
     while(1) {
         int64_t start_time = esp_timer_get_time();
 
+        // [DOD FIX] Сброс счетчиков Burst-Dependent Plasticity перед началом нового батча (каждые 100 тиков)
+        if (tick % 100 == 0) {
+            for(uint32_t tid = 0; tid < sram.padded_n; tid++) {
+                sram.flags[tid] &= 0xF1;
+            }
+        }
+
         // 0. Apply Spike Batch (Zero-Cost Injection)
         while (rx_queue.pop(ev)) {
 			if (ev.ghost_id < sram.total_axons) {
@@ -171,7 +178,9 @@ void day_phase_task(void *pvParameter) {
                 current_voltage = p.rest_potential;
                 sram.refractory_timer[tid] = p.refractory_period;
 				
-                sram.flags[tid] = (flags & 0xFC) | 0x03;
+                uint8_t burst_count = (flags >> 1) & 0x07;
+                burst_count += (burst_count < 7);
+                sram.flags[tid] = (flags & 0xF0) | (burst_count << 1) | 0x01;
                 
                 BurstHeads8& ah = sram.axon_heads[tid];
                 ah.h7 = ah.h6;
@@ -240,8 +249,11 @@ void day_phase_task(void *pvParameter) {
                 int32_t delta_pot = (final_pot * inertia) >> 7;
                 int32_t delta_dep = (final_dep * inertia) >> 7;
 
+                uint8_t burst_count = (flags >> 1) & 0x07;
+                int32_t burst_mult = (burst_count > 0) ? burst_count : 1;
+
                 uint32_t cooling_shift = is_active ? (min_dist >> 4) : 0;
-                int32_t delta = is_active ? (delta_pot >> cooling_shift) : -delta_dep;
+                int32_t delta = is_active ? ((delta_pot * burst_mult) >> cooling_shift) : -(delta_dep * burst_mult);
 
                 int32_t decay = (slot >= p.ltm_slot_count) ? p.slot_decay_wm : p.slot_decay_ltm;
                 delta = (delta * decay) >> 7;

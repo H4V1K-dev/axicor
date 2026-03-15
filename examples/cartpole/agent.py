@@ -24,17 +24,17 @@ from genesis.surgeon import GenesisSurgeon
 from genesis.brain import fnv1a_32
 
 #============================================================
-#                   CONFIGURATION
+#                   CONFIGURATION ЕКСПЕРИМЕНТАЛЬНО!
 #============================================================
 EPISODES = 20_000_000         # Количество эпизодов до остановки обучения
 BATCH_SIZE = 20               # HFT-цикл: 1 пакет = 20 тиков (Должно быть равно tick_duration_us в build_brain.py)
-NIGHT_INTERVAL = 50_000      # Периодичность сна (50к тиков = 100с физики)
-PRUNE_THRESHOLD = 3500        # Порог удаления слабых синапсов (Аналог квантования fp32->fp16 когда срезается хвост, но здесь не критично, дает возможность перестроить связь)
+NIGHT_INTERVAL = 50_000       # Периодичность сна (50к тиков = 100с физики)
+PRUNE_THRESHOLD = 10          # Порог удаления слабых синапсов (Аналог квантования fp32->fp16 когда срезается хвост, но здесь не критично, дает возможность перестроить связь)
 
 # Баланс R-STDP (Near-Zero Economy)
-DOPAMINE_PULSE = 0          # Околонулевая эрозия
-DOPAMINE_REWARD = 40           # Микро-награда для защиты от LTP Runaway
-DOPAMINE_PUNISHMENT = -150    # Death Signal (Максимальное наказание)
+DOPAMINE_PULSE = 2            # Околонулевая эрозия
+DOPAMINE_REWARD = -2          # Микро-награда для защиты от LTP Runaway
+DOPAMINE_PUNISHMENT = +20     # Death Signal (Максимальное наказание)
 
 # Гиперпараметры Физики (GLIF & Receptors)
 D1_AFFINITY = 172             # Аффинность D1
