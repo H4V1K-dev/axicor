@@ -23,6 +23,11 @@ fn main() {
             .flag("-arch=sm_61") // NVIDIA Pascal (GTX 1080 Ti)
             .flag("-O3")
             .flag("-allow-unsupported-compiler") // Разрешаем работу с GCC 14+ (хотя мы форсим 13)
+            // [DOD FIX] Hardware Sympathy for NVCC
+            // Принудительно используем GCC 13 для линковки, так как GCC 14+ ломает AST в CUDA < 12.6
+            // Подавляем мусорные предупреждения (-w) эвристики при развертке 32-байтных структур
+            .flag("-ccbin=gcc-13")
+            .flag("-w")
             .file("src/cuda/bindings.cu")
             .file("src/cuda/physics.cu")
             .compile("genesis_cuda");

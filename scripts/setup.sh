@@ -44,6 +44,8 @@ check_cmd() {
 check_cmd python3  "install from https://python.org"
 check_cmd cargo   "install from https://rustup.rs"
 check_cmd git     "install via your package manager"
+# [DOD FIX] Host-compiler lock for CUDA
+check_cmd gcc-13   "install via apt (sudo apt install gcc-13 g++-13)"
 
 if [ $MISSING -eq 1 ]; then
     echo ""
