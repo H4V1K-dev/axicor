@@ -1,26 +1,26 @@
 # Rust
-target/
 Cargo.lock
+target/
 
 # CUDA
-*.ptx
-*.cubin
 *.fatbin
+*.cubin
+*.ptx
 
 # Baked blobs (бинарные — не в VCS)
-baked/
+checkpoint_*.bin.tmp
+checkpoint_*.bin
+*.positions
+*.ghosts
 *.state
 *.axons
-*.positions
+baked/
 *.gxi
 *.gxo
-*.ghosts
-checkpoint_*.bin
-checkpoint_*.bin.tmp
 
 # IDE
-.idea/
 .vscode/
+.idea/
 *.swp
 *.swo
 
@@ -29,15 +29,15 @@ checkpoint_*.bin.tmp
 Thumbs.db
 
 # Логи и дампы
-*.log
-*.dump
-*.pid
+sdkconfig.old
+sdkconfig
 *.log.tmp
+*.dump
+*.log
+*.pid
 *.bak
 *.new
 *.tmp
-sdkconfig
-sdkconfig.old
 *.bin
 *.elf
 *.map
@@ -47,6 +47,7 @@ genesis-lite/build/
 Genesis-Models/
 genesis-retina/
 __pycache__/
+CodeReview/
 tests/tmp/
 SUMARIZER/
 PERSONAL/

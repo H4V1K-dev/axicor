@@ -1,6 +1,6 @@
 [package]
 name = "genesis-core"
-description = "Shared types, constants and SoA layout for Genesis"
+description = "Shared types, constants and SoA layout for Axicor"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

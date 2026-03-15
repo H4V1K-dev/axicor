@@ -1,7 +1,7 @@
 [package]
 name = "genesis-node"
 default-run = "genesis-node"
-description = "Distributed runtime node, networking, and orchestrator for Genesis"
+description = "Distributed runtime node, networking, and orchestrator for Axicor"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

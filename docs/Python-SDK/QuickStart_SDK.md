@@ -1,4 +1,4 @@
-# 🐍 Genesis Client SDK: HFT Python Guide
+# 🐍 Axicor Client SDK: HFT Python Guide
 
 Добро пожаловать в Client SDK. Забудьте про статические графы вычислений, backpropagation и `loss.backward()`. Вы подключаетесь к живому биологическому реактору, который работает в реальном времени.
 

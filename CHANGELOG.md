@@ -8,6 +8,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.514.81] - 2026-03-15 00:22:08
+
+**Alpha 0.0.1: HFT Synchronization & Nuclear Reservoir Refactor**
+
+### Added
+- Compress SensoryCortex zone from 64x64x63 to 16x16x16 voxels (400x400x400 μm) in build_brain.py
+- Replace L4_Input, L23_Hidden, L5_Motor layers with unified Nuclear layer at 0.4 density
+- Set dendrite_radius_um to 400.0 for all neuron types for universal Small-World connectivity
+- Distribute excitatory (50%), inhibitory (20%), and motor (30%) neurons uniformly across zone height
+- Align environment tau to 0.002 and sync_batch_ticks to 20 for 2ms lockstep in agent.py and build_brain.py
+- Replace discrete dopamine logic with branchless continuous error gradient based on pole angle and velocity
+- Implement Spike Accumulator in physics.cu and physics.hip using Bit 1 of soma_flags for 100-tick batch capture
+- Increase DOPAMINE_PULSE to -15 and lower DOPAMINE_REWARD to 35 for aggressive R-STDP background erosion
+- Implement non-linear kinetic pain shock: shock = BASE + (score >> 5) + (velocity * 5) capped at 100 batches
+- Extract D1_AFFINITY, D2_AFFINITY, LEAK_RATE, HOMEOS_PENALTY, HOMEOS_DECAY, ANGLE_SCALE, VELOCITY_SCALE to global constants in agent.py
+- Create benchmark.py with 10s stress test using GenesisMultiClient, compute TPS via (packets * BATCH_SIZE) / 10.0
+- Add idle mode and simulated 20ms environment delay latency wall to benchmark.py
+- Fix synapse counting in benchmark.py by debugging SHM read for targets to count synapses before training
+- Add entry_z to InputMap DTO in genesis-core/src/config/io.rs for dynamic cable routing
+- Implement flags_offset in ThreadWorkspace and flags_slice_mut in genesis-node/src/node/shard_thread.rs
+- Inject soma_flags DMA at top of execute_night_phase and clear accumulator in bindings.cu and bindings.hip
+- Switch to Bit 1 check in genesis-baker/src/bake/sprouting.rs for spike detection
+- Remove GCC-13 hardcoding (std::env::set_var("CXX", "g++-13")) in genesis-compute/build.rs
+- Add checks for nvcc and hipcc in scripts/setup.sh with mock-gpu feature prompt for CPU-only simulation
+- Update README.md to clarify GPU recommendation and CPU-only mock mode availability
+
 ## [0.495.80] - 2026-03-13 19:01:02
 
 **Implement HFT encoders/decoders and stabilize Mouse Agent feedback loop**

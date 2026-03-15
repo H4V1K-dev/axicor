@@ -1,6 +1,6 @@
 #!/bin/bash
-# Genesis Alpha — Bootstrap Script
-# https://github.com/H4V1K-dev/genesis-agi
+# Axicor Alpha — Bootstrap Script
+# https://github.com/H4V1K-dev/axicor
 set -e
 
 # ─────────────────────────────────────────────
@@ -14,13 +14,13 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 echo ""
-echo -e "${BOLD}${CYAN}"
-echo "   ██████╗ ███████╗███╗   ██╗███████╗███████╗██╗███████╗"
-echo "  ██╔════╝ ██╔════╝████╗  ██║██╔════╝██╔════╝██║██╔════╝"
-echo "  ██║  ███╗█████╗  ██╔██╗ ██║█████╗  ███████╗██║███████╗"
-echo "  ██║   ██║██╔══╝  ██║╚██╗██║██╔══╝  ╚════██║██║╚════██║"
-echo "  ╚██████╔╝███████╗██║ ╚████║███████╗███████║██║███████║"
-echo "   ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚══════╝╚══════╝╚═╝╚══════╝"
+echo -e "${BOLD}\033[38;5;196m"
+echo "   █████╗ ██╗  ██╗██╗ ██████╗ ██████╗ ██████╗ "
+echo "  ██╔══██╗╚██╗██╔╝██║██╔════╝██╔═══██╗██╔══██╗"
+echo "  ███████║ ╚███╔╝ ██║██║     ██║   ██║██████╔╝"
+echo "  ██╔══██║ ██╔██╗ ██║██║     ██║   ██║██╔══██╗"
+echo "  ██║  ██║██╔╝ ██╗██║╚██████╗╚██████╔╝██║  ██║"
+echo "  ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝"
 echo -e "${NC}"
 echo -e "  ${BOLD}Embodied AI Engine — Alpha Bootstrap${NC}"
 echo ""
@@ -148,7 +148,7 @@ BAKER_BIN="./target/release/baker"
 # ─────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}${BOLD}  ✅ Genesis is ready.${NC}"
+echo -e "${GREEN}${BOLD}  ✅ Axicor is ready.${NC}"
 echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo -e "  ${BOLD}Next steps:${NC}"
@@ -162,5 +162,5 @@ echo ""
 echo -e "  ${CYAN}3.${NC} Run the agent:"
 echo -e "     ${BOLD}python3 examples/cartpole/agent.py${NC}"
 echo ""
-echo -e "  Docs: ${CYAN}https://github.com/H4V1K-dev/genesis-agi${NC}"
+echo -e "  Docs: ${CYAN}https://github.com/H4V1K-dev/axicor${NC}"
 echo ""

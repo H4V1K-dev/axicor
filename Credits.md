@@ -1,6 +1,6 @@
 # Data Credits - GNM-Library
 
-The **GNM-Library** neuron type parameters were derived from the following publicly available neuroscience databases. Raw biological measurements were transformed into **Genesis Neuron Model (GNM)** integer-domain invariants via high-fidelity approximation formulas; no original data files are distributed with this library.
+The **GNM-Library** neuron type parameters were derived from the following publicly available neuroscience databases. Raw biological measurements were transformed into **Axicor Neuron Model (GNM)** integer-domain invariants via high-fidelity approximation formulas; no original data files are distributed with this library.
 
 ---
 
@@ -38,7 +38,7 @@ Biophysical reference values used in approximation formulas (resting potentials,
 ### 🛠️ How Source Data Was Used
 Source data was used exclusively during the library generation process (offline, locally). The generation scripts consumed raw JSON/CSV exports from the databases listed above and produced the `.toml` parameter files in this library. 
 
-**No raw database files, SWC reconstructions, or original recordings are included in this repository or any distribution of Genesis Engine.**
+**No raw database files, SWC reconstructions, or original recordings are included in this repository or any distribution of Axicor Engine.**
 
 ---
-*For more information, visit the [Genesis Project Repository](https://github.com/H4V1K-dev/genesis-agi).*
+*For more information, visit the [Axicor Project Repository](https://github.com/H4V1K-dev/Axicor).*

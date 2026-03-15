@@ -1,6 +1,6 @@
 [package]
 name = "genesis-compute"
-description = "Hardcore GPU compute, CUDA FFI and memory allocation for Genesis"
+description = "Hardcore GPU compute, CUDA FFI and memory allocation for Axicor"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
