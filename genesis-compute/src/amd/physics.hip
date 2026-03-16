@@ -148,9 +148,11 @@ __global__ void cu_propagate_axons_kernel(BurstHeads8* __restrict__ axon_heads,
 
 // ============================================================================
 // 4. Update Neurons Kernel (GLIF + Dendritic Integration)
+// Milestone 2: dopamine-driven adaptive leak when adaptive_leak_mode != 0
 // ============================================================================
 __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
-                                         uint32_t padded_n, uint32_t current_tick) {
+                                         uint32_t padded_n, uint32_t current_tick,
+                                         int16_t dopamine) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= padded_n)
     return;
@@ -214,8 +216,20 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   int32_t sign = (diff > 0) - (diff < 0);
   int32_t abs_diff = diff * sign;
 
+  // Milestone 2: dopamine-driven effective leak (LTC Roadmap §Formulas)
+  int32_t leak_used = p.leak_rate;
+  if (p.adaptive_leak_mode != 0 && p.leak_min < p.leak_max) {
+    int32_t leak_mod = (dopamine * p.dopamine_leak_gain) >> 7;
+    int32_t raw = p.leak_rate + leak_mod;
+    int32_t lo = p.leak_min;
+    int32_t hi = p.leak_max;
+    int32_t clamped_lo = raw - ((raw - lo) & ((raw - lo) >> 31));
+    int32_t clamped_hi = clamped_lo + ((hi - clamped_lo) & ((hi - clamped_lo) >> 31));
+    leak_used = clamped_hi + ((1 - clamped_hi) & ((clamped_hi - 1) >> 31));
+  }
+
   // Вычитаем утечку из модуля разницы
-  int32_t leaked_abs = abs_diff - p.leak_rate;
+  int32_t leaked_abs = abs_diff - leak_used;
 
   // Branchless clamp: не даем модулю уйти ниже 0 (перелет через rest_potential)
   leaked_abs = leaked_abs & ~(leaked_abs >> 31);
@@ -463,7 +477,7 @@ int32_t cu_step_day_phase(const ShardVramPtrs *vram, uint32_t padded_n,
 
   // 4. UpdateNeurons (GLIF)
   int blocks_neurons = (padded_n + threads - 1) / threads;
-  cu_update_neurons_kernel<<<blocks_neurons, threads, 0, stream>>>(*vram, padded_n, current_tick);
+  cu_update_neurons_kernel<<<blocks_neurons, threads, 0, stream>>>(*vram, padded_n, current_tick, dopamine);
 
   // 5. ApplyGSOP (Пластичность 3D STDP)
   cu_apply_gsop_kernel<<<blocks_neurons, threads, 0, stream>>>(*vram, padded_n, dopamine);

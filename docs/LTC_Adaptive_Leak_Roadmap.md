@@ -353,7 +353,7 @@ adaptive_leak = false
 
 ---
 
-## Milestone 2. Dopamine-Driven Adaptive Leak
+## Milestone 2. Dopamine-Driven Adaptive Leak [DONE]
 
 ### Цель
 

@@ -96,6 +96,41 @@ pub const fn compute_glif(
 }
 
 // ---------------------------------------------------------------------------
+// Adaptive Leak (LTC Roadmap Milestone 2)
+// ---------------------------------------------------------------------------
+
+/// Dopamine-driven effective leak (LTC Roadmap §Formulas).
+///
+/// `leak_mod = (dopamine * dopamine_leak_gain) >> 7`
+/// `effective_leak = clamp(base_leak_rate + leak_mod, leak_min, leak_max)`
+///
+/// When `adaptive_leak_mode == 0` or clamp window invalid (`leak_min >= leak_max`),
+/// returns `base_leak_rate`. Branchless, integer-only.
+#[inline(always)]
+pub const fn compute_effective_leak(
+    adaptive_leak_mode: u8,
+    base_leak_rate: i32,
+    dopamine: i16,
+    dopamine_leak_gain: i16,
+    leak_min: i16,
+    leak_max: i16,
+) -> i32 {
+    if adaptive_leak_mode == 0 || leak_min >= leak_max {
+        return base_leak_rate;
+    }
+    let leak_mod = (dopamine as i32 * dopamine_leak_gain as i32) >> 7;
+    let raw = base_leak_rate + leak_mod;
+    let lo = leak_min as i32;
+    let hi = leak_max as i32;
+    // Branchless clamp: min(max(raw, lo), hi)
+    let clamped_lo = raw - ((raw - lo) & ((raw - lo) >> 31));
+    let clamped_hi = clamped_lo + ((hi - clamped_lo) & ((hi - clamped_lo) >> 31));
+    // Ensure positive for GLIF (avoid div-by-zero): max(result, 1)
+    let result = clamped_hi;
+    result + ((1 - result) & ((result - 1) >> 31))
+}
+
+// ---------------------------------------------------------------------------
 // Homeostasis (Spec 03 §3.2 — Adaptive Threshold)
 // ---------------------------------------------------------------------------
 
@@ -229,6 +264,38 @@ mod tests {
         // voltage=-70, rest=-70, leak=2, input=50
         // leak=0, new_v = -70 + 50 = -20
         assert_eq!(compute_glif(-70, -70, 2, 50), -20);
+    }
+
+    // -----------------------------------------------------------------------
+    // Adaptive Leak (Milestone 2)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_effective_leak_mode_off_returns_base() {
+        assert_eq!(compute_effective_leak(0, 10, 100, 64, 1, 20), 10);
+    }
+
+    #[test]
+    fn test_effective_leak_invalid_window_returns_base() {
+        assert_eq!(compute_effective_leak(1, 10, 100, 64, 5, 5), 10);
+        assert_eq!(compute_effective_leak(1, 10, 100, 64, 10, 5), 10);
+    }
+
+    #[test]
+    fn test_effective_leak_dopamine_modulation() {
+        // leak_mod = (127 * 64) >> 7 = 64, effective = 10 + 64 = 74, clamp(1,20)=20
+        assert_eq!(compute_effective_leak(1, 10, 127, 64, 1, 20), 20);
+        // leak_mod = (0 * 64) >> 7 = 0, effective = 10
+        assert_eq!(compute_effective_leak(1, 10, 0, 64, 1, 20), 10);
+        // leak_mod = (-128 * 64) >> 7 = -64, effective = 10 - 64 = -54, clamp(1,20)=1
+        assert_eq!(compute_effective_leak(1, 10, -128, 64, 1, 20), 1);
+    }
+
+    #[test]
+    fn test_effective_leak_integration_with_glif() {
+        let eff = compute_effective_leak(1, 2, 10, 64, 1, 20);
+        assert!(eff >= 1 && eff <= 20);
+        assert_eq!(compute_glif(100, -70, eff, 0), 100 - (170 / eff) + 0);
     }
 
     // -----------------------------------------------------------------------

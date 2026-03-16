@@ -133,7 +133,7 @@ __global__ void apply_spike_batch_kernel(u32 num_spikes,
 
 - **Принцип:** Сома стреляет → хвост аксона всё ещё касается дендрита → значит, этот аксон участвовал в возбуждении. Причинно-следственная связь через перекрытие, не через временные метки.
 
-**Constant Memory:** `GenesisConstantMemory` (см. [07_gpu_runtime.md §1.5](./07_gpu_runtime.md)). Содержит array из 16 `VariantParameters` structs (по одному на каждый тип нейрона из blueprints). В Milestone 1 структура уже включает reserved-поля под adaptive leak, но `UpdateNeurons` всё ещё использует только базовый `leak_rate`. Variant ID распаковывается из флагов как `(flags >> 4) & 0xF` (биты 4-7 = 16 типов).
+**Constant Memory:** `GenesisConstantMemory` (см. [07_gpu_runtime.md §1.5](./07_gpu_runtime.md)). Содержит array из 16 `VariantParameters` structs (по одному на каждый тип нейрона из blueprints). Milestone 2: при `adaptive_leak_mode != 0` используется dopamine-driven effective leak. Variant ID распаковывается из флагов как `(flags >> 4) & 0xF` (биты 4-7 = 16 типов).
 
 ### 1.3. Инференс: Пространственный GSOP и Нейромодуляция
 
@@ -207,7 +207,17 @@ __global__ void apply_spike_batch_kernel(u32 num_spikes,
 
 ### 1.5. Главный Тик: UpdateNeurons (GLIF Kernel)
 
-Ядро, которое собирает всю физику в один проход: GLIF leak, гомеостаз, Early Exit, суммация дендритов, threshold check, fire/reset. Параметры читаются из `GenesisConstantMemory` (см. [07_gpu_runtime.md §1.5](./07_gpu_runtime.md)). До Milestone 2 adaptive leak-поля присутствуют в ABI, но не участвуют в расчёте.
+Ядро, которое собирает всю физику в один проход: GLIF leak, гомеостаз, Early Exit, суммация дендритов, threshold check, fire/reset. Параметры читаются из `GenesisConstantMemory` (см. [07_gpu_runtime.md §1.5](./07_gpu_runtime.md)).
+
+**Milestone 2 — Dopamine-Driven Adaptive Leak:** при `adaptive_leak_mode != 0` и `leak_min < leak_max`:
+
+```text
+leak_mod = (dopamine * dopamine_leak_gain) >> 7
+effective_leak = clamp(base_leak_rate + leak_mod, leak_min, leak_max)
+leak_used = max(effective_leak, 1)
+```
+
+Эффект виден в телеметрии через `ready_dopamine` и изменение spike rate при варьировании dopamine.
 
 ```cuda
 __constant__ GenesisConstantMemory const_mem;

@@ -111,6 +111,18 @@ pub struct NeuronType {
     // --- Night Phase ---
     #[serde(default = "default_prune_threshold")]
     pub prune_threshold: i16,
+
+    // --- Adaptive Leak (LTC Milestone 2, off by default) ---
+    #[serde(default)]
+    pub adaptive_leak_mode: u8,
+    #[serde(default)]
+    pub dopamine_leak_gain: i16,
+    #[serde(default)]
+    pub burst_leak_gain: i16,
+    #[serde(default)]
+    pub leak_min: i16,
+    #[serde(default)]
+    pub leak_max: i16,
 }
 
 // Дефолтные значения для опциональных полей

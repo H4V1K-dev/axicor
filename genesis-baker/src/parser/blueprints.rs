@@ -92,12 +92,12 @@ pub fn parse_blueprints(toml_content: &str) -> (GenesisConstantMemory, Vec<Neuro
             ltm_slot_count: nt.ltm_slot_count,
             inertia_curve: inertia,
             prune_threshold: nt.prune_threshold,
-            adaptive_leak_mode: 0,
+            adaptive_leak_mode: nt.adaptive_leak_mode,
             _pad_adaptive: 0,
-            dopamine_leak_gain: 0,
-            burst_leak_gain: 0,
-            leak_min: 0,
-            leak_max: 0,
+            dopamine_leak_gain: nt.dopamine_leak_gain,
+            burst_leak_gain: nt.burst_leak_gain,
+            leak_min: nt.leak_min,
+            leak_max: nt.leak_max,
             _reserved: [0; 6],
         };
     }
