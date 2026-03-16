@@ -53,6 +53,10 @@ fn main() {
         build
             .cuda(true)
             .warnings(false)
+            // cc-rs probes nvcc with `-E detect_compiler_family.c` on Windows and
+            // emits noisy false-positive cargo warnings even when the actual CUDA
+            // compilation succeeds. Suppress cc-rs warnings for this CUDA path.
+            .cargo_warnings(false)
             .flag("-O3")
             .flag("-use_fast_math")
             .flag("-default-stream=per-thread")
