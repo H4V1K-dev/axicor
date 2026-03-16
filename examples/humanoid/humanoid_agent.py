@@ -11,7 +11,7 @@ if not (sys.prefix != sys.base_prefix or 'VIRTUAL_ENV' in os.environ):
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "genesis-client")))
 from genesis.client import GenesisMultiClient
 from genesis.encoders import PopulationEncoder
-from genesis.brain import fnv1a_32
+from genesis.brain import fnv1a_32, GenesisBrain
 from genesis.control import GenesisControl
 from genesis.tuner import GenesisAutoTuner
 from genesis.memory import GenesisMemory
@@ -81,6 +81,10 @@ def run_humanoid():
     control = GenesisControl(manifest_path) if os.path.exists(manifest_path) else None
     tuner = GenesisAutoTuner(control=control, target_score=6000.0, window_size=15) if control else None
 
+    # Load brain topology for dynamic zone discovery (metrics)
+    brain_toml_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "Genesis-Models", "HumanoidAgent", "brain.toml"))
+    brain = GenesisBrain(brain_toml_path)
+
     # --- AUTO-BOUNDS from Gymnasium observation_space ---
     obs_low_raw = env.observation_space.low.astype(np.float32)
     obs_high_raw = env.observation_space.high.astype(np.float32)
@@ -99,15 +103,13 @@ def run_humanoid():
     range_diff[range_diff == 0] = np.float16(1.0)
 
     # --- VRAM DIAGNOSTICS FUNCTION ---
-    zone_names = ["SensoryCortex", "ProprioceptiveHub", "ThoracicGanglion", "CerebellumAnalog", "MotorCortex"]
     def print_vram_stats(label=""):
         print(f"\n📊 VRAM Network Stats {label}")
         print(f"  {'Zone':<22} {'Neurons':>8} {'Synapses':>12} {'Avg|W|':>10} {'Max|W|':>10}")
         print(f"  {'─'*22} {'─'*8} {'─'*12} {'─'*10} {'─'*10}")
-        for zname in zone_names:
+        for zname, zone in brain.zones.items():
             try:
-                zh = fnv1a_32(zname.encode())
-                mem = GenesisMemory(zh, read_only=True)
+                mem = GenesisMemory(zone.hash, read_only=True)
                 stats = mem.get_network_stats()
                 print(f"  {zname:<22} {mem.padded_n:>8,} {stats['active_synapses']:>12,} "
                       f"{stats['avg_weight']:>10.1f} {stats['max_weight']:>10,}")

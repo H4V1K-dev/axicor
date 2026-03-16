@@ -40,4 +40,4 @@ cargo run --release -p genesis-node --features amd -- --brain HumanoidAgent --lo
 python3 examples/humanoid/humanoid_agent.py
 ```
 
-Это самый сложный пример в Genesis. Если агент стабилизирует походку, это будет абсолютный разьеб — 17 степеней свободы на Spiking Neural Networks без классического обучения с учителем!
+Это самый сложный пример в Genesis. 17 степеней свободы на Spiking Neural Networks без классического обучения с учителем.

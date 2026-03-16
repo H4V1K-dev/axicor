@@ -21,6 +21,13 @@ struct ShardVramPtrs {
 
 #define AXON_SENTINEL 0x80000000
 
+__global__ void cu_reset_burst_counters_kernel(ShardVramPtrs vram, uint32_t padded_n) {
+    uint32_t tid = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
+    if (tid >= padded_n) return;
+    // Сохраняем Type ID (0xF0) и флаг спайка (0x01), обнуляем биты [3:1]
+    vram.soma_flags[tid] &= 0xF1;
+}
+
 __device__ __forceinline__ void push_burst_head(BurstHeads8* h) {
   h->h7 = h->h6;
   h->h6 = h->h5;
@@ -422,6 +429,10 @@ int32_t cu_step_day_phase(const ShardVramPtrs *vram, uint32_t padded_n,
                           int16_t dopamine,
                           hipStream_t stream) {
   int threads = 256;
+  int blocks_n = (padded_n + threads - 1) / threads;
+
+  // [DOD FIX] Сброс burst_count (биты [3:1]) в начале каждого батча
+  cu_reset_burst_counters_kernel<<<blocks_n, threads, 0, stream>>>(*vram, padded_n);
 
   // 1. InjectInputs (Только если есть виртуальные аксоны и передана маска)
   if (num_virtual_axons > 0 && input_bitmask != nullptr) {
@@ -458,6 +469,12 @@ int32_t cu_step_day_phase(const ShardVramPtrs *vram, uint32_t padded_n,
   }
 
   return 0;
+}
+
+extern "C" void cu_reset_burst_counters(const ShardVramPtrs *vram, uint32_t padded_n, hipStream_t stream) {
+  int threads = 256;
+  int blocks = (padded_n + threads - 1) / threads;
+  cu_reset_burst_counters_kernel<<<blocks, threads, 0, stream>>>(*vram, padded_n);
 }
 
 // Позволяет заливать параметры вариантов в константную память GPU

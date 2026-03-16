@@ -202,7 +202,8 @@ pub fn run_sprouting_pass(
     for i in 0..padded_n {
         let my_pos_raw = soma_positions[i];
         if my_pos_raw == 0 { continue; }
-        if (flags[i] & 0x02) == 0 { continue; } // Только активные сомы ищут новые связи
+        // [DOD FIX] Читаем все 3 бита burst_count (биты 1, 2, 3). Маска 0x0E (0000_1110)
+        if (flags[i] & 0x0E) == 0 { continue; }
 
         let my_pos = PackedPosition(my_pos_raw);
         let my_type_idx = my_pos.type_id() as usize;

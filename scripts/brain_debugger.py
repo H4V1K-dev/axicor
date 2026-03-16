@@ -14,8 +14,7 @@ Genesis Brain State Debugger — парсит бинарные .state блобы
   dendrite_timers   [padded_n × 128] × u8   (1B)
 
 Использование:
-  python3 scripts/brain_debugger.py baked/MotorCortex/shard.state
-  python3 scripts/brain_debugger.py baked/SensoryCortex/shard.state baked/HiddenCortex/shard.state
+  python3 scripts/brain_debugger.py {name_model}
 """
 
 import sys
@@ -178,17 +177,44 @@ def report_dendrites(s, name):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python3 brain_debugger.py <shard.state> [shard.state ...]")
-        print("Example: python3 brain_debugger.py baked/*/shard.state")
+        print("Usage: python3 brain_debugger.py <ModelName|shard.state> [shard.state ...]")
+        print("Example 1: python3 brain_debugger.py HumanoidAgent")
+        print("Example 2: python3 brain_debugger.py baked/*/shard.state")
         sys.exit(1)
     
-    for path_str in sys.argv[1:]:
-        path = Path(path_str)
+    paths_to_check = []
+    script_dir = Path(__file__).resolve().parent
+    project_root = script_dir.parent
+    models_dir = project_root / "Genesis-Models"
+    
+    potential_model_dir = models_dir / sys.argv[1]
+    
+    # If a single argument is passed and it matches a folder in Genesis-Models
+    if len(sys.argv) == 2 and potential_model_dir.is_dir():
+        print(f"🔍 Auto-discovering shards for model: {sys.argv[1]}")
+        baked_dir = potential_model_dir / "baked"
+        if not baked_dir.exists():
+            print(f"❌ Error: 'baked' directory not found in {potential_model_dir}")
+            sys.exit(1)
+            
+        for shard_file in baked_dir.rglob("shard.state"):
+            paths_to_check.append(shard_file)
+            
+        if not paths_to_check:
+            print(f"❌ Error: No shard.state files found in {baked_dir}")
+            sys.exit(1)
+            
+        paths_to_check.sort()
+    else:
+        paths_to_check = [Path(p) for p in sys.argv[1:]]
+        
+    for path in paths_to_check:
         if not path.exists():
             print(f"❌ File not found: {path}")
             continue
         
         zone_name = path.parent.name
+        print(f"🔍 Analyzing: {path}")
         s = parse_state(str(path))
         report_soma(s, zone_name)
         report_dendrites(s, zone_name)

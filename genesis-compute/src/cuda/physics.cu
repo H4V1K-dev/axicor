@@ -436,6 +436,10 @@ int32_t cu_step_day_phase(const ShardVramPtrs *vram, uint32_t padded_n,
                           int16_t dopamine,
                           cudaStream_t stream) {
   int threads = 256;
+  int blocks_n = (padded_n + threads - 1) / threads;
+
+  // [DOD FIX] Сброс burst_count (биты [3:1]) в начале каждого батча
+  cu_reset_burst_counters_kernel<<<blocks_n, threads, 0, stream>>>(*vram, padded_n);
 
   // 1. InjectInputs (Только если есть виртуальные аксоны и передана маска)
   if (num_virtual_axons > 0 && input_bitmask != nullptr) {

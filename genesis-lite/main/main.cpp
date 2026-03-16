@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h> // Для эмуляции датчика
+#include <algorithm> // Прунинг синапсов
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
@@ -74,6 +75,7 @@ void init_brain(uint32_t num_neurons) {
     VARIANT_LUT[0].slot_decay_wm = 64;   
     VARIANT_LUT[0].d1_affinity = 128;
     VARIANT_LUT[0].d2_affinity = 128;
+    VARIANT_LUT[0].prune_threshold = 15; // [DOD FIX] Default pruning threshold
     for(int i=0; i<15; i++) VARIANT_LUT[0].inertia_curve[i] = 128 - (i * 8);
 
     printf("🧠 Genesis-Lite: %" PRIu32 " neurons. Memory Split: SRAM / Flash.\n", num_neurons);
@@ -87,6 +89,29 @@ inline uint32_t check_head_dist(uint32_t head, uint32_t seg_idx, uint32_t prop_l
 // =========================================================
 // CORE 1: Day Phase (HFT Compute)
 // =========================================================
+// [DOD FIX] Night Phase: Сортировка и прунинг синапсов (burst_count сбрасывается в начале батча)
+void sort_and_prune_kernel(SramState& sram, FlashTopology& flash) {
+    for (uint32_t tid = 0; tid < sram.padded_n; tid++) {
+        uint8_t flag = sram.flags[tid];
+        // Прунинг синапсов (если реализован динамический вес)
+        uint8_t variant_id = (flag >> 4) & 0x0F;
+        int16_t threshold = VARIANT_LUT[variant_id].prune_threshold;
+...
+
+        for (int slot = 0; slot < MAX_DENDRITE_SLOTS; slot++) {
+            uint32_t col_idx = slot * sram.padded_n + tid;
+            int16_t w = sram.dendrite_weights[col_idx];
+            if (flash.dendrite_targets[col_idx] != 0 && std::abs(w) < threshold) {
+                sram.dendrite_weights[col_idx] = 0;
+                flash.dendrite_targets[col_idx] = 0;
+            }
+        }
+        
+        // В Lite версии мы не делаем честную сортировку (Insertion Sort) в каждой Ночи, 
+        // так как MAX_DENDRITE_SLOTS всего 32 и это ESP32. Но прунинг обязателен.
+    }
+}
+
 void day_phase_task(void *pvParameter) {
     uint32_t v_seg = 1; 
     SpikeEvent ev;
@@ -95,11 +120,15 @@ void day_phase_task(void *pvParameter) {
         int64_t start_time = esp_timer_get_time();
 
         uint32_t tick = global_tick.load(std::memory_order_relaxed);
-        // [DOD FIX] Сброс счетчиков Burst-Dependent Plasticity перед началом нового батча (каждые 100 тиков)
+
+        // [DOD FIX] Сброс burst_count (биты [3:1]) в начале каждого батча (hardware contract sync)
+        for(uint32_t tid = 0; tid < sram.padded_n; tid++) {
+            sram.flags[tid] &= 0xF1;
+        }
+
+        // [DOD FIX] Night Phase (каждые 100 тиков) — прунинг и сортировка
         if (tick % 100 == 0) {
-            for(uint32_t tid = 0; tid < sram.padded_n; tid++) {
-                sram.flags[tid] &= 0xF1;
-            }
+            sort_and_prune_kernel(sram, flash);
         }
 
         // 0. Apply Spike Batch (Zero-Cost Injection)
