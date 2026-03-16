@@ -178,12 +178,12 @@ pub struct GenesisConstantMemory {
 // Гаранты детерминизма. Компилятор упадёт здесь, если кто-то сломает выравнивание.
 /*
 const _: () = assert!(
-    std::mem::size_of::<VariantParameters>() == 64,
-    "VariantParameters MUST be exactly 64 bytes for optimal Constant Memory caching"
+    std::mem::size_of::<VariantParameters>() == 80,
+    "VariantParameters MUST be exactly 80 bytes for the adaptive leak ABI"
 );
 const _: () = assert!(
-    std::mem::size_of::<GenesisConstantMemory>() == 1024,
-    "GenesisConstantMemory MUST be exactly 1024 bytes"
+    std::mem::size_of::<GenesisConstantMemory>() == 1280,
+    "GenesisConstantMemory MUST be exactly 1280 bytes"
 );
 */
 

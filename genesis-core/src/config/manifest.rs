@@ -31,6 +31,16 @@ pub struct ManifestVariant {
     pub prune_threshold: i16,
     #[serde(default)]
     pub heartbeat_m: u16,
+    #[serde(default)]
+    pub adaptive_leak_mode: u8,
+    #[serde(default)]
+    pub dopamine_leak_gain: i16,
+    #[serde(default)]
+    pub burst_leak_gain: i16,
+    #[serde(default)]
+    pub leak_min: i16,
+    #[serde(default)]
+    pub leak_max: i16,
     
     // [DOD FIX] Новые поля рецепторов
     #[serde(default = "default_affinity")]
@@ -73,6 +83,13 @@ impl ManifestVariant {
                 curve
             },
             prune_threshold: self.prune_threshold,
+            adaptive_leak_mode: self.adaptive_leak_mode,
+            _pad_adaptive: 0,
+            dopamine_leak_gain: self.dopamine_leak_gain,
+            burst_leak_gain: self.burst_leak_gain,
+            leak_min: self.leak_min,
+            leak_max: self.leak_max,
+            _reserved: [0; 6],
         }
     }
 }

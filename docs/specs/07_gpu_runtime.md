@@ -5,8 +5,9 @@
 ---
 
 ## 1. Архитектура Памяти и Данных (GPU & Storage)
- 
- **Инвариант:** Полный отказ от объектов (AoS) в памяти GPU. Данные лежат плоскими векторами (SoA) для обеспечения 100% Coalesced Memory Access. 
+
+**Инвариант:** Полный отказ от объектов (AoS) в памяти GPU. Данные лежат плоскими векторами (SoA) для обеспечения 100% Coalesced Memory Access.
+
 - NVIDIA: 32 потока (Warp).
 - AMD ROCm/HIP: 64 потока (Wavefront).
 
@@ -21,23 +22,24 @@
 **Раскладка `ShardVramPtrs` (порядок байт в .state блобе):**
 
 // Размеры массивов (N = padded_n, кратно 32):
-//   soma_voltage       [N]     i32   | 4N bytes
-//   soma_flags         [N]     u8    | 1N bytes
-//   threshold_offset   [N]     i32   | 4N bytes
-//   timers             [N]     u8    | 1N bytes
-//   soma_to_axon       [N]     u32   | 4N bytes
-//   dendrite_targets   [128 * N] u32   | 512N bytes
-//   dendrite_weights   [128 * N] i16   | 256N bytes
-//   dendrite_timers    [128 * N] u8    | 128N bytes
-//   [DOD FIX] Burst Architecture
-//   axon_heads         [A]     BurstHeads8 | 32A bytes  (A = total_axons)
+// soma_voltage [N] i32 | 4N bytes
+// soma_flags [N] u8 | 1N bytes
+// threshold_offset [N] i32 | 4N bytes
+// timers [N] u8 | 1N bytes
+// soma_to_axon [N] u32 | 4N bytes
+// dendrite_targets [128 * N] u32 | 512N bytes
+// dendrite_weights [128 * N] i16 | 256N bytes
+// dendrite_timers [128 * N] u8 | 128N bytes
+// [DOD FIX] Burst Architecture
+// axon_heads [A] BurstHeads8 | 32A bytes (A = total_axons)
 // =============================================================================
 
 **Инвариант 64-байтного Выравнивания:** Каждый SoA-массив обязан начинаться с адреса, кратного **64 байтам** (размер L2-кэш линии). Padding между массивами обязателен. Это гарантирует, что при Load происходит максимум одна L2-операция и нет конфликтов банков памяти.
 
 **GXO Capacity:** Поддержка сложных слоёв считывания ограничивает максимальный размер выходной матрицы `MAX_GXO_PIXELS = 1,048,576` (1 миллион каналов). Это соответствует 1K × 1K текстуре в GPU памяти (~4 МБ).
 
-**Инвариант Выравнивания:** Все массивы имеют длину `padded_n`, кратную `GPU_WARP_SIZE`. 
+**Инвариант Выравнивания:** Все массивы имеют длину `padded_n`, кратную `GPU_WARP_SIZE`.
+
 - Для NVIDIA: `multiple of 32`.
 - Для AMD: `multiple of 64`.
 
@@ -75,13 +77,21 @@ struct VariantParameters {
     uint8_t d1_affinity;                    // 1 б. - Множитель дофамина для LTP (128 = 1.0x)
     uint16_t heartbeat_m;                   // 2 б. - DDS Heartbeat множитель (0 = отключено, 1..65535)
     uint8_t d2_affinity;                    // 1 б. - Множитель дофамина для LTD (128 = 1.0x)
-    uint8_t _pad;                           // 1 б. - Выравнивание до 32 байт перед массивом
-    int16_t inertia_curve[16];              // 32 б. - Inertia modifiers (rank: abs(weight) >> 11)
-}; // Итого: ровно 64 байта
+    uint8_t ltm_slot_count;                 // 1 б. - Количество LTM слотов
+    int16_t inertia_curve[15];              // 30 б. - Inertia modifiers (rank: abs(weight) >> 11)
+    int16_t prune_threshold;                // 2 б. - Порог pruning для Night Phase
+    uint8_t adaptive_leak_mode;             // 1 б. - 0 = disabled
+    uint8_t _pad_adaptive;                  // 1 б. - ABI padding
+    int16_t dopamine_leak_gain;             // 2 б. - Reserved for adaptive leak
+    int16_t burst_leak_gain;                // 2 б. - Reserved for adaptive leak
+    int16_t leak_min;                       // 2 б. - Reserved clamp lower bound
+    int16_t leak_max;                       // 2 б. - Reserved clamp upper bound
+    uint8_t _reserved[6];                   // 6 б. - Future ABI reserve
+}; // Итого: ровно 80 байт
 
 // Контейнер для 16 вариантов
 struct GenesisConstantMemory {
-    VariantParameters variants[16];          // 1024 bytes total
+    VariantParameters variants[16];          // 1280 bytes total
 };   // Умещается в константную память GPU (64KB limit)
 ```
 
@@ -141,10 +151,10 @@ total_axons = L + G + V (aligned to 32)
 
 Паттерны доступа к геометрии и к активности кардинально отличаются - разнесены в разные типы памяти:
 
-| Класс | Содержимое | GPU Memory | Паттерн |
-|---|---|---|---|
-| **Static Geometry** (Read-Only) | Координаты, длины сегментов, топология графа (`soma_to_axon`, `dendrite_targets`) | L1 Read-Only Data Cache | Не изменяется днём. Чтение идёт через `const __restrict__` указатели в ядрах. Максимальная скорость. |
-| **Dynamic State** (Hot) | Вектора сигналов (`axon_heads`), веса синапсов (`dendrite_weights`), таймеры, вольтаж, флаги | Global Memory (L1 RW Cache) | Перезаписывается **каждый тик** в горячем цикле. |
+| Класс                           | Содержимое                                                                                   | GPU Memory                  | Паттерн                                                                                              |
+| ------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Static Geometry** (Read-Only) | Координаты, длины сегментов, топология графа (`soma_to_axon`, `dendrite_targets`)            | L1 Read-Only Data Cache     | Не изменяется днём. Чтение идёт через `const __restrict__` указатели в ядрах. Максимальная скорость. |
+| **Dynamic State** (Hot)         | Вектора сигналов (`axon_heads`), веса синапсов (`dendrite_weights`), таймеры, вольтаж, флаги | Global Memory (L1 RW Cache) | Перезаписывается **каждый тик** в горячем цикле.                                                     |
 
 ### 1.4. Zero-Copy Загрузка (Fast Boot)
 
@@ -156,16 +166,16 @@ total_axons = L + G + V (aligned to 32)
 
 ### 1.5. Constant Memory (LUT Layout)
 
-Параметры поведения грузятся в `__constant__` память GPU **один раз** при старте. Структура `GenesisConstantMemory` занимает 1024 байта (16 вариантов по 64 байта), что идеально помещается в 64KB лимит и обеспечивает Broadcast Read за 1 такт, если все треды в варпе имеют одинаковый Variant.
+Параметры поведения грузятся в `__constant__` память GPU **один раз** при старте. В Milestone 1 структура `GenesisConstantMemory` занимает 1280 байт (16 вариантов по 80 байт) и по-прежнему с большим запасом помещается в 64KB лимит. Дополнительные 16 байт на вариант резервируются под adaptive leak, но не влияют на поведение, пока модификация leak не активирована.
 
 ```rust
-#[repr(C, align(64))]
-pub struct VariantParameters {            // 64 bytes
+#[repr(C, align(16))]
+pub struct VariantParameters {            // 80 bytes
     pub threshold: i32,                   // 4  - Base threshold
     pub rest_potential: i32,              // 4  - Rest potential (GLIF reset)
     pub leak_rate: i32,                   // 4  - GLIF Leakage per tick
     pub homeostasis_penalty: i32,         // 4  - Penalty on spike
-    pub homeostasis_decay: i32,           // 4  - Decay per tick (i32: zero casts)
+    pub homeostasis_decay: u16,           // 2  - Decay per tick
     pub gsop_potentiation: i16,           // 2  - Unsigned delta (sign in weight)
     pub gsop_depression: i16,             // 2  - Unsigned delta
     pub refractory_period: u8,            // 1  - Soma refractory (ticks)
@@ -176,12 +186,20 @@ pub struct VariantParameters {            // 64 bytes
     pub d1_affinity: u8,                  // 1  - Множитель дофамина для LTP (128 = 1.0x)
     pub heartbeat_m: u16,                 // 2  - DDS Heartbeat множитель (0 = отключено, 1..65535)
     pub d2_affinity: u8,                  // 1  - Множитель дофамина для LTD (128 = 1.0x)
-    pub _pad: u8,                         // 1  - Выравнивание
-    pub inertia_curve: [i16; 16],         // 32 - Inertia modifiers (rank: abs(weight) >> 11)
+    pub ltm_slot_count: u8,               // 1  - Доля слотов, считающихся LTM
+    pub inertia_curve: [i16; 15],         // 30 - Inertia modifiers (rank: abs(weight) >> 11)
+    pub prune_threshold: i16,             // 2  - Pruning threshold for Night Phase
+    pub adaptive_leak_mode: u8,           // 1  - 0 = disabled
+    pub _pad_adaptive: u8,                // 1  - ABI padding
+    pub dopamine_leak_gain: i16,          // 2  - Reserved for dopamine-driven leak modulation
+    pub burst_leak_gain: i16,             // 2  - Reserved for burst-driven leak modulation
+    pub leak_min: i16,                    // 2  - Reserved lower clamp for effective leak
+    pub leak_max: i16,                    // 2  - Reserved upper clamp for effective leak
+    pub _reserved: [u8; 6],               // 6  - Future ABI reserve
 }
 
-#[repr(C, align(128))]
-pub struct GenesisConstantMemory {        // 1024 bytes
+#[repr(C, align(16))]
+pub struct GenesisConstantMemory {        // 1280 bytes
     pub variants: [VariantParameters; 16], // 16 variants supported
 }
 ```
@@ -198,11 +216,11 @@ pub struct GenesisConstantMemory {        // 1024 bytes
 
 #### 1.6.1. Архитектура: Платформа-Специфичные Фолбэки
 
-| Платформа | Память (Night Phase) | Синхронизация (Network) |
-|---|---|---|
-| **Linux** | POSIX `shm_open()` → `/dev/shm/*.state.shm` | Unix Domain Sockets (**UDS**); Fast-Path UDP для Data Plane |
-| **Windows** | File-backed mmap в `%TEMP%` → файлы `*.state.bin.mmap` | TCP/IP на портах `19000 + (hash % 1000)` для Control & Data Plane |
-| **Darwin (macOS)** | POSIX `shm_open()` (аналог Linux) | UDS + TCP fallback для Legacy Systems |
+| Платформа          | Память (Night Phase)                                   | Синхронизация (Network)                                           |
+| ------------------ | ------------------------------------------------------ | ----------------------------------------------------------------- |
+| **Linux**          | POSIX `shm_open()` → `/dev/shm/*.state.shm`            | Unix Domain Sockets (**UDS**); Fast-Path UDP для Data Plane       |
+| **Windows**        | File-backed mmap в `%TEMP%` → файлы `*.state.bin.mmap` | TCP/IP на портах `19000 + (hash % 1000)` для Control & Data Plane |
+| **Darwin (macOS)** | POSIX `shm_open()` (аналог Linux)                      | UDS + TCP fallback для Legacy Systems                             |
 
 **Выбор платформы:** Compile-time через `cfg!(target_os)`. Runtime auto-detection переносится на stage bootstrap (инициализация Node в Distributed Cluster).
 
@@ -214,7 +232,7 @@ pub struct GenesisConstantMemory {        // 1024 bytes
 // generic_ipc.rs
 pub fn allocate_shared_memory(size: usize) -> Result<SharedMemoryRegion, CAbiBoundaryError> {
     let aligned_size = (size + 4095) / 4096 * 4096; // Align UP to 4096
-    
+
     #[cfg(target_os = "linux")]
     {
         let shm = unsafe { libc::shm_open(name, libc::O_CREAT | libc::O_RDWR, 0o644) }?;
@@ -227,20 +245,20 @@ pub fn allocate_shared_memory(size: usize) -> Result<SharedMemoryRegion, CAbiBou
             0,
         )};
         // addr guaranteed to be % 4096 == 0
-        
+
         assert_eq!(addr as usize % 4096, 0, "FATAL C-ABI BOUNDARY: mmap address not page-aligned!");
     }
-    
+
     #[cfg(target_os = "windows")]
     {
         let file = File::create(temp_path)?;
         file.set_len(aligned_size as u64)?;
         let handle = unsafe { CreateFileMappingA(file, aligned_size)? };
         let addr = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, aligned_size) };
-        
+
         assert_eq!(addr as usize % 4096, 0, "FATAL C-ABI BOUNDARY: MapViewOfFile address not page-aligned!");
     }
-    
+
     Ok(SharedMemoryRegion { addr, size: aligned_size })
 }
 ```
@@ -262,7 +280,7 @@ Mmap:   [0x10000000 aligned to 4096]
 
 1. **Mmap гарантирует выравнивание:** Любой указатель внутри mmap-региона = `base_addr + offset`. Если `base_addr % 4096 == 0` и `offset % align_of::<T>() == 0`, то полученный указатель гарантированно выровнен.
 
-2. **Baking Tool Determinism (Compile-Time):** Baker гарантирует, что SoA-массивы начинаются ровно на границе требуемого выравнивания (`align_of::<T>()`). Для типов как `VariantParameters` (align 64) это означает: `offset % 64 == 0`.
+2. **Baking Tool Determinism (Compile-Time):** Baker гарантирует, что SoA-массивы начинаются ровно на границе требуемого выравнивания (`align_of::<T>()`). Для типов как `VariantParameters` (align 16) это означает: `offset % 16 == 0`.
 
 3. **Host-Side Zero-Copy:**
 
@@ -290,7 +308,7 @@ let soma_voltage: &[i32] = unsafe {
 // kernel.cu
 __global__ void example_kernel(CudaShardVramPtrs ptrs) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    
+
     // ZERO device-side alignment overhead
     int32_t v = ptrs.soma_voltage[tid];  // Guaranteed coalesced access: 32 threads read 128 bytes @ 32-byte boundary
 }
@@ -304,7 +322,7 @@ __global__ void example_kernel(CudaShardVramPtrs ptrs) {
 // validation.rs (baking_tool output check)
 pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
     let vram_base = header.vram_base_ptr as usize;
-    
+
     if vram_base % 4096 != 0 {
         panic!(
             "FATAL C-ABI BOUNDARY: VRAM base address 0x{:x} is not 4096-byte page-aligned. \
@@ -312,7 +330,7 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
             vram_base
         );
     }
-    
+
     for soa_field in &header.soa_fields {
         let offset = soa_field.offset as usize;
         if offset % soa_field.required_align != 0 {
@@ -323,7 +341,7 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
             );
         }
     }
-    
+
     Ok(())
 }
 ```
@@ -338,29 +356,29 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
 
 ### 1.7. SHM Binary Contract (Night Phase IPC v4)
 
-Связь между `genesis-runtime` и `genesis-baker-daemon` происходит через Shared Memory. 
-Нулевой оффсет файла всегда содержит 64-байтный `ShmHeader` (Little-Endian, C-ABI). 
+Связь между `genesis-runtime` и `genesis-baker-daemon` происходит через Shared Memory.
+Нулевой оффсет файла всегда содержит 64-байтный `ShmHeader` (Little-Endian, C-ABI).
 Каждый массив данных начинается строго по границе **64 байт**.
 
-| Смещение | Поле | Тип | Описание |
-| :--- | :--- | :--- | :--- |
-| `0x00` | `magic` | `u32` | 0x47454E53 ("GENS") |
-| `0x04` | `version` | `u8` | Текущая версия = **2** |
-| `0x05` | `state` | `u8` | State Machine (0=Idle, 1=NightStart, 2=Sprouting, 3=NightDone, 4=Error) |
-| `0x06` | `_pad` | `u16` | Выравнивание |
-| `0x08` | `padded_n` | `u32` | Количество нейронов (кратно 32) |
-| `0x0C` | `dendrite_slots` | `u32` | Всегда 128 |
-| `0x10` | `weights_offset` | `u32` | Смещение до i16 массива весов (кратно 64) |
-| `0x14` | `targets_offset` | `u32` | Смещение до u32 массива целей (кратно 64) |
-| `0x18` | `epoch` | `u64` | Глобальный счетчик батчей (BSP Epoch) |
-| `0x20` | `total_axons` | `u32` | Local + Ghost + Virtual аксоны |
-| `0x24` | `handovers_offset` | `u32` | Смещение до очереди `AxonHandoverEvent` (кратно 64) |
-| `0x28` | `handovers_count` | `u32` | Количество событий в очереди |
-| `0x2C` | `zone_hash` | `u32` | FNV-1a хэш имени зоны |
-| `0x30` | `prunes_offset` | `u32` | Смещение до очереди `AxonHandoverPrune` (кратно 64) |
-| `0x34` | `prunes_count` | `u32` | Количество исходящих прунов |
-| `0x38` | `incoming_prunes_count`| `u32` | Количество входящих прунов от соседей |
-| `0x3C` | `flags_offset` | `u32` | Смещение до `soma_flags` (кратно 64) |
+| Смещение | Поле                    | Тип   | Описание                                                                |
+| :------- | :---------------------- | :---- | :---------------------------------------------------------------------- |
+| `0x00`   | `magic`                 | `u32` | 0x47454E53 ("GENS")                                                     |
+| `0x04`   | `version`               | `u8`  | Текущая версия = **2**                                                  |
+| `0x05`   | `state`                 | `u8`  | State Machine (0=Idle, 1=NightStart, 2=Sprouting, 3=NightDone, 4=Error) |
+| `0x06`   | `_pad`                  | `u16` | Выравнивание                                                            |
+| `0x08`   | `padded_n`              | `u32` | Количество нейронов (кратно 32)                                         |
+| `0x0C`   | `dendrite_slots`        | `u32` | Всегда 128                                                              |
+| `0x10`   | `weights_offset`        | `u32` | Смещение до i16 массива весов (кратно 64)                               |
+| `0x14`   | `targets_offset`        | `u32` | Смещение до u32 массива целей (кратно 64)                               |
+| `0x18`   | `epoch`                 | `u64` | Глобальный счетчик батчей (BSP Epoch)                                   |
+| `0x20`   | `total_axons`           | `u32` | Local + Ghost + Virtual аксоны                                          |
+| `0x24`   | `handovers_offset`      | `u32` | Смещение до очереди `AxonHandoverEvent` (кратно 64)                     |
+| `0x28`   | `handovers_count`       | `u32` | Количество событий в очереди                                            |
+| `0x2C`   | `zone_hash`             | `u32` | FNV-1a хэш имени зоны                                                   |
+| `0x30`   | `prunes_offset`         | `u32` | Смещение до очереди `AxonHandoverPrune` (кратно 64)                     |
+| `0x34`   | `prunes_count`          | `u32` | Количество исходящих прунов                                             |
+| `0x38`   | `incoming_prunes_count` | `u32` | Количество входящих прунов от соседей                                   |
+| `0x3C`   | `flags_offset`          | `u32` | Смещение до `soma_flags` (кратно 64)                                    |
 
 **Общий размер: ровно 64 байта. Ни одного свободного байта больше нет. Любое расширение потребует перехода на 128-байтный заголовок.**
 
@@ -388,15 +406,14 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
 
 **Порядок запуска ядер (каждый тик):**
 
-| # | Kernel | Описание | Оисточник |
-|---|---|----|----|
-| 1 | `InjectInputs` | Bitmask Injection для виртуальных аксонов (single-tick pulse) | [05_signal_physics.md §2.4](./05_signal_physics.md) |
-| 2 | `ApplySpikeBatch` | Чтение Ghost indices из Schedule, сброс `axon_heads[ghost_id] = 0` | [05_signal_physics.md §1.2.1](./05_signal_physics.md) |
-| 3 | `PropagateAxons` | Безусловный `axon_heads[tid] += v_seg` для **всех** аксонов (Local + Ghost + Virtual) | [05_signal_physics.md §1.6](./05_signal_physics.md) |
-| 4 | `UpdateNeurons` | GLIF + дендритный цикл + проверка порога + срыв спайка | [05_signal_physics.md §1.5](./05_signal_physics.md) |
-| 5 | `ApplyGSOP` | Пластичность: Timer-as-Contact-Flag режим STDP | [05_signal_physics.md §1.3](./05_signal_physics.md) |
-| 6 | `RecordReadout` | Чтение spike flags из mapped_soma_ids, запись в output_history | [05_signal_physics.md §3.2](./05_signal_physics.md) |
-
+| #   | Kernel            | Описание                                                                              | Оисточник                                             |
+| --- | ----------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| 1   | `InjectInputs`    | Bitmask Injection для виртуальных аксонов (single-tick pulse)                         | [05_signal_physics.md §2.4](./05_signal_physics.md)   |
+| 2   | `ApplySpikeBatch` | Чтение Ghost indices из Schedule, сброс `axon_heads[ghost_id] = 0`                    | [05_signal_physics.md §1.2.1](./05_signal_physics.md) |
+| 3   | `PropagateAxons`  | Безусловный `axon_heads[tid] += v_seg` для **всех** аксонов (Local + Ghost + Virtual) | [05_signal_physics.md §1.6](./05_signal_physics.md)   |
+| 4   | `UpdateNeurons`   | GLIF + дендритный цикл + проверка порога + срыв спайка                                | [05_signal_physics.md §1.5](./05_signal_physics.md)   |
+| 5   | `ApplyGSOP`       | Пластичность: Timer-as-Contact-Flag режим STDP                                        | [05_signal_physics.md §1.3](./05_signal_physics.md)   |
+| 6   | `RecordReadout`   | Чтение spike flags из mapped_soma_ids, запись в output_history                        | [05_signal_physics.md §3.2](./05_signal_physics.md)   |
 
 ### 2.2. Фаза «Ночь» (Per-Zone Offline Maintenance)
 
@@ -405,24 +422,24 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
 **Триггеры засыпания:**
 Проверяются оркестратором на CPU **только в конце каждого батча** `sync_batch_ticks` (во время сетевого барьера). Внутри рантайма GPU проверок сна нет - такты не тратятся.
 
-| Триггер | Источник | Пример |
-|---|---|---|
-| **Таймер** | `night_interval_ticks` в конфиге зоны | V1: каждые 5 мин, гиппокамп: каждые 2 мин |
-| **Внешний сигнал** | `sleep_zone(zone_id)` через API оркестратора | Массовый сон существа (моторика → сенсоры → ассоциация) |
-| **Никогда** | `night_interval_ticks = 0` | Статические зоны (таламус, ствол - Variant = Fixed/Relay, GSOP заморожен) |
+| Триггер            | Источник                                     | Пример                                                                    |
+| ------------------ | -------------------------------------------- | ------------------------------------------------------------------------- |
+| **Таймер**         | `night_interval_ticks` в конфиге зоны        | V1: каждые 5 мин, гиппокамп: каждые 2 мин                                 |
+| **Внешний сигнал** | `sleep_zone(zone_id)` через API оркестратора | Массовый сон существа (моторика → сенсоры → ассоциация)                   |
+| **Никогда**        | `night_interval_ticks = 0`                   | Статические зоны (таламус, ствол - Variant = Fixed/Relay, GSOP заморожен) |
 
 > **⚠️ Sentinel Refresh (зоны с `night_interval_ticks = 0`):**
 > `AXON_SENTINEL = 0x80000000` ≈ 59.6 часов при v_seg=1. Без Night Phase неактивные аксоны переполнятся → фантомные спайки. **Решение:** Каждые ~50 часов (`SENTINEL_REFRESH_TICKS = 1_800_000_000`) host запускает лёгкий проход: все `axon_heads[id]` со значением `> SENTINEL_DANGER_THRESHOLD` принудительно сбрасываются в `AXON_SENTINEL`. Активные сигналы (head < propagation_length × 10) не затрагиваются.
 
 **Конвейер Maintenance (5 шагов):**
 
-| Шаг | Где | Название | Описание |
-|---|---|---|---|
-| **1** | **GPU** | **Sort & Prune** | Segmented Radix Sort: 128 слотов по `abs(weight)` (descending). Слоты с `abs(w) < threshold` обнуляются. Шина PCIe не забивается мусором. |
-| **2** | **PCIe** | **Download** (VRAM → RAM) | `cudaMemcpyAsync` только изменённых массивов (веса + targets). Статическая геометрия уже известна хосту. |
-| **3** | **CPU** | **Sprouting & Nudging** | Тяжёлая фаза. Cone Tracing для пустых слотов (Spatial Hash), рост отростков, создание Ghost Axons для межшардовых путей. Длительность зависит от железа и turnover rate. |
-| **4** | **CPU** | **Baking** | Дефрагментация топологии → новый `.axons`. Подготовка SoA-массивов с выравниванием по 32 (Warp Alignment). |
-| **5** | **PCIe** | **Upload** (RAM → VRAM) | `cudaMemcpyAsync` свежих данных. Шард мгновенно встраивается в барьер Strict BSP. |
+| Шаг   | Где      | Название                  | Описание                                                                                                                                                                 |
+| ----- | -------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **1** | **GPU**  | **Sort & Prune**          | Segmented Radix Sort: 128 слотов по `abs(weight)` (descending). Слоты с `abs(w) < threshold` обнуляются. Шина PCIe не забивается мусором.                                |
+| **2** | **PCIe** | **Download** (VRAM → RAM) | `cudaMemcpyAsync` только изменённых массивов (веса + targets). Статическая геометрия уже известна хосту.                                                                 |
+| **3** | **CPU**  | **Sprouting & Nudging**   | Тяжёлая фаза. Cone Tracing для пустых слотов (Spatial Hash), рост отростков, создание Ghost Axons для межшардовых путей. Длительность зависит от железа и turnover rate. |
+| **4** | **CPU**  | **Baking**                | Дефрагментация топологии → новый `.axons`. Подготовка SoA-массивов с выравниванием по 32 (Warp Alignment).                                                               |
+| **5** | **PCIe** | **Upload** (RAM → VRAM)   | `cudaMemcpyAsync` свежих данных. Шард мгновенно встраивается в барьер Strict BSP.                                                                                        |
 
 **Длительность фазы Maintenance - плавающая.** Зависит от количества нейронов, turnover rate и мощности CPU. Быстрый CPU = быстрый метаболизм, короткий сон. Это легализовано через [Structural Determinism](./01_foundations.md) (§2.3).
 
@@ -463,16 +480,20 @@ Shared Memory (AoS, per warp):
 Порядок строго последовательный: сначала растим кабели, потом ищем розетки.
 
 **a) Nudging (Growth Step):**
+
 - Аксоны с `remaining_length > 0` делают шаг через `step_and_pack()` (см. [04_connectivity.md §4.3](./04_connectivity.md)).
 - Математика: `V_global + V_attract + V_noise` → `normalize` → `quantize` → `PackedPosition`.
 
 **b) Boundary Check → NewAxon Handover:**
+
 - Если координата вылетает за габариты шарда → аксон обрезается, формируется `NewAxon { entry_point, vector, type_mask }` в Slow Path очередь соседу (см. [06_distributed.md §2.5](./06_distributed.md)).
 
 **c) Spatial Grid Rebuild:**
+
 - Новые сегменты прописываются в 3D хэш-сетку (ключи из PackedPosition X|Y|Z). Обязателен до Sprouting - иначе `get_in_radius()` не увидит свежие аксоны.
 
 **d) Sprouting (Slot Filling):**
+
 - CPU сканирует массив `targets[]`. Если `target_packed == 0` - слот пуст.
 - Cone Query: `calculate_v_attract()` в Spatial Grid (FOV + Lookahead).
 - Фильтрация: тип владельца аксона = `seg_val >> 28` (4 бита из PackedPosition). Без обращения к соме.
@@ -482,22 +503,27 @@ Shared Memory (AoS, per warp):
 #### 2.2.4. Step 4: Baking & Defragmentation (CPU)
 
 **a) f32 → u32 Quantization:**
+
 - Float-координаты квантуются через `step_and_pack()` → `PackedPosition` (4 bytes/segment).
 
 #### 2.2.4. Step 4: Baking & Defragmentation (CPU)
 
 **a) f32 → u32 Quantization:**
+
 - Float-координаты квантуются через `step_and_pack()` → `PackedPosition` (4 bytes/segment).
 
 **b) DenseIndex Generation:**
+
 - GPU работает с dense indices (0..N-1), не с PackedPosition.
 - CPU строит маппинг: `PackedPosition → dense_id` для всех `target_packed` в массиве дендритов.
 - В массив `targets[]` вписываются DenseIndex + segment offset.
 
 **c) Columnar Layout Defrag:**
+
 - Новые связи вписываются в транспонированную матрицу `Column[Slot_K]`, не в конец массива.
 
 **d) Warp Alignment:**
+
 - `padded_n = align_to_warp(neuron_count)` → padding до кратного 32.
 - Итоговые `.state` и `.axons` блобы байт-в-байт совпадают с VRAM layout → Step 5: `cudaMemcpyAsync`.
 
@@ -524,6 +550,7 @@ pub struct ExternalIoHeader {
 **Дисфрагментация:** UDP пакеты больше 65KB автоматически дропятся (отсутствует EMSGSIZE отравления сокета). Полные передачи когда батч готов.
 
 **Плагин**:
+
 - На каждом батче (когда `current_tick_in_batch == 0`) сервер выслыла UDP датаграмму с `output_history` предыдущего батча клиенту (робоцика, визуализация).
 - Одновременно вычитывает входящие `Input Bitmask` из датаграмм, сканирует через `try_recv_input()` в неблокирующем положении и ассоциирует пиксели с Virtual Axons (`InjectInputs`).
 
@@ -535,11 +562,11 @@ pub struct ExternalIoHeader {
 
 **3 профиля (флаг `--cpu-profile`):**
 
-| Профиль | Стратегия | Эффект | Сценарий |
-|---|---|---|---|
-| **Aggressive** | `std::hint::spin_loop()` | ~1 нс латентность, 100% CPU | Production, HFT, локальный кластер |
-| **Balanced** | `std::thread::yield_now()` | OS берёт квант, процесс в очереди (~1–15 мс) | Дебаг, SSH-сессии, многопроцессный хост |
-| **Eco** | `std::thread::sleep(1ms)` | ~0% CPU в холостую, батарея сохранена | Ноутбуки, мобильные, фоновые процессы |
+| Профиль        | Стратегия                  | Эффект                                       | Сценарий                                |
+| -------------- | -------------------------- | -------------------------------------------- | --------------------------------------- |
+| **Aggressive** | `std::hint::spin_loop()`   | ~1 нс латентность, 100% CPU                  | Production, HFT, локальный кластер      |
+| **Balanced**   | `std::thread::yield_now()` | OS берёт квант, процесс в очереди (~1–15 мс) | Дебаг, SSH-сессии, многопроцессный хост |
+| **Eco**        | `std::thread::sleep(1ms)`  | ~0% CPU в холостую, батарея сохранена        | Ноутбуки, мобильные, фоновые процессы   |
 
 ```rust
 pub enum WaitStrategy {
@@ -574,29 +601,32 @@ impl WaitStrategy {
 
 ## Связанные документы
 
-| Документ | Что связывается |
-|---|---|
-| [05_signal_physics.md](./05_signal_physics.md) | Day Pipeline kernels (§1.0), Constant Memory параметры |
-| [06_distributed.md](./06_distributed.md) | Ring Buffer, Ghost Axons, BSP sync, сетевой I/O |
-| [02_configuration.md](./02_configuration.md) | Определения Variant'ов, blueprints, валидация параметров |
-| [09_baking_pipeline.md](./09_baking_pipeline.md) | .state/.axons формат файле, Sort&Prune в Night |
-| [project_structure.md](../project_structure.md) | Обзор архитектуры |
+| Документ                                         | Что связывается                                          |
+| ------------------------------------------------ | -------------------------------------------------------- |
+| [05_signal_physics.md](./05_signal_physics.md)   | Day Pipeline kernels (§1.0), Constant Memory параметры   |
+| [06_distributed.md](./06_distributed.md)         | Ring Buffer, Ghost Axons, BSP sync, сетевой I/O          |
+| [02_configuration.md](./02_configuration.md)     | Определения Variant'ов, blueprints, валидация параметров |
+| [09_baking_pipeline.md](./09_baking_pipeline.md) | .state/.axons формат файле, Sort&Prune в Night           |
+| [project_structure.md](../project_structure.md)  | Обзор архитектуры                                        |
 
 ---
 
 ## Changelog
 
-| Дата | Версия | Описание |
-|---|---|---|
-| 2026-02-28 | 2.1 | Синхронизирована VramState с реальным memory.rs (добавлены I/O Matrix поля, readout буферы). Обновлена таблица Day Phase с 6 kernels и ссылками на источники. Добавлен раздел External I/O Server для UDP мультиплексирования. |
-| TBD | 2.0 | Первая версия |
+| Дата       | Версия | Описание                                                                                                                                                                                                                       |
+| ---------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-02-28 | 2.1    | Синхронизирована VramState с реальным memory.rs (добавлены I/O Matrix поля, readout буферы). Обновлена таблица Day Phase с 6 kernels и ссылками на источники. Добавлен раздел External I/O Server для UDP мультиплексирования. |
+| TBD        | 2.0    | Первая версия                                                                                                                                                                                                                  |
+
 - CPU строит маппинг: `PackedPosition → dense_id` для всех `target_packed` в массиве дендритов.
 - В массив `targets[]` вписываются DenseIndex + segment offset.
 
 **c) Columnar Layout Defrag:**
+
 - Новые связи вписываются в транспонированную матрицу `Column[Slot_K]`, не в конец массива.
 
 **d) Warp Alignment:**
+
 - `padded_n = align_to_warp(neuron_count)` → padding до кратного 32.
 - Итоговые `.state` и `.axons` блобы байт-в-байт совпадают с VRAM layout → Step 5: `cudaMemcpyAsync`.
 
@@ -623,6 +653,7 @@ pub struct ExternalIoHeader {
 **ДислокČрагментирование:** UDP пакеты больше 65KB автоматически дропъются (отсутствует EMSGSIZE потравления сокета). Полные алвания когда батч готов.
 
 **ПԼтАгтѯн**:
+
 - На каждом батче (когда `current_tick_in_batch == 0`) нчамск услюгные нервые высылают UDP датаграммю с `output_history` предыдущего батча клиенту (роботика, визуализация).
 - Одновременно вычитывает входящие `Input Bitmask` из датаграмм, сканирует через `try_recv_input()` в неблокирующем положенны и ассоциирует пиксели с Virtual Axons (`InjectInputs`).
 
@@ -642,22 +673,22 @@ pub struct ExternalIoHeader {
 
 ## Connected Documents
 
-| Document | Connection |
-|---|---|
-| [05_signal_physics.md](./05_signal_physics.md) | Day Pipeline kernels (§1.0), Constant Memory variant parameters |
-| [06_distributed.md](./06_distributed.md) | Ring Buffer, Ghost Axons, BSP sync, network I/O |
-| [02_configuration.md](./02_configuration.md) | Variant definitions, blueprints, parameter validation |
-| [09_baking_pipeline.md](./09_baking_pipeline.md) | .state/.axons file format, Sort&Prune during Night |
-| [project_structure.md](../project_structure.md) | Architecture overview |
+| Document                                         | Connection                                                      |
+| ------------------------------------------------ | --------------------------------------------------------------- |
+| [05_signal_physics.md](./05_signal_physics.md)   | Day Pipeline kernels (§1.0), Constant Memory variant parameters |
+| [06_distributed.md](./06_distributed.md)         | Ring Buffer, Ghost Axons, BSP sync, network I/O                 |
+| [02_configuration.md](./02_configuration.md)     | Variant definitions, blueprints, parameter validation           |
+| [09_baking_pipeline.md](./09_baking_pipeline.md) | .state/.axons file format, Sort&Prune during Night              |
+| [project_structure.md](../project_structure.md)  | Architecture overview                                           |
 
 ---
 
 ## Changelog
 
-| Date | Version | Changes |
-|---|---|---|
-| 2026-02-28 | 2.1 | Synchronized VramState with real memory.rs (added I/O Matrix fields, readout buffers). Updated Day Phase table with 6 kernels and source references. Added External I/O Server section for UDP multiplexing. |
-| TBD | 2.0 | First version |
+| Date       | Version | Changes                                                                                                                                                                                                      |
+| ---------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-02-28 | 2.1     | Synchronized VramState with real memory.rs (added I/O Matrix fields, readout buffers). Updated Day Phase table with 6 kernels and source references. Added External I/O Server section for UDP multiplexing. |
+| TBD        | 2.0     | First version                                                                                                                                                                                                |
 
 ---
 
@@ -706,10 +737,10 @@ if batch_counter % CHECKPOINT_INTERVAL_BATCHES == 0 {
 }
 ```
 
-| Тип дампа | Триггер | Файл |
-|---|---|---|
-| **Геометрия** (`axons`) | После каждой Night Phase | `.axons` |
-| **Состояние** (`weights` + `targets`) | Каждые ~5 минут | `checkpoint_weights.bin` |
+| Тип дампа                             | Триггер                  | Файл                     |
+| ------------------------------------- | ------------------------ | ------------------------ |
+| **Геометрия** (`axons`)               | После каждой Night Phase | `.axons`                 |
+| **Состояние** (`weights` + `targets`) | Каждые ~5 минут          | `checkpoint_weights.bin` |
 
 ### 3.4. Crash Tolerance (Mmap Page Cache Flush)
 

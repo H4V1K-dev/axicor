@@ -16,48 +16,51 @@
 sequenceDiagram
     participant Host
     participant GPU as GPU / CUDA Stream
-    
+
     Host->>GPU: 1. InjectInputs<br/>(управление виртуальными аксонами)
     GPU->>GPU: Читает input_bitmask<br/>Пишет axon_heads[virtual_axons] = 0
     GPU-->>GPU: Signal birth: virtual spikes
-    
+
     GPU->>GPU: 2. ApplySpikeBatch<br/>(сетевые спайки)
     GPU->>GPU: Читает ghost_indices из соседних шардов<br/>Пишет axon_heads[ghost_axons] = 0
     GPU-->>GPU: Signal birth: network spikes
-    
+
     GPU->>GPU: 3. PropagateAxons<br/>(распространение всех сигналов)
     GPU->>GPU: Читает axon_heads (все)<br/>Вычисляет head += v_seg<br/>Пишет обновлённые axon_heads
     GPU-->>GPU: Сигналы движутся по аксонам
-    
+
     GPU->>GPU: 4. UpdateNeurons (GLIF kernel)<br/>(интеграция и пороговая логика)
     GPU->>GPU: Читает voltage, flags, axon_heads, dendrite struct.<br/>Выполняет: гомеостаз → рефрактерность → GLIF leak<br/>→ columnar dendrite loop → threshold check → fire
     GPU->>GPU: Записывает: voltage, flags (новые спайки!)<br/>Запускает собственные аксоны
     GPU-->>GPU: Soma fires or stays silent
-    
+
     GPU->>GPU: 5. ApplyGSOP (пластичность)<br/>(STDP на основе спайков)
     GPU->>GPU: Читает flags (спайки) + dendrite_timers (контакты)<br/>Вычисляет: potentiation/depression по причинности<br/>Пишет обновлённые dendrite_weights
     GPU-->>GPU: Синапсы усилены или ослаблены
-    
+
     GPU->>GPU: 6. RecordReadout (запись выходов)<br/>(сбор моторных команд)
     GPU->>GPU: Читает flags (soma spikes)<br/>Пишет output_history[current_tick] = spikes
     GPU-->>GPU: Выходы аккумулированы в батче
-    
+
     Host<<-GPU: Конец тика (stream synchronization point)
 ```
 
 **Порядок выполнения (Dependency Chain):**
+
 1. **InjectInputs** → виртуальные аксоны
-2. **ApplySpikeBatch** → сетевые аксоны  
+2. **ApplySpikeBatch** → сетевые аксоны
 3. **PropagateAxons** → все аксоны движутся
 4. **UpdateNeurons** → дендриты собирают → soma fires → собственные аксоны рождаются
 5. **ApplyGSOP** → веса обновляются (основано на флаге спайка из UpdateNeurons)
 6. **RecordReadout** → результаты записываются в буфер вывода
 
 **Критические зависимости:**
+
 - Шаг 4 (UpdateNeurons) **ДОЛЖЕН** запуститься перед шагом 5 (ApplyGSOP), т.к. GSOP читает информацию о спайках и контактах (dendrite timers).
 - Шаг 3 (PropagateAxons) **ДОЛЖЕН** запуститься перед шагом 4 (UpdateNeurons), т.к. UpdateNeurons читает обновлённые головы аксонов.
 
 **Синхронизация:**
+
 - Весь день запускается как один CUDA stream (или несколько синхронизированных потоков).
 - После каждого kernel'а есть soft sync (при необходимости данных из предыдущего).
 - После RecordReadout - барьер: Host ждёт завершения дня перед началом ночи (если есть).
@@ -116,7 +119,7 @@ __global__ void apply_spike_batch_kernel(u32 num_spikes,
     if (tid >= num_spikes) return;
 
     // O(1) routing. schedule_indices[tid] = абсолютный индекс в axon_heads[].
-    // Bounds checking (index < total_axons) гарантированно выполнен на CPU 
+    // Bounds checking (index < total_axons) гарантированно выполнен на CPU
     // во время Map Phase (06_distributed.md §2.8).
     // Сброс → 0 = рождение сигнала.
     u32 ghost_id = schedule_indices[tid];
@@ -130,7 +133,7 @@ __global__ void apply_spike_batch_kernel(u32 num_spikes,
 
 - **Принцип:** Сома стреляет → хвост аксона всё ещё касается дендрита → значит, этот аксон участвовал в возбуждении. Причинно-следственная связь через перекрытие, не через временные метки.
 
-**Constant Memory:** `GenesisConstantMemory` (см. [07_gpu_runtime.md §1.5](./07_gpu_runtime.md)). Содержит array из 16 `VariantParameters` structs (по одному на каждый тип нейрона из blueprints). Variant ID распаковывается из флагов как `(flags >> 4) & 0xF` (биты 4-7 = 16 типов).
+**Constant Memory:** `GenesisConstantMemory` (см. [07_gpu_runtime.md §1.5](./07_gpu_runtime.md)). Содержит array из 16 `VariantParameters` structs (по одному на каждый тип нейрона из blueprints). В Milestone 1 структура уже включает reserved-поля под adaptive leak, но `UpdateNeurons` всё ещё использует только базовый `leak_rate`. Variant ID распаковывается из флагов как `(flags >> 4) & 0xF` (биты 4-7 = 16 типов).
 
 ### 1.3. Инференс: Пространственный GSOP и Нейромодуляция
 
@@ -143,6 +146,7 @@ __global__ void apply_spike_batch_kernel(u32 num_spikes,
 1. **Сома генерирует спайк.** Перебираем 128 дендритов.
 
 2. **Branchless Unroll (Поиск свежей головы):** Читаем 32 байта `BurstHeads8`. Поиск `min_dist` выполняется строго без ветвлений (`#pragma unroll`), чтобы избежать Warp Divergence. Захватывается только **самая свежая (ближняя)** голова, остальные игнорируются.
+
    ```cuda
    min_dist = min(min_dist, (d < len) ? d : 0xFFFFFFFF);
    ```
@@ -150,28 +154,32 @@ __global__ void apply_spike_batch_kernel(u32 num_spikes,
 3. **Остывание (Cooling Shift):** Чем дальше ушла выбранная голова, тем слабее связь запоминает совпадение. Вычисляем сдвиг: `cooling_shift = dist >> 4` (каждые 16 тиков сила падает в 2 раза).
 
 4. **Asymmetric Dopamine Modulation (D1/D2 Receptors):** В процесс интегрирован глобальный сигнал Дофамина (Dopamine), хранящийся в `__constant__` памяти. Базовая пластичность модулируется нелинейно на основе аффинности рецепторов конкретного типа нейрона:
+
    ```cpp
-   int32_t pot_mod = (current_dopamine * p.d1_affinity) >> 7; 
+   int32_t pot_mod = (current_dopamine * p.d1_affinity) >> 7;
    int32_t dep_mod = (current_dopamine * p.d2_affinity) >> 7;
-   
+
    // D1 увеличивает потенциацию при награде, D2 подавляет депрессию при награде (сохраняя связи)
    int32_t final_pot = max(0, p.gsop_potentiation + pot_mod);
    int32_t final_dep = max(0, p.gsop_depression - dep_mod);
    ```
 
-4.5. **Burst-Dependent Plasticity (BDP):** В процесс обучения интегрирован аппаратный счетчик бурстов `burst_count` (биты `[3:1]` массива `flags`). 
-   - **Фильтрация шума:** Если нейрон спайкует случайно (`burst_count = 1`), он получает базовую пластичность.
-   - **Квадратичная кристаллизация:** Если нейрон истерит по делу (`burst_count > 1`), базовая дельта умножается на количество спайков в серии (до x7).
-   - **Branchless Math:** 
-     ```cpp
-     // Инкремент в UpdateNeurons (без warp divergence)
-     burst_count += final_spike * (burst_count < 7);
-     
-     // Умножение в ApplyGSOP
-     int32_t burst_mult = (burst_count > 0) ? burst_count : 1;
-     int32_t delta_pot = (raw_pot * inertia * burst_mult) >> 7;
-     ```
-   Это позволяет работать в режиме "Near-Zero Economy", где фоновый дофамин отрицателен (выжигает случайные связи), а BDP-множитель пробивает эту эрозию только для плотных, причинно-следственных паттернов моторики.
+4.5. **Burst-Dependent Plasticity (BDP):** В процесс обучения интегрирован аппаратный счетчик бурстов `burst_count` (биты `[3:1]` массива `flags`).
+
+- **Фильтрация шума:** Если нейрон спайкует случайно (`burst_count = 1`), он получает базовую пластичность.
+- **Квадратичная кристаллизация:** Если нейрон истерит по делу (`burst_count > 1`), базовая дельта умножается на количество спайков в серии (до x7).
+- **Branchless Math:**
+
+  ```cpp
+  // Инкремент в UpdateNeurons (без warp divergence)
+  burst_count += final_spike * (burst_count < 7);
+
+  // Умножение в ApplyGSOP
+  int32_t burst_mult = (burst_count > 0) ? burst_count : 1;
+  int32_t delta_pot = (raw_pot * inertia * burst_mult) >> 7;
+  ```
+
+  Это позволяет работать в режиме "Near-Zero Economy", где фоновый дофамин отрицателен (выжигает случайные связи), а BDP-множитель пробивает эту эрозию только для плотных, причинно-следственных паттернов моторики.
 
 5. **Двухфакторный STDP:**
    - Вычисляем ранг инерции синапса: `rank = abs(weight) >> 11`.
@@ -189,17 +197,17 @@ __global__ void apply_spike_batch_kernel(u32 num_spikes,
 
 ### 1.4. Zero-Cost Оптимизации
 
-| Паттерн | Реализация | Эффект |
-| :--- | :--- | :--- |
-| **Early Exit** | Если сома не спайкует (`is_spiking == 0`), поток варпа мгновенно завершает работу (`return`). | В ~99% тиков GSOP не выполняет ни одной математической операции и не трогает шину памяти. |
-| **Branchless Math** | Вычисление `is_active` через целочисленную дистанцию `head - seg_idx < propagation_length`. Нет условных переходов - только ALU. | Нет дивергенции варпов (Warp Divergence). Все 32 потока в варпе выполняют один путь. |
-| **Integer Physics** | Веса хранятся как `i16`, изменения применяются через целочисленное сложение/вычитание с saturate clamp `±32767`. | 0% Float операций. Максимальная плотность целочисленных ALU. Нет FPU конвейеров - ALU выполняют всю работу. |
+| Паттерн             | Реализация                                                                                                                       | Эффект                                                                                                      |
+| :------------------ | :------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------- |
+| **Early Exit**      | Если сома не спайкует (`is_spiking == 0`), поток варпа мгновенно завершает работу (`return`).                                    | В ~99% тиков GSOP не выполняет ни одной математической операции и не трогает шину памяти.                   |
+| **Branchless Math** | Вычисление `is_active` через целочисленную дистанцию `head - seg_idx < propagation_length`. Нет условных переходов - только ALU. | Нет дивергенции варпов (Warp Divergence). Все 32 потока в варпе выполняют один путь.                        |
+| **Integer Physics** | Веса хранятся как `i16`, изменения применяются через целочисленное сложение/вычитание с saturate clamp `±32767`.                 | 0% Float операций. Максимальная плотность целочисленных ALU. Нет FPU конвейеров - ALU выполняют всю работу. |
 
 **Результат:** Kernel ApplyGSOP при спайке - это одна загрузка флага, одна проверка бита, затем цикл по 128 слотам с целочисленными чтениями и сложениями. Никакие деревья, никакие приоритетные очереди, никакие кольцевые буферы. Чистая Data-Oriented Design.
 
 ### 1.5. Главный Тик: UpdateNeurons (GLIF Kernel)
 
-Ядро, которое собирает всю физику в один проход: GLIF leak, гомеостаз, Early Exit, суммация дендритов, threshold check, fire/reset. Параметры читаются из `GenesisConstantMemory` (см. [07_gpu_runtime.md §1.5](./07_gpu_runtime.md)).
+Ядро, которое собирает всю физику в один проход: GLIF leak, гомеостаз, Early Exit, суммация дендритов, threshold check, fire/reset. Параметры читаются из `GenesisConstantMemory` (см. [07_gpu_runtime.md §1.5](./07_gpu_runtime.md)). До Milestone 2 adaptive leak-поля присутствуют в ABI, но не участвуют в расчёте.
 
 ```cuda
 __constant__ GenesisConstantMemory const_mem;
@@ -288,7 +296,7 @@ __global__ void update_neurons_kernel(
     // 6. Threshold Check, DDS Heartbeat & Fire (Branchless)
     i32 eff_threshold = p.threshold + t_off;
     i32 is_glif_spiking = (v >= eff_threshold) ? 1 : 0;
-    
+
     // DDS Phase Accumulator (§4 neuron_model.md)
     // Пространственное рассеивание фазы: tid * 104729 (простое число)
     u32 phase = (current_tick * p.heartbeat_m + tid * 104729) & 0xFFFF;
@@ -301,7 +309,7 @@ __global__ void update_neurons_kernel(
     v     = is_glif_spiking * p.rest_potential + (1 - is_glif_spiking) * v;
     ref_timer = is_glif_spiking * p.refractory_period;
     t_off += is_glif_spiking * p.homeostasis_penalty;
-    
+
     // Флаг активности устанавливается от ЛЮБОГО спайка (нужно для GSOP)
     f     = (f & 0xFE) | (u8)final_spike;
 
@@ -363,13 +371,14 @@ __global__ void propagate_axons_kernel(u32 total_axons, u32* axon_heads, u32 v_s
 
 При обслуживании массива `axon_heads` применяется фильтр, предотвращающий стирание активных сигналов:
 
-* **Фильтр Сохранения:** Если значение `axon_heads[id]` меньше порога `SENTINEL_DANGER_THRESHOLD` (например, `0x70000000`), это означает, что спайк произошёл недавно и сигнал физически находится внутри проводящей части аксона (Active Tail). Такое значение **не изменяется**.
+- **Фильтр Сохранения:** Если значение `axon_heads[id]` меньше порога `SENTINEL_DANGER_THRESHOLD` (например, `0x70000000`), это означает, что спайк произошёл недавно и сигнал физически находится внутри проводящей части аксона (Active Tail). Такое значение **не изменяется**.
 
-* **Инвариант Причинности:** Только "давно остывшие" аксоны, чьи головы превысили порог, могут быть безопасно возвращены в `AXON_SENTINEL` для предотвращения целочисленного переполнения `u32` [1, 4].
+- **Инвариант Причинности:** Только "давно остывшие" аксоны, чьи головы превысили порог, могут быть безопасно возвращены в `AXON_SENTINEL` для предотвращения целочисленного переполнения `u32` [1, 4].
 
-* **Результат:** Краткосрочная память (Active Tails) и текущий контекст распространения сигналов бесшумно переживают фазу Maintenance, не требуя синхронизации с GPU-циклом.
+- **Результат:** Краткосрочная память (Active Tails) и текущий контекст распространения сигналов бесшумно переживают фазу Maintenance, не требуя синхронизации с GPU-циклом.
 
 **Пример:**
+
 ```cpp
 #define SENTINEL_DANGER_THRESHOLD 0x70000000u
 
@@ -412,23 +421,23 @@ __global__ void record_spikes_aggregated(
 ) {
     u32 tid = blockIdx.x * blockDim.x + threadIdx.x;
     u32 lane = threadIdx.x % 32;
-    
+
     // Step 1: Ballot - каждый поток выставляет бит если спайкнул
     bool is_spiking = (tid < padded_n) && (soma_flags[tid] & 0x80);
     u32 active_mask = __ballot_sync(0xFFFFFFFF, is_spiking);
-    
+
     // Step 2: Лидер варпа (lane 0) считает количество спайков в варпе
     u32 warp_pop = (lane == 0) ? __popc(active_mask) : 0;
-    
+
     // Step 3: Лидер делает ОДИН atomicAdd за весь варп
     u32 warp_offset = 0;
     if (lane == 0) {
         warp_offset = atomicAdd(out_count, warp_pop);
     }
-    
+
     // Step 4: Раздать offset всем потокам варпа
     warp_offset = __shfl_sync(0xFFFFFFFF, warp_offset, 0);
-    
+
     // Step 5: Каждый поток параллельно записывает свой ID (если спайкнул)
     if (is_spiking) {
         u32 local_rank = __popc(active_mask & ((1u << lane) - 1));  // Count popcount before me
@@ -532,7 +541,7 @@ __global__ void inject_inputs_kernel(
     // All shards share the same total but have offset within global pixel numbering
     u32 words_per_tick_total = (total_num_pixels + 31) / 32;
     u32 tick_offset = effective_tick * words_per_tick_total;
-    
+
     // Absolute bit position in global numbering + local offset
     u32 abs_bit = pixel_offset + tid;
     u32 word_idx = abs_bit / 32;
@@ -550,11 +559,13 @@ __global__ void inject_inputs_kernel(
 ```
 
 **Параметры:**
+
 - `input_stride`: Если `= 2`, kernel запускается через тик (скорость ввода вдвое меньше). Позволяет контролировать частоту входных импульсов.
 - `words_per_tick_total`: Плотная упаковка - каждый бит отвечает за один пиксель. На `N=64K` пикселей требуется `2K` слов u32 per tick.
 - **Multi-Shard:** Каждый шард знает свой `pixel_offset` (глобальная нумерация). Маска общая для всех шардов, но каждый берёт свой кусок.
 
 **Почему это эффективно:**
+
 - 1 broadcast-read = 32 потока читают 1 слово (ширина пропускной способности L1).
 - Запись только если `is_active = 1` (~5-10% тиков на канал).
 - Нет необходимости в atomics.
@@ -602,7 +613,7 @@ __global__ void record_readout_kernel(
     // O(1) channel → soma mapping (baked during initialization)
     u32 soma_id = mapped_soma_ids[tid];
     u8 is_spiking = 0;
-    
+
     // Safety bounds check
     if (soma_id < padded_n) {
         is_spiking = flags[soma_id] & 0x01;
@@ -636,9 +647,9 @@ __global__ void record_readout_kernel(
 
 Для каждого действия выделяется **популяция** выходных нейронов. Сила действия пропорциональна количеству одновременно активных нейронов в популяции. Мозг сам учится через GSOP рекрутировать нужное количество.
 
-| Пример | Популяция | Сила |
-|---|---|---|
-| Сгибание руки | 100 нейронов → 23 активны | `23 / 100 = 0.23` |
+| Пример          | Популяция                 | Сила              |
+| --------------- | ------------------------- | ----------------- |
+| Сгибание руки   | 100 нейронов → 23 активны | `23 / 100 = 0.23` |
 | Разгибание руки | 100 нейронов → 87 активны | `87 / 100 = 0.87` |
 
 **Интерпретация на Hub:**
@@ -780,11 +791,13 @@ __global__ void sort_and_prune_kernel(
 ```
 
 **Инвариант после Sort & Prune:**
+
 - Слоты 0..K-1 содержат живые синапсы, отсортированные по `|weight|` в убывающем порядке.
 - Слоты K..127 содержат пустые записи (`target_packed = 0`).
 - Day Phase использует это: `if (target == 0) break` → O(K) вместо O(128).
 
 **Сложность:**
+
 - Per-thread Insertion Sort: $O(K^2)$ в худшем случае, $O(K)$ в среднем (в начале слотов много пустых).
 - Per-neuron: ~10мкс на 128 слотов (CPU Shared Memory, локальный).
 - Всего блюдо за ночь: мила секунда на ~100K нейронов.
@@ -793,23 +806,22 @@ __global__ void sort_and_prune_kernel(
 
 ## Связанные документы
 
-| Документ | Что связывается |
-|---|---|
-| [01_foundations.md](./01_foundations.md) | §1: Grundlagen нейрона (GLIF модель), Spike definition |
-| [03_neuron_model.md](./03_neuron_model.md) | §2: VariantParameters, threshold, refractory_period, GSOP parameters |
-| [04_connectivity.md](./04_connectivity.md) | §1.2: Dendrite topology, synapse mapping, columnar layout |
-| [06_distributed.md](./06_distributed.md) | §2.5, §2.8: SpikeBatch protocol, Ghost sync, Sender-side mapping |
-| [07_gpu_runtime.md](./07_gpu_runtime.md) | §1.5: Constant Memory structure, CUDA stream orchestration |
-| [08_ide.md](./08_ide.md) | Visualization: Real-time monitoring of signal propagation, spike heatmaps |
-| [09_baking_pipeline.md](./09_baking_pipeline.md) | §4.2: Columnar defrag, Night phase integration, Pruning thresholds |
-| [project_structure.md](../project_structure.md) | Overview: Role of Signal Physics in Genesis architecture |
+| Документ                                         | Что связывается                                                           |
+| ------------------------------------------------ | ------------------------------------------------------------------------- |
+| [01_foundations.md](./01_foundations.md)         | §1: Grundlagen нейрона (GLIF модель), Spike definition                    |
+| [03_neuron_model.md](./03_neuron_model.md)       | §2: VariantParameters, threshold, refractory_period, GSOP parameters      |
+| [04_connectivity.md](./04_connectivity.md)       | §1.2: Dendrite topology, synapse mapping, columnar layout                 |
+| [06_distributed.md](./06_distributed.md)         | §2.5, §2.8: SpikeBatch protocol, Ghost sync, Sender-side mapping          |
+| [07_gpu_runtime.md](./07_gpu_runtime.md)         | §1.5: Constant Memory structure, CUDA stream orchestration                |
+| [08_ide.md](./08_ide.md)                         | Visualization: Real-time monitoring of signal propagation, spike heatmaps |
+| [09_baking_pipeline.md](./09_baking_pipeline.md) | §4.2: Columnar defrag, Night phase integration, Pruning thresholds        |
+| [project_structure.md](../project_structure.md)  | Overview: Role of Signal Physics in Genesis architecture                  |
 
 ---
 
 ## Changelog
 
-| Дата | Версия | Описание изменений |
-|---|---|---|
-| 2026-02-28 | 2.1 | Синхронизация с реальным кодом (physics.cu, readout.cu, inject_inputs.cu, sort_and_prune.cu): исправлены variant bits (6-7 → 4-7), обновлены сигнатуры ApplySpikeBatch, UpdateNeurons, PropagateAxons. Добавлены полные CUDA kernel examples для RecordReadout, InjectInputs, SortAndPrune. Добавлена Mermaid диаграмма Day Pipeline (§1.0). |
-| TBD | 2.0 | Первая версия спеки (30 мес назад) |
-
+| Дата       | Версия | Описание изменений                                                                                                                                                                                                                                                                                                                           |
+| ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-02-28 | 2.1    | Синхронизация с реальным кодом (physics.cu, readout.cu, inject_inputs.cu, sort_and_prune.cu): исправлены variant bits (6-7 → 4-7), обновлены сигнатуры ApplySpikeBatch, UpdateNeurons, PropagateAxons. Добавлены полные CUDA kernel examples для RecordReadout, InjectInputs, SortAndPrune. Добавлена Mermaid диаграмма Day Pipeline (§1.0). |
+| TBD        | 2.0    | Первая версия спеки (30 мес назад)                                                                                                                                                                                                                                                                                                           |

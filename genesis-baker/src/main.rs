@@ -321,6 +321,11 @@ fn serialize_artifacts(
                 heartbeat_m: v.heartbeat_m,
                 inertia_curve: v.inertia_curve,
                 prune_threshold: 15,
+                adaptive_leak_mode: v.adaptive_leak_mode,
+                dopamine_leak_gain: v.dopamine_leak_gain,
+                burst_leak_gain: v.burst_leak_gain,
+                leak_min: v.leak_min,
+                leak_max: v.leak_max,
                 // [DOD FIX] Проброс рецепторов в манифест
                 d1_affinity: v.d1_affinity,
                 d2_affinity: v.d2_affinity,

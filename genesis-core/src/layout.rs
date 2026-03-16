@@ -5,9 +5,9 @@ use bytemuck::{Pod, Zeroable};
 pub const MAX_DENDRITES: usize = MAX_DENDRITE_SLOTS;
 
 /// Структура параметров типа нейрона.
-/// 64 байта = 1 кэш-линия L2 GPU. 16 типов × 64B = 1024B = весь __constant__-буфер.
-/// Ровно одна строка кэша на тип → 100% Coalesced Access, нулевой False Sharing.
-#[repr(C, align(64))]
+/// 80 байт = компактный ABI-блок для 16 вариантов (1280 байт в Constant Memory).
+/// Milestone 1 резервирует поля под adaptive leak, не меняя поведение по умолчанию.
+#[repr(C, align(16))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
 pub struct VariantParameters {
     // --- Basic Dynamics (20B) ---
@@ -31,9 +31,18 @@ pub struct VariantParameters {
     pub ltm_slot_count: u8,             // 31..32
     pub inertia_curve: [i16; 15],       // 32..62 (30 bytes)
     pub prune_threshold: i16,           // 62..64 [DOD FIX]
+    // --- Adaptive Leak ABI Reserve (16B) ---
+    pub adaptive_leak_mode: u8,         // 64..65 (0 = disabled)
+    pub _pad_adaptive: u8,              // 65..66
+    pub dopamine_leak_gain: i16,        // 66..68
+    pub burst_leak_gain: i16,           // 68..70
+    pub leak_min: i16,                  // 70..72
+    pub leak_max: i16,                  // 72..74
+    pub _reserved: [u8; 6],             // 74..80
 }
 
-const _: () = assert!(std::mem::size_of::<VariantParameters>() == 64);
+const _: () = assert!(std::mem::size_of::<VariantParameters>() == 80);
+const _: () = assert!(std::mem::align_of::<VariantParameters>() == 16);
 
 // [DOD] 32-byte alignment гарантирует загрузку 8 голов за 1 транзакцию L1 кэша.
 #[repr(C, align(32))]

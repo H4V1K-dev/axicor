@@ -35,8 +35,8 @@ struct SoA_State {
   uint32_t* __restrict__ telemetry_spikes;
 };
 
-// Строго 64 байта (1 кэш-линия L1). 16 типов = 1024 байта в Constant Memory.
-struct alignas(64) VariantParameters {
+// Строго 80 байт. 16 типов = 1280 байт в Constant Memory.
+struct alignas(16) VariantParameters {
   int32_t threshold;                  // 0..4
   int32_t rest_potential;             // 4..8
   int32_t leak_rate;                  // 8..12
@@ -55,7 +55,15 @@ struct alignas(64) VariantParameters {
   uint8_t ltm_slot_count;             // 31..32
   int16_t inertia_curve[15];          // 32..62 (30 bytes)
   int16_t prune_threshold;            // 62..64 (2 bytes)
+  uint8_t adaptive_leak_mode;         // 64..65
+  uint8_t _pad_adaptive;              // 65..66
+  int16_t dopamine_leak_gain;         // 66..68
+  int16_t burst_leak_gain;            // 68..70
+  int16_t leak_min;                   // 70..72
+  int16_t leak_max;                   // 72..74
+  uint8_t _reserved[6];               // 74..80
 };
+static_assert(sizeof(VariantParameters) == 80, "VariantParameters must stay 80 bytes");
 }
 
 // Глобальная константная память GPU (448 байт).

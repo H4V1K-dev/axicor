@@ -11,8 +11,8 @@ struct alignas(32) BurstHeads8 {
     uint32_t h4; uint32_t h5; uint32_t h6; uint32_t h7;
 };
 
-// Строго 64 байта (1 кэш-линия)
-struct alignas(64) VariantParameters {
+// Строго 80 байт для совместимости с adaptive leak ABI reserve.
+struct alignas(16) VariantParameters {
     int32_t threshold;
     int32_t rest_potential;
     int32_t leak_rate;
@@ -29,9 +29,17 @@ struct alignas(64) VariantParameters {
     uint16_t heartbeat_m;
     uint8_t d2_affinity;
     uint8_t ltm_slot_count;
-    int16_t inertia_curve[15]; // !! Changed to 15 elements to match specification
-    int16_t prune_threshold;   // 2 bytes
+    int16_t inertia_curve[15];
+    int16_t prune_threshold;
+    uint8_t adaptive_leak_mode;
+    uint8_t _pad_adaptive;
+    int16_t dopamine_leak_gain;
+    int16_t burst_leak_gain;
+    int16_t leak_min;
+    int16_t leak_max;
+    uint8_t _reserved[6];
 };
+static_assert(sizeof(VariantParameters) == 80, "VariantParameters must stay 80 bytes");
 
 // Read-Only топология (Мапится из Flash-памяти)
 struct FlashTopology {
