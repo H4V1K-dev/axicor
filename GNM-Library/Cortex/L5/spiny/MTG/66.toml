@@ -1,0 +1,42 @@
+[[neuron_type]]
+name = "L5_spiny_MTG_66"
+is_inhibitory = false
+
+# Мембрана
+threshold = 31812
+rest_potential = 8406
+leak_rate = 324
+refractory_period = 12
+spontaneous_firing_period_ticks = 172
+
+# Адаптация и Тайминги
+homeostasis_penalty = 10000
+homeostasis_decay = 14
+synapse_refractory_period = 15
+signal_propagation_length = 29
+
+# Рост и Морфология
+steering_fov_deg = 34.8
+steering_radius_um = 61.8
+growth_vertical_bias = 0.95
+dendrite_radius_um = 588.1
+type_affinity = 0.8
+sprouting_weight_distance = 0.5
+sprouting_weight_power = 0.4
+sprouting_weight_explore = 0.233
+sprouting_weight_type = 0.2
+steering_weight_inertia = 0.5
+steering_weight_sensor = 0.4
+steering_weight_jitter = 0.1
+
+# Пластичность GSOP
+initial_synapse_weight = 163
+gsop_potentiation = 93
+gsop_depression = 67
+inertia_curve = [128, 120, 112, 105, 97, 89, 81, 73, 64, 56, 48, 39, 31, 22, 12, 2]
+prune_threshold = 25
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 54
+slot_decay_wm = 250
+ltm_slot_count = 69

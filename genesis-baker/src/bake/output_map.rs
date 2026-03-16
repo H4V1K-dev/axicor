@@ -47,15 +47,25 @@ pub fn build_gxo_mapping(
     zone_depth_vox: u32,
     neurons_packed_pos: &[u32],
     stride: u8,
+    target_type_id: Option<u8>,
 ) -> BakedGxo {
     let total_pixels = (matrix_width * matrix_height) as usize;
     let mut mapped_soma_ids = vec![EMPTY_PIXEL; total_pixels];
     let mut min_z_per_pixel = vec![u32::MAX; total_pixels];
 
     for (dense_id, &packed) in neurons_packed_pos.iter().enumerate() {
-        let vx = (packed & 0x3FF) as u32;       // X in voxels
-        let vy = ((packed >> 10) & 0x3FF) as u32; // Y in voxels
-        let vz = (packed >> 20) & 0xFF;          // Z in voxels
+        if packed == 0 { continue; }
+        
+        let p_struct = genesis_core::types::PackedPosition(packed);
+        let type_idx = p_struct.type_id();
+        
+        if let Some(target) = target_type_id {
+            if type_idx != target { continue; }
+        }
+
+        let vx = p_struct.x();
+        let vy = p_struct.y();
+        let vz = p_struct.z();
 
         let px = ((vx as u64 * matrix_width as u64) / zone_width_vox.max(1) as u64)
             .min(matrix_width as u64 - 1) as u32;
@@ -64,8 +74,8 @@ pub fn build_gxo_mapping(
 
         let pixel_idx = (py * matrix_width + px) as usize;
 
-        if vz < min_z_per_pixel[pixel_idx] {
-            min_z_per_pixel[pixel_idx] = vz;
+        if (vz as u32) < min_z_per_pixel[pixel_idx] {
+            min_z_per_pixel[pixel_idx] = vz as u32;
             mapped_soma_ids[pixel_idx] = dense_id as u32;
         }
     }
@@ -149,7 +159,7 @@ mod tests {
             pack(5, 5,  5),  // Dense ID 2  ← winner
         ];
 
-        let gxo = build_gxo_mapping("out", "zone", 1, 1, 10, 10, &neurons, 1);
+        let gxo = build_gxo_mapping("out", "zone", 1, 1, 10, 10, &neurons, 1, None);
 
         assert_eq!(gxo.mapped_soma_ids[0], 2, "Z-Sort must pick Dense ID 2 (Z=5)");
     }
@@ -162,7 +172,7 @@ mod tests {
             pack(2, 2, 0),  // Pixel (0,0) — Dense ID 0
         ];
 
-        let gxo = build_gxo_mapping("out", "zone", 2, 2, 20, 20, &neurons, 1);
+        let gxo = build_gxo_mapping("out", "zone", 2, 2, 20, 20, &neurons, 1, None);
 
         assert_eq!(gxo.mapped_soma_ids[0], 0,          "pixel 0 should map to soma 0");
         assert_eq!(gxo.mapped_soma_ids[1], EMPTY_PIXEL, "pixel 1 (top-right) must be sentinel");
@@ -172,7 +182,7 @@ mod tests {
 
     #[test]
     fn test_gxo_no_neurons() {
-        let gxo = build_gxo_mapping("out", "zone", 2, 2, 20, 20, &[], 1);
+        let gxo = build_gxo_mapping("out", "zone", 2, 2, 20, 20, &[], 1, None);
         assert!(gxo.mapped_soma_ids.iter().all(|&id| id == EMPTY_PIXEL));
     }
 }

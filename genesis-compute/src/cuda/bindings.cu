@@ -35,25 +35,26 @@ struct SoA_State {
   uint32_t* __restrict__ telemetry_spikes;
 };
 
-// Строго 128 байт. 16 типов = 2048 байт (влезает в constant memory)
-struct VariantParameters {
-  int32_t threshold;
-  int32_t rest_potential;
-  int32_t leak_rate;
-  int32_t homeostasis_penalty;
-  int32_t homeostasis_decay;
-  int32_t gsop_potentiation;
-  int32_t gsop_depression;
-  uint8_t refractory_period;
-  uint8_t synapse_refractory_period;
-  uint8_t slot_decay_ltm;
-  uint8_t slot_decay_wm;
-  uint8_t signal_propagation_length;
-  uint8_t ltm_slot_count;
-  uint8_t _pad1[2];          // Выравнивание до 36B
-  int16_t inertia_curve[16]; // 32B — кривая инерции GSOP
-  int16_t prune_threshold;   // Night Phase threshold
-  uint8_t _pad2[58];         // Дополняем до 128 байт
+// Строго 64 байта (1 кэш-линия L1). 16 типов = 1024 байта в Constant Memory.
+struct alignas(64) VariantParameters {
+  int32_t threshold;                  // 0..4
+  int32_t rest_potential;             // 4..8
+  int32_t leak_rate;                  // 8..12
+  int32_t homeostasis_penalty;        // 12..16
+  uint16_t homeostasis_decay;         // 16..18
+  int16_t gsop_potentiation;          // 18..20
+  int16_t gsop_depression;            // 20..22
+  uint8_t refractory_period;          // 22..23
+  uint8_t synapse_refractory_period;  // 23..24
+  uint8_t slot_decay_ltm;             // 24..25
+  uint8_t slot_decay_wm;              // 25..26
+  uint8_t signal_propagation_length;  // 26..27
+  uint8_t d1_affinity;                // 27..28 [D1 Рецептор]
+  uint16_t heartbeat_m;               // 28..30
+  uint8_t d2_affinity;                // 30..31 [D2 Рецептор]
+  uint8_t ltm_slot_count;             // 31..32
+  int16_t inertia_curve[15];          // 32..62 (30 bytes)
+  int16_t prune_threshold;            // 62..64 (2 bytes)
 };
 }
 
@@ -61,6 +62,13 @@ struct VariantParameters {
 // Глобальная константная память. Определена в physics.cu.
 extern __constant__ VariantParameters VARIANT_LUT[16];
 __constant__ int16_t current_dopamine;
+
+__global__ void cu_extract_telemetry_kernel(
+    const uint8_t* __restrict__ soma_flags,
+    uint32_t* __restrict__ out_ids,
+    uint32_t* __restrict__ out_count,
+    uint32_t padded_n
+);
 
 // Константы (совпадают с constants.rs)
 #define MAX_DENDRITE_SLOTS 128
@@ -232,6 +240,14 @@ void gpu_memcpy_device_to_host(void *dst, const void *src, size_t size) {
   }
 }
 
+int32_t gpu_stream_create(cudaStream_t *out_stream) {
+  return (int32_t)cudaStreamCreateWithFlags(out_stream, cudaStreamNonBlocking);
+}
+
+int32_t gpu_stream_destroy(cudaStream_t stream) {
+  return (int32_t)cudaStreamDestroy(stream);
+}
+
 void gpu_stream_synchronize(cudaStream_t stream) {
   cudaStreamSynchronize(stream);
 }
@@ -257,11 +273,6 @@ void update_constant_memory_hot_reload(const VariantParameters *new_variants,
   // обеспечивая Zero-Downtime Hot-Reload на барьере BSP.
   cudaMemcpyToSymbolAsync(VARIANT_LUT, new_variants,
                           sizeof(VariantParameters) * 16, 0,
-                          cudaMemcpyHostToDevice, (cudaStream_t)stream);
-}
-
-extern "C" void update_global_dopamine(int16_t dopamine, void *stream) {
-  cudaMemcpyToSymbolAsync(current_dopamine, &dopamine, sizeof(int16_t), 0,
                           cudaMemcpyHostToDevice, (cudaStream_t)stream);
 }
 
@@ -340,10 +351,6 @@ void launch_ghost_sync(const BurstHeads8 *src_heads, BurstHeads8 *dst_heads,
   uint32_t blocks = (count + threads - 1) / threads;
   ghost_sync_kernel<<<blocks, threads, 0, stream>>>(
       src_heads, dst_heads, src_indices, dst_indices, count);
-}
-
-void gpu_reset_telemetry_count(SoA_State vram, cudaStream_t stream) {
-  cudaMemsetAsync(vram.telemetry_count, 0, sizeof(uint32_t), stream);
 }
 
 #pragma pack(push, 1)
@@ -426,15 +433,18 @@ struct DendriteSlot {
 // =====================================================================
 // Ядро 8: Сортировка и прунинг синапсов (Night Phase)
 // =====================================================================
-__global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n) {
+__global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n, int16_t global_prune_threshold) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= padded_n)
     return;
 
-  // Динамическое чтение порога для каждого нейрона
   uint8_t flag = state.flags[tid];
+  // [DOD FIX] Полная очистка аккумулятора спайков [3:1], сохраняя Type [7:4] и Spike 
+  state.flags[tid] = flag & 0xF1;
+  
   uint8_t variant_id = (flag >> 4) & 0x0F;
-  int16_t prune_threshold = VARIANT_LUT[variant_id].prune_threshold;
+  // [DOD FIX] Удалено чтение из VARIANT_LUT. Используем переданный global_prune_threshold.
+  int16_t prune_threshold = global_prune_threshold;
 
   __shared__ DendriteSlot smem[WARP_SIZE][MAX_DENDRITE_SLOTS];
   uint32_t lane_id = threadIdx.x;
@@ -660,18 +670,17 @@ void cu_free_shard(ShardVramPtrs *vram) {
 // Один блок = один нейрон (32 потока). Идеальная утилизация Shared Memory.
 // Без stream — ночная фаза синхронна.
 // =====================================================================
-extern "C" void launch_sort_and_prune(const ShardVramPtrs *ptrs,
-                                      uint32_t padded_n) {
-  uint32_t threads = 32;
-  uint32_t blocks = padded_n;
+extern "C" void launch_sort_and_prune(const ShardVramPtrs *ptrs, uint32_t padded_n, int16_t prune_threshold) {
+  dim3 threads(WARP_SIZE, 1);
+  dim3 blocks((padded_n + WARP_SIZE - 1) / WARP_SIZE, 1);
 
-  SoA_State state = {};
+  SoA_State state;
   state.dendrite_targets = ptrs->dendrite_targets;
   state.dendrite_weights = ptrs->dendrite_weights;
   state.dendrite_timers = ptrs->dendrite_timers;
   state.flags = ptrs->soma_flags; // Передаем флаги для чтения варианта
 
-  sort_and_prune_kernel<<<blocks, threads>>>(state, padded_n);
+  sort_and_prune_kernel<<<blocks, threads>>>(state, padded_n, prune_threshold);
 }
 
 // ============================================================================
@@ -715,28 +724,48 @@ int32_t cu_dma_h2d_io(uint32_t *d_input_bitmask,
                       const uint32_t *h_input_bitmask, uint32_t input_words,
                       uint32_t *d_incoming_spikes,
                       const uint32_t *h_incoming_spikes,
-                      uint32_t schedule_capacity) {
-  // Асинхронная загрузка в Stream 0. CPU не блокируется!
+                      uint32_t schedule_capacity,
+                      cudaStream_t stream) {
+  // Асинхронная загрузка в переданный Stream
   if (input_words > 0 && d_input_bitmask && h_input_bitmask) {
     cudaMemcpyAsync(d_input_bitmask, h_input_bitmask,
-                    input_words * sizeof(uint32_t), cudaMemcpyHostToDevice, 0);
+                    input_words * sizeof(uint32_t), cudaMemcpyHostToDevice, stream);
   }
   if (schedule_capacity > 0 && d_incoming_spikes && h_incoming_spikes) {
     cudaMemcpyAsync(d_incoming_spikes, h_incoming_spikes,
                     schedule_capacity * sizeof(uint32_t),
-                    cudaMemcpyHostToDevice, 0);
+                    cudaMemcpyHostToDevice, stream);
   }
   return 0;
 }
 
 int32_t cu_dma_d2h_io(uint8_t *h_output_history,
                       const uint8_t *d_output_history,
-                      uint32_t output_capacity) {
+                      uint32_t output_capacity,
+                      cudaStream_t stream) {
   if (output_capacity > 0 && d_output_history && h_output_history) {
     cudaMemcpyAsync(h_output_history, d_output_history,
                     output_capacity * sizeof(uint8_t), cudaMemcpyDeviceToHost,
-                    0);
+                    stream);
   }
   return 0;
+}
+
+void gpu_reset_telemetry_count(const ShardVramPtrs *ptrs, cudaStream_t stream) {
+    (void)ptrs; (void)stream;
+}
+
+void launch_extract_telemetry(const ShardVramPtrs *ptrs, uint32_t padded_n, uint32_t *out_ids, uint32_t *out_count_pinned, cudaStream_t stream) {
+    if (out_ids == nullptr || out_count_pinned == nullptr || ptrs == nullptr) return;
+
+    int threads = 256;
+    int blocks = (padded_n + threads - 1) / threads;
+    
+    cu_extract_telemetry_kernel<<<blocks, threads, 0, stream>>>(
+        ptrs->soma_flags,
+        out_ids,
+        out_count_pinned,
+        padded_n
+    );
 }
 } // Final closing brace for extern "C"

@@ -17,6 +17,9 @@ use genesis_baker::{bake, parser, validator};
 struct Cli {
     #[arg(long, default_value = "config/brain.toml")]
     brain: PathBuf,
+
+    #[arg(long, default_value_t = false)]
+    clean: bool,
 }
 
 fn main() -> Result<()> {
@@ -24,6 +27,36 @@ fn main() -> Result<()> {
     
     let brain_config = genesis_core::config::brain::parse_brain_config(&cli.brain)
         .map_err(|e| anyhow::anyhow!(e))?;
+
+    if cli.clean {
+        // [DOD FIX] Terminal barrier for destructive actions
+        print!("[baker] WARNING: This will permanently delete all baked models. Continue? [y/N]: ");
+        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).unwrap();
+        if input.trim().to_lowercase() != "y" {
+            println!("Aborting clean operation.");
+            return Ok(());
+        }
+
+        println!("[baker] Clean flag set. Wiping baked directories...");
+        for zone in &brain_config.zones {
+            if zone.baked_dir.exists() {
+                println!("[baker] Cleaning: {:?}", zone.baked_dir);
+                // Remove the directory contents safely
+                for entry in std::fs::read_dir(&zone.baked_dir)? {
+                    let entry = entry?;
+                    let path = entry.path();
+                    if path.is_dir() {
+                        std::fs::remove_dir_all(path)?;
+                    } else {
+                        std::fs::remove_file(path)?;
+                    }
+                }
+            }
+        }
+    }
+
     println!("[baker] Processing Brain Architecture: {} zones", brain_config.zones.len());
     
     // Store compilation results for ghost connections linking
@@ -67,7 +100,8 @@ fn main() -> Result<()> {
         // Target offset is the end of the dest zone's local axons
         let dst_ghost_offset = dst_shard.local_axons_count as u32; 
         
-        let out_dir = &brain_config.zones.iter().find(|z| z.name == conn.from).unwrap().baked_dir;
+        // [DOD FIX] Ghost file goes to RECEIVER's baked_dir, not sender's
+        let out_dir = &brain_config.zones.iter().find(|z| z.name == conn.to).unwrap().baked_dir;
         
         let sent_ghosts = if let (Some(w), Some(h)) = (conn.width, conn.height) {
             println!("[baker] Generating UV Atlas Projection {} -> {} ({}x{})", conn.from, conn.to, w, h);
@@ -213,7 +247,7 @@ fn serialize_artifacts(
         .with_context(|| format!("Cannot create output dir: {}", workspace.out_dir.display()))?;
 
     shard.dump_to_disk(&workspace.out_dir);
-    println!("[baker] ✓ Written: shard.state + shard.axons");
+    println!("[baker] ✓ Written: shard.state + shard.axons + shard.paths + shard.pos");
 
     if !gxis.is_empty() {
         crate::bake::input_map::write_gxi_file(&workspace.out_dir, gxis);
@@ -228,6 +262,7 @@ fn serialize_artifacts(
     let manifest = genesis_core::config::manifest::ZoneManifest {
         magic: 0x47454E45, // "GENE"
         zone_hash: zone_hash_fnv,
+        blueprints_path: workspace.bp_path.to_string_lossy().into_owned(),
         simulation: Some(genesis_core::config::brain::SimulationConfigRef {
             config: std::path::PathBuf::from("BrainDNA/simulation.toml"),
         }),
@@ -241,9 +276,21 @@ fn serialize_artifacts(
             slow_path_tcp: 8010 + workspace.zone_idx * 10,
             external_udp_in: 8081 + workspace.zone_idx * 10,
             external_udp_out: 8082 + workspace.zone_idx * 10,
-            external_udp_out_target: None,
+            external_udp_out_target: Some("127.0.0.1:8092".to_string()), // Bind Python Client
             fast_path_udp_local: 9001 + workspace.zone_idx * 10,
-            fast_path_peers: if workspace.zone_idx == 0 { vec!["127.0.0.1:9011".to_string()] } else { vec!["127.0.0.1:9001".to_string()] },
+            fast_path_peers: workspace.brain_config.zones.iter().enumerate()
+                .filter(|(i, _)| *i != workspace.zone_idx as usize)
+                .map(|(i, z)| (z.name.clone(), format!("127.0.0.1:{}", 9001 + i * 10)))
+                .collect(),
+        },
+        settings: genesis_core::config::manifest::ManifestSettings {
+            // [DOD FIX] Больше никакого хардкода 0. Берем из shard.toml!
+            night_interval_ticks: workspace.shard_cfg.settings.night_interval_ticks,
+            save_checkpoints_interval_ticks: workspace.shard_cfg.settings.save_checkpoints_interval_ticks as u64,
+            plasticity: genesis_core::config::manifest::ManifestPlasticity {
+                prune_threshold: workspace.shard_cfg.settings.prune_threshold,
+                max_sprouts: workspace.shard_cfg.settings.max_sprouts,
+            },
         },
         connections: workspace.brain_config.connections.iter()
             .filter(|c| c.from == workspace.zone_name || c.to == workspace.zone_name)
@@ -270,9 +317,13 @@ fn serialize_artifacts(
                 slot_decay_ltm: v.slot_decay_ltm as u8,
                 slot_decay_wm: v.slot_decay_wm as u8,
                 signal_propagation_length: v.signal_propagation_length as u8,
-                ltm_slot_count: 80, // default from blueprints
+                ltm_slot_count: v.ltm_slot_count,
+                heartbeat_m: v.heartbeat_m,
                 inertia_curve: v.inertia_curve,
-                prune_threshold: 15, // [DOD FIX] TODO: брать из blueprints.toml
+                prune_threshold: 15,
+                // [DOD FIX] Проброс рецепторов в манифест
+                d1_affinity: v.d1_affinity,
+                d2_affinity: v.d2_affinity,
             }
         }).collect(),
     };

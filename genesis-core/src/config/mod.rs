@@ -40,7 +40,6 @@ pub struct SimulationParams {
     pub tick_duration_us: u32,
     pub total_ticks: u64,
     pub master_seed: String,
-    pub global_density: f32,
     pub voxel_size_um: f32,
     pub signal_speed_m_s: f32,
     pub sync_batch_ticks: u32,
@@ -50,9 +49,6 @@ pub struct SimulationParams {
     
     #[serde(default = "default_max_steps")]
     pub axon_growth_max_steps: u32,
-    
-    #[serde(default)] // default 0
-    pub night_interval_ticks: u32,
 }
 
 fn default_segment_length() -> u32 { 5 }
@@ -68,12 +64,6 @@ impl SimulationConfig {
         let h = (self.world.height_um as f32 / v_um) as u64;
         w * d * h
     }
-
-    /// Максимальное число нейронов = total_voxels * global_density.
-    pub fn neuron_budget(&self) -> u64 {
-        (self.total_voxels() as f64 * self.simulation.global_density as f64) as u64
-    }
-
     /// Парсит конфиг из строки TOML.
     pub fn parse(src: &str) -> Result<Self, String> {
         toml::from_str(src).map_err(|e| format!("TOML parse error: {}", e))

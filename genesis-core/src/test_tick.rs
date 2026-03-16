@@ -71,8 +71,8 @@ fn emulate_update_neuron(
             break; // Empty slot invariant
         }
 
-        let axon_id = d.target_packed >> 10;
-        let seg_idx = d.target_packed & 0x3FF;
+        let axon_id = (d.target_packed & 0x00FF_FFFF).saturating_sub(1);
+        let seg_idx = d.target_packed >> 24;
         let head = axon_heads[axon_id as usize];
         let dist = head.wrapping_sub(seg_idx);
 
@@ -201,8 +201,8 @@ fn test_active_tail_triggers_voltage() {
     // Ставим начальное 10, leak сделает 0, dendrite добавит 150 -> итог 150.
     let mut soma = SomaState { voltage: 10, ..Default::default() };
     let mut dendrites = [
-        // axon 1, seg 0 -> target_packed = (1 << 10) | 0
-        DendriteState { target_packed: 1024, weight: 150, timer: 0 }
+        // axon 1, seg 0 -> target_packed = (0 << 24) | (1 + 1) = 2
+        DendriteState { target_packed: 2, weight: 150, timer: 0 }
     ];
     let mut heads = [0, 2]; // axon 0 (dummy), axon 1 (head=2)
     
@@ -249,7 +249,7 @@ fn test_full_spike_cycle() {
     let p = test_neuron(); // thresh=200, prop_len=3
     let mut soma = SomaState::default();
     let mut dendrites = [
-        DendriteState { target_packed: (1 << 10) | 5 /* axon 1, seg 5 */, weight: 210, timer: 0 }
+        DendriteState { target_packed: (5 << 24) | (1 + 1) /* axon 1, seg 5 */, weight: 210, timer: 0 }
     ];
     let mut heads = [AXON_SENTINEL, 4]; // My axon is 0, target is 1
     

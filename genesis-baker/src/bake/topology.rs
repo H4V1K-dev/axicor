@@ -28,7 +28,6 @@ pub fn build_local_topology_internal(
     let positions = generate_placement_from_config(
         anatomy,
         shard_cfg,
-        sim.simulation.global_density,
         master_seed,
         &type_names,
     );
@@ -71,13 +70,20 @@ pub fn build_local_topology_internal(
                     // Центр пикселя с защитой от выхода за границы
                     let start_x = ((px as u32 * zone_w) / matrix.width as u32).min(zone_w.saturating_sub(1));
                     let start_y = ((py as u32 * zone_d) / matrix.height as u32).min(zone_d.saturating_sub(1));
-                    let start_z = zone_h.saturating_sub(1);
+                    // [DOD FIX] Парсим entry_z для правильного роутинга кабелей
+                    let (start_z, z_step, last_dir) = match matrix.entry_z.as_str() {
+                        "bottom" => (0, 1i32, glam::Vec3::Z),
+                        "mid" => (zone_h / 2, 1i32, glam::Vec3::Z),
+                        _ => (zone_h.saturating_sub(1), -1i32, glam::Vec3::NEG_Z), // "top"
+                    };
 
-                    // Проращиваем кабель вертикально вниз на 15 вокселей
                     let mut segments = Vec::new();
-                    let length = 15.min(start_z + 1);
+                    let length = 15.min(zone_h);
+                    let mut final_z = start_z;
+                    
                     for i in 0..length {
-                        let z = start_z.saturating_sub(i);
+                        let z = (start_z as i32 + i as i32 * z_step).clamp(0, zone_h.saturating_sub(1) as i32) as u32;
+                        final_z = z;
                         segments.push(PackedPosition::pack_raw(start_x, start_y, z, 0).0);
                     }
 
@@ -86,10 +92,10 @@ pub fn build_local_topology_internal(
                         type_idx: 0, // Virtual Type mask
                         tip_x: start_x,
                         tip_y: start_y,
-                        tip_z: start_z.saturating_sub(length),
+                        tip_z: final_z,
                         length_segments: segments.len() as u32,
                         segments,
-                        last_dir: glam::Vec3::NEG_Z,
+                        last_dir,
                     });
                 }
             }
@@ -104,6 +110,12 @@ pub fn build_local_topology_internal(
     if !io.outputs.is_empty() {
         println!("[baker] Processing Output Maps for {}...", zone_name);
         for matrix in &io.outputs {
+            let target_type_id = if matrix.target_type.is_empty() {
+                None
+            } else {
+                type_names.iter().position(|n| n == &matrix.target_type).map(|id| id as u8)
+            };
+            
             let gxo = build_gxo_mapping(
                 &matrix.name,
                 zone_name,
@@ -113,6 +125,7 @@ pub fn build_local_topology_internal(
                 shard_cfg.dimensions.d,
                 &packed_positions,
                 matrix.stride as u8,
+                target_type_id,
             );
             gxo_matrices.push(gxo);
         }
@@ -123,7 +136,8 @@ pub fn build_local_topology_internal(
         let (mut ghost_axons, _) = inject_ghost_axons(
             &ghost_packets,
             &positions,
-            const_mem,
+            // [DOD FIX] Заменили const_mem на neuron_types
+            neuron_types, 
             sim,
             &shard_bounds,
             master_seed,
@@ -181,11 +195,29 @@ pub fn build_local_topology_internal(
             burst.h0 = init_val;
             shard.axon_heads[i] = burst;
 
-            shard.axon_tips_uvw[i] = (ax.tip_z << 20) | (ax.tip_y << 10) | ax.tip_x;
+            // [DOD FIX] 4-bit Type Mask goes to bits [31..28]
+            shard.axon_tips_uvw[i] = ((ax.type_idx as u32 & 0x0F) << 28) 
+                                   | (ax.tip_z << 22) 
+                                   | (ax.tip_y << 11) 
+                                   | ax.tip_x;
             let dx = (ax.last_dir.x * 127.0).clamp(-127.0, 127.0) as i8 as u32;
             let dy = (ax.last_dir.y * 127.0).clamp(-127.0, 127.0) as i8 as u32;
             let dz = (ax.last_dir.z * 127.0).clamp(-127.0, 127.0) as i8 as u32;
             shard.axon_dirs_xyz[i] = (dz << 16) | (dy << 8) | dx;
+            
+            // Копируем пути в плоскую матрицу
+            let len = ax.length_segments.min(256) as usize;
+            shard.axon_lengths[i] = len as u8;
+            
+            let dst_offset = i * genesis_core::layout::MAX_SEGMENTS_PER_AXON;
+            
+            // Только если длина > 0, переносим сегменты
+            if len > 0 {
+                // GrownAxon хранит все сегменты (или только до ограничения)
+                let copy_len = ax.segments.len().min(len);
+                shard.axon_paths[dst_offset..dst_offset + copy_len]
+                    .copy_from_slice(&ax.segments[..copy_len]);
+            }
         }
     }
     println!("[baker] ✓ Axon heads initialized (v_seg={})", v_seg);

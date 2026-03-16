@@ -1,6 +1,6 @@
 [package]
 name = "genesis-core"
-description = "Shared types, constants and SoA layout for Genesis"
+description = "Shared types, constants and SoA layout for Axicor"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -10,3 +10,6 @@ license.workspace = true
 bytemuck = { version = "1.25.0", features = ["derive"] }
 serde = { workspace = true }
 toml = { workspace = true }
+
+[features]
+amd = []

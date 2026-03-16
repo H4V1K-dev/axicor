@@ -1,6 +1,6 @@
 [package]
 name = "genesis-baker"
-description = "TOML config compiler → binary .state/.axons blobs"
+description = "TOML config compiler → binary .state/.axons blobs for Axicor"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -30,3 +30,6 @@ rand_chacha = "0.3"
 bytemuck = "1.14"
 memmap2 = "0.9"
 genesis-compute = { path = "../genesis-compute" }
+
+[features]
+amd = ["genesis-core/amd", "genesis-compute/amd"]

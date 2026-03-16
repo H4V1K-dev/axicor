@@ -1,15 +1,6 @@
 use genesis_compute::ffi;
 use std::ptr;
 
-/// Описание одной связи: аксон зоны-источника → слот ghost-аксона зоны назначения.
-/// Используется для построения IntraGpuChannel из .ghosts файла Baker'а.
-pub struct GhostLink {
-    pub src_zone_idx: usize,
-    pub src_axon_id: u32,
-    pub dst_zone_idx: usize,
-    pub dst_ghost_id: u32,
-}
-
 /// Канал синхронизации между зонами на одном GPU.
 ///
 /// Хранит две параллельных таблицы (src → dst) в VRAM.
@@ -17,13 +8,16 @@ pub struct GhostLink {
 ///   - Legacy: передать два среза `&[u32]` напрямую.
 ///   - Новый: передать `Vec<GhostLink>` и получить автоматическую разбивку.
 pub struct IntraGpuChannel {
+    pub src_zone_hash: u32,    // [DOD FIX] Жесткая привязка к источнику
+    pub target_zone_hash: u32, // [DOD FIX] Жесткая привязка к приемнику
+    pub capacity: u32,
+    pub count: u32,
+
     pub src_indices_host: Vec<u32>,
     pub dst_indices_host: Vec<u32>,
-    pub src_zone_indices: Vec<usize>,  // Индекс зоны-источника (per link)
-    pub dst_zone_indices: Vec<usize>,  // Индекс зоны-назначения (per link)
-    pub src_indices_d: *mut u32,       // VRAM
-    pub dst_indices_d: *mut u32,       // VRAM
-    pub count: u32,
+
+    pub src_indices_d: *mut u32,
+    pub dst_indices_d: *mut u32,
 }
 
 unsafe impl Send for IntraGpuChannel {}
@@ -39,60 +33,42 @@ impl Drop for IntraGpuChannel {
 }
 
 impl IntraGpuChannel {
-    /// Новый API: строит канал из списка `GhostLink`.
-    /// Caller после этого вызывает `sync_spikes(&mut zones)` на барьере BSP.
-    pub unsafe fn new(links: Vec<GhostLink>) -> Self {
-        let src_axon_ids:  Vec<u32>   = links.iter().map(|l| l.src_axon_id).collect();
-        let dst_ghost_ids: Vec<u32>   = links.iter().map(|l| l.dst_ghost_id).collect();
-        let src_zone_ids:  Vec<usize> = links.iter().map(|l| l.src_zone_idx).collect();
-        let dst_zone_ids:  Vec<usize> = links.iter().map(|l| l.dst_zone_idx).collect();
-
-        let count = src_axon_ids.len() as u32;
-        let bytes = (count as usize) * 4;
-
-        let src_d = if bytes > 0 { ffi::gpu_malloc(bytes) as *mut u32 } else { ptr::null_mut() };
-        let dst_d = if bytes > 0 { ffi::gpu_malloc(bytes) as *mut u32 } else { ptr::null_mut() };
-
-        if bytes > 0 {
-            let stream = ptr::null_mut();
-            ffi::gpu_memcpy_host_to_device_async(src_d as *mut _, src_axon_ids.as_ptr() as *const _, bytes, stream);
-            ffi::gpu_memcpy_host_to_device_async(dst_d as *mut _, dst_ghost_ids.as_ptr() as *const _, bytes, stream);
-            ffi::gpu_stream_synchronize(stream);
-        }
-
-        Self {
-            src_indices_host: src_axon_ids,
-            dst_indices_host: dst_ghost_ids,
-            src_zone_indices: src_zone_ids,
-            dst_zone_indices: dst_zone_ids,
-            src_indices_d: src_d,
-            dst_indices_d: dst_d,
-            count,
-        }
-    }
-
-    /// Legacy API: raw index slices (kein GhostLink Overhead).
-    pub unsafe fn from_slices(src_indices: &[u32], dst_indices: &[u32]) -> Self {
+    pub unsafe fn from_slices(
+        src_zone_hash: u32, 
+        target_zone_hash: u32, 
+        src_indices: &[u32], 
+        dst_indices: &[u32], 
+        capacity: u32
+    ) -> Self {
         assert_eq!(src_indices.len(), dst_indices.len());
         let count = src_indices.len() as u32;
-        let bytes = (count as usize) * 4;
+        assert!(count <= capacity, "FATAL: Initial connections exceed capacity");
 
-        let src_d = ffi::gpu_malloc(bytes) as *mut u32;
-        let dst_d = ffi::gpu_malloc(bytes) as *mut u32;
+        let bytes_capacity = (capacity as usize) * 4;
+        let src_d = genesis_compute::ffi::gpu_malloc(bytes_capacity) as *mut u32;
+        let dst_d = genesis_compute::ffi::gpu_malloc(bytes_capacity) as *mut u32;
 
         let stream = ptr::null_mut();
-        ffi::gpu_memcpy_host_to_device_async(src_d as *mut _, src_indices.as_ptr() as *const _, bytes, stream);
-        ffi::gpu_memcpy_host_to_device_async(dst_d as *mut _, dst_indices.as_ptr() as *const _, bytes, stream);
-        ffi::gpu_stream_synchronize(stream);
+        if count > 0 {
+            let bytes_active = (count as usize) * 4;
+            genesis_compute::ffi::gpu_memcpy_host_to_device_async(src_d as *mut _, src_indices.as_ptr() as *const _, bytes_active, stream);
+            genesis_compute::ffi::gpu_memcpy_host_to_device_async(dst_d as *mut _, dst_indices.as_ptr() as *const _, bytes_active, stream);
+        }
+
+        let mut src_host = Vec::with_capacity(capacity as usize);
+        src_host.extend_from_slice(src_indices);
+        let mut dst_host = Vec::with_capacity(capacity as usize);
+        dst_host.extend_from_slice(dst_indices);
 
         Self {
-            src_indices_host:  src_indices.to_vec(),
-            dst_indices_host:  dst_indices.to_vec(),
-            src_zone_indices:  (0..count as usize).map(|_| 0).collect(),
-            dst_zone_indices:  (0..count as usize).map(|_| 1).collect(),
+            src_zone_hash,
+            target_zone_hash,
+            capacity,
+            count,
+            src_indices_host: src_host,
+            dst_indices_host: dst_host,
             src_indices_d: src_d,
             dst_indices_d: dst_d,
-            count,
         }
     }
 
@@ -107,5 +83,43 @@ impl IntraGpuChannel {
             self.count,
             stream
         );
+    }
+
+    // Выкидываем src_zone_idx и dst_zone_idx из push_route
+    pub unsafe fn push_route(&mut self, src_axon: u32, dst_ghost: u32, stream: genesis_compute::ffi::CudaStream) {
+        assert!(self.count < self.capacity, "FATAL: IntraGPU Routing capacity exceeded.");
+        let idx = self.count as usize;
+
+        self.src_indices_host.push(src_axon);
+        self.dst_indices_host.push(dst_ghost);
+
+        let src_ptr = self.src_indices_host.as_ptr().add(idx);
+        let dst_ptr = self.dst_indices_host.as_ptr().add(idx);
+
+        genesis_compute::ffi::gpu_memcpy_host_to_device_async(self.src_indices_d.add(idx) as *mut _, src_ptr as *const _, 4, stream);
+        genesis_compute::ffi::gpu_memcpy_host_to_device_async(self.dst_indices_d.add(idx) as *mut _, dst_ptr as *const _, 4, stream);
+
+        self.count += 1;
+    }
+
+    pub unsafe fn prune_route(&mut self, target_ghost_id: u32, stream: genesis_compute::ffi::CudaStream) {
+        let Some(idx) = self.dst_indices_host.iter().position(|&g| g == target_ghost_id) else { return; };
+        let last_idx = (self.count - 1) as usize;
+
+        self.src_indices_host.swap(idx, last_idx);
+        self.dst_indices_host.swap(idx, last_idx);
+
+        self.src_indices_host.pop();
+        self.dst_indices_host.pop();
+
+        if idx != last_idx {
+            let src_ptr = self.src_indices_host.as_ptr().add(idx);
+            let dst_ptr = self.dst_indices_host.as_ptr().add(idx);
+
+            genesis_compute::ffi::gpu_memcpy_host_to_device_async(self.src_indices_d.add(idx) as *mut _, src_ptr as *const _, 4, stream);
+            genesis_compute::ffi::gpu_memcpy_host_to_device_async(self.dst_indices_d.add(idx) as *mut _, dst_ptr as *const _, 4, stream);
+        }
+
+        self.count -= 1;
     }
 }

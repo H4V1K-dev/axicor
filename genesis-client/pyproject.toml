@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "genesis-client"
+version = "0.1.0"
+description = "Genesis HFT Engine Python Client (Zero-Copy Data Plane)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "toml",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["genesis*"]

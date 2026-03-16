@@ -96,6 +96,36 @@ pub struct AxonSegmentGrid {
 }
 
 impl AxonSegmentGrid {
+    pub fn build_from_paths(lengths: &[u8], paths: &[u32], total_axons: usize, cell_size_voxels: u32) -> Self {
+        let cell_size = cell_size_voxels.max(1);
+        let mut cells: HashMap<u64, Vec<SegmentRef>> = HashMap::with_capacity(total_axons * 10);
+
+        // Обратный цикл: внешние аксоны (хвост) приоритетнее занимают слоты
+        for axon_id in (0..total_axons).rev() {
+            let len = lengths[axon_id] as usize;
+            let offset = axon_id * 256;
+            
+            for seg_idx in 0..len {
+                let packed = paths[offset + seg_idx];
+                if packed == 0 { continue; }
+
+                let pos = PackedPosition(packed);
+                let cx = (pos.x() as u32) / cell_size;
+                let cy = (pos.y() as u32) / cell_size;
+                let cz = (pos.z() as u32) / cell_size;
+
+                let hash = SpatialGrid::hash_cell(cx, cy, cz);
+                cells.entry(hash).or_default().push(SegmentRef {
+                    axon_id: axon_id as u32,
+                    seg_idx: seg_idx as u16,
+                    type_idx: pos.type_id(),
+                });
+            }
+        }
+
+        Self { cell_size, cells }
+    }
+
     pub fn build_from_axons(axons: &[GrownAxon], cell_size_voxels: u32) -> Self {
         let cell_size = cell_size_voxels.max(1);
         let est_segs: usize = axons.iter().map(|a| a.segments.len()).sum();

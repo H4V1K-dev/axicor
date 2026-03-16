@@ -18,17 +18,18 @@
 pub const SHM_MAGIC: u32 = 0x47454E53; // "GENS"
 
 /// IPC protocol version. Bump on incompatible ShmHeader changes.
-pub const SHM_VERSION: u8 = 1;
+pub const SHM_VERSION: u8 = 2;
 
 pub const MAX_HANDOVERS_PER_NIGHT: usize = 10_000;
 
 use serde::{Serialize, Deserialize};
 
 /// Сетевой пакет межзональной передачи аксона (Half-Duplex SHM Data Plane).
-/// MUST remain exactly 16 bytes — SHM layout depends on this.
+/// MUST remain exactly 20 bytes — SHM layout depends on this.
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AxonHandoverEvent {
+    pub origin_zone_hash: u32, // <--- КРИТИЧНО: Обратный адрес для ACK!
     pub local_axon_id: u32,
     pub entry_x: u16,
     pub entry_y: u16,
@@ -37,17 +38,36 @@ pub struct AxonHandoverEvent {
     pub vector_z: i8,
     pub type_mask: u8,
     pub remaining_length: u16,
-    pub _padding: u16,
+    pub entry_z: u8, // [DOD FIX] Z-координата входа
+    pub _padding: u8,
 }
 const _: () = assert!(
-    std::mem::size_of::<AxonHandoverEvent>() == 16,
-    "AxonHandoverEvent must be 16 bytes for SHM layout"
+    std::mem::size_of::<AxonHandoverEvent>() == 20,
+    "AxonHandoverEvent must be 20 bytes for SHM layout"
 );
+
+// [DOD FIX] События структурной пластичности для Dynamic Capacity Routing
+
+/// Подтверждение от соседа, что Ghost-аксон создан. Содержит выделенный слот.
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AxonHandoverAck {
+    pub target_zone_hash: u32,
+    pub src_axon_id: u32,
+    pub dst_ghost_id: u32, // Индекс в VRAM соседа
+}
+
+/// Уведомление соседу (или себе), что связь разорвана и слот нужно очистить.
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AxonHandoverPrune {
+    pub target_zone_hash: u32,
+    pub dst_ghost_id: u32,
+}
 
 pub fn shm_name(zone_hash: u32) -> String {
     format!("genesis_shard_{:08X}", zone_hash)
 }
-
 /// Path to the shared memory file. On Unix: /dev/shm/name (or POSIX shm name).
 /// On Windows: temp_dir/name (file-backed mmap).
 pub fn shm_file_path(zone_hash: u32) -> std::path::PathBuf {
@@ -90,8 +110,9 @@ pub fn default_socket_port(zone_hash: u32) -> u16 {
 pub const fn shm_size(padded_n: usize) -> usize {
     let weights_bytes = padded_n * 128 * 2;
     let targets_bytes = padded_n * 128 * 4;
-    let handovers_bytes = MAX_HANDOVERS_PER_NIGHT * 16;
-    64 + weights_bytes + targets_bytes + handovers_bytes
+    let handovers_bytes = MAX_HANDOVERS_PER_NIGHT * std::mem::size_of::<AxonHandoverEvent>();
+    let flags_bytes = padded_n;
+    64 + weights_bytes + targets_bytes + handovers_bytes + flags_bytes
 }
 
 #[repr(C)]
@@ -110,7 +131,10 @@ pub struct ShmHeader {
     pub handovers_offset: u32,  // 36..40
     pub handovers_count: u32,   // 40..44
     pub zone_hash: u32,         // 44..48 [DOD FIX: Уникальный ID]
-    pub _padding: [u8; 16],     // 48..64 (Выравнивание кэш-линии)
+    pub prunes_offset: u32,         // 48..52
+    pub prunes_count: u32,          // 52..56
+    pub incoming_prunes_count: u32, // 56..60
+    pub flags_offset: u32,          // 60..64
 }
 
 
@@ -123,6 +147,8 @@ impl ShmHeader {
         let targets_offset = weights_offset + weights_bytes;
         let targets_bytes = padded_n * 128 * 4;
         let handovers_offset = targets_offset + targets_bytes;
+        let handovers_bytes = (MAX_HANDOVERS_PER_NIGHT * std::mem::size_of::<AxonHandoverEvent>()) as u32;
+        let flags_offset = handovers_offset + handovers_bytes;
 
         Self {
             magic: SHM_MAGIC,
@@ -138,7 +164,10 @@ impl ShmHeader {
             handovers_offset,
             handovers_count: 0,
             zone_hash,
-            _padding: [0; 16],
+            prunes_offset: 0,
+            prunes_count: 0,
+            incoming_prunes_count: 0,
+            flags_offset,
         }
     }
 
@@ -202,7 +231,7 @@ pub struct BakeRequest {
     pub zone_hash: u32,       // FNV-1a of zone name
     pub current_tick: u32,
     pub prune_threshold: i16,
-    pub _padding: u16,
+    pub max_sprouts: u16,     // [DOD FIX] Динамическое ограничение новых связей за ночь
 }
 
 const _: () = assert!(std::mem::size_of::<BakeRequest>() == 16, "BakeRequest must be 16 bytes");
@@ -507,6 +536,7 @@ pub struct RouteUpdate {
     pub new_ipv4: u32, // u32 representation of IPv4Addr
     pub new_port: u16,
     pub _padding: u16,
+    pub cluster_secret: u64, // [DOD FIX] Zero-Cost Auth
 }
 
-const _: () = assert!(std::mem::size_of::<RouteUpdate>() == 16);
+const _: () = assert!(std::mem::size_of::<RouteUpdate>() == 24);

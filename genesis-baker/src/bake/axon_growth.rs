@@ -2,7 +2,7 @@ use genesis_core::types::PackedPosition;
 use crate::bake::seed::{entity_seed, random_f32};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
-use genesis_core::config::blueprints::{GenesisConstantMemory, NeuronType};
+use genesis_core::config::blueprints::NeuronType;
 use crate::parser::simulation::SimulationConfig;
 use crate::parser::anatomy::Anatomy;
 
@@ -485,9 +485,9 @@ pub fn grow_single_axon(
 
     let length_segments = segments.len() as u32;
     let (final_x, final_y, final_z) = if let Some(last) = segments.last() {
-        let z = (last >> 20) & 0xFF;
-        let y = (last >> 10) & 0x3FF;
-        let x = last & 0x3FF;
+        let z = (last >> 22) & 0x3F;
+        let y = (last >> 11) & 0x7FF;
+        let x = last & 0x7FF;
         (x, y, z)
     } else {
         (soma_x, soma_y, soma_z)
@@ -528,7 +528,7 @@ pub fn init_axon_head(length_segments: u32, v_seg: u32) -> u32 {
 pub fn inject_ghost_axons(
     ghost_packets: &[GhostPacket],
     positions: &[PackedPosition],
-    _const_mem: &GenesisConstantMemory,
+    types: &[genesis_core::config::blueprints::NeuronType], // [DOD FIX] Проброс типов
     sim: &SimulationConfig,
     shard_bounds: &ShardBounds,
     master_seed: u64,
@@ -541,9 +541,9 @@ pub fn inject_ghost_axons(
     let mut outgoing: Vec<GhostPacket> = Vec::new();
 
     for packet in ghost_packets {
-        // TODO: Steering params — вынести в VariantParameters или CPU-конфиг
-        let fov_cos = (45.0_f32 / 2.0).to_radians().cos();
-        let max_search_radius_vox = sim.simulation.segment_length_voxels as f32 * 4.0;
+        // [DOD FIX] Больше никакого хардкода. Читаем физику владельца аксона!
+        let t_params = &types[packet.type_idx];
+        let fov_cos = (t_params.steering_fov_deg / 2.0).to_radians().cos();
 
         let current_pos = Vec3::new(
             packet.entry_x as f32,
@@ -556,27 +556,27 @@ pub fn inject_ghost_axons(
         let ghost_seed = master_seed
             .wrapping_add(packet.soma_idx as u64)
             .wrapping_add(packet.origin_shard_id as u64);
-            
-        let rng = ChaCha8Rng::seed_from_u64(ghost_seed);
+
+        let rng = rand_chacha::ChaCha8Rng::seed_from_u64(ghost_seed);
 
         use crate::bake::cone_tracing::ConeParams;
         let params = ConeParams {
-            radius_um: max_search_radius_vox * voxel_um as f32,
+            radius_um: t_params.steering_radius_um,
             fov_cos,
             owner_type: packet.type_idx as u8,
-            type_affinity: 0.5, // Ghost-аксоны: нейтральное сродство
+            type_affinity: t_params.type_affinity, // Применяем affinity из типа
         };
         let weights = SteeringWeights {
-            global: 0.6,
-            attract: 0.3,
-            noise: 0.1,
+            global: t_params.steering_weight_inertia,
+            attract: t_params.steering_weight_sensor,
+            noise: t_params.steering_weight_jitter,
         };
 
         let mut ctx = GrowthContext {
             current_pos_um,
             current_pos_vox: current_pos,
             forward_dir,
-            target_pos: None, // Ghost-аксоны летят по инерции
+            target_pos: None,
             remaining_steps: packet.remaining_steps,
             owner_type_idx: packet.type_idx as u8,
             soma_idx: packet.soma_idx,
@@ -699,17 +699,20 @@ mod tests {
             tick_duration_us = 100
             total_ticks = 1000
             master_seed = "TEST"
-            global_density = 0.05
             voxel_size_um = 25.0
             signal_speed_m_s = 0.5
+            segment_length_voxels = 2
             sync_batch_ticks = 10
+            axon_growth_max_steps = 100
         "#;
         let sim = SimulationConfig::parse(toml).unwrap();
         
+        let dummy_types = vec![];
+
         let (grown, outgoing) = inject_ghost_axons(
             &[],
             &positions,
-            &empty_const_mem,
+            &dummy_types,
             &sim,
             &mock_bounds(),
             0,
@@ -777,11 +780,12 @@ pub fn inject_handover_events(
             current_pos_um: Vec3::new(entry_x as f32, entry_y as f32, entry_z as f32) * voxel_um as f32,
             current_pos_vox: Vec3::new(entry_x as f32, entry_y as f32, entry_z as f32),
             forward_dir: entry_dir,
-            target_pos: None, // Handover: летим по инерции пока не поймаем гравитацию (или можно задать цель)
-            remaining_steps: sim.simulation.axon_growth_max_steps, // TODO: брать из события
+            target_pos: None,
+            // [DOD FIX] Берем остаток ресурса роста из сетевого события!
+            remaining_steps: ev.remaining_length as u32, 
             owner_type_idx: type_idx as u8,
-            soma_idx: usize::MAX, 
-            origin_shard_id: 0, // TODO: брать из события
+            soma_idx: usize::MAX,
+            origin_shard_id: 0, // Routing hash используется на уровне оркестратора
         };
 
         // Т.к. params зависят от типа, достанем их:

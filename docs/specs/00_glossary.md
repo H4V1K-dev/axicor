@@ -1,8 +1,8 @@
 # Genesis Architecture Glossary
 
-**Version:** 0.0.1 ***"Hello World"***  
-**Last Updated:** 2026-02-28  
-**Scope:** Complete terminology reference across all 10 Genesis specifications
+**Version:** 0.0.2 ***"Stable MVP"***  
+**Last Updated:** 2026-03-12  
+**Scope:** Complete terminology reference across all 11 Genesis specifications
 
 ---
 
@@ -101,6 +101,15 @@ Inter-zone synchronization primitive ensuring all zones complete Day Phase befor
 
 **See also:** Day Phase, Night Phase, Distributed Mode  
 **Specs:** 06_distributed.md (§6.2), 07_gpu_runtime.md (§7.5)
+
+---
+
+### Bare Metal Runtime (Genesis-Lite)
+
+A streamlined, C/C++ implementation of the Genesis compute kernel designed for microcontrollers (e.g., ESP32-S3) and embedded systems. Operates without a full OS, targeting direct hardware interactions.
+
+**See also:** ESP32, I/O Matrix  
+**Specs:** 10_hardware_backends.md (§3.1)
 
 ---
 
@@ -313,6 +322,15 @@ Genesis implements GLIF with 64-dimensional voltage state per neuron.
 
 ---
 
+### HIP / ROCm (AMD Backend)
+
+The C++ heterogeneous-compute interface (HIP) and open-source platform (ROCm) for AMD GPUs. Genesis targets HIP as its primary alternative to CUDA for server-grade hardware diversification.
+
+**See also:** Day Phase, GPU Runtime  
+**Specs:** 10_hardware_backends.md (§2.1), 07_gpu_runtime.md (§1.6)
+
+---
+
 ### GSOP (Growth, Stasis, Prune Operator)
 
 State machine controlling synapse lifespan:
@@ -444,6 +462,15 @@ Integrated via Euler method in UpdateNeurons kernel.
 
 ---
 
+### Neuromorphic Computing
+
+Hardware architectures that emulate biological neural structures (e.g., Intel Loihi). Genesis biospecs (GSOP, GLIF) are designed for future mapping onto event-driven, asynchronous neuromorphic silicon.
+
+**See also:** ASIC, GNM  
+**Specs:** 10_hardware_backends.md (§4.1)
+
+---
+
 ### PackedPosition
 
 Compact encoding of 3D neuron coordinates:
@@ -452,7 +479,7 @@ Bits    Field      Range       Use
 0-9     X          [0, 1023]   Grid column
 10-19   Y          [0, 1023]   Grid row
 20-29   Z          [0, 1023]   Layer depth
-30-31   reserved   —           Future extension
+30-31   reserved   -           Future extension
 ```
 
 Stored as u32. Enables coalesced GPU memory access (all positions in same cache line).
@@ -646,7 +673,7 @@ Packed encoding of synapse state (16 bits per synapse):
 ```
 Bits    Field       Type        Use
 0-3     variant     enum(4)     GSOP state (G/S/P/dormant)
-4-7     reserved    —           Growth substate
+4-7     reserved    -           Growth substate
 8-15    weight_idx  u8          Index into quantized weight table
 ```
 
@@ -740,38 +767,38 @@ E.g., SensoryCortex (1 zone) → HiddenCortex (1-2 zones) → MotorCortex (1 zon
 |---|---|---|---|---|
 | Active Tail | Anatomical Blueprint | Channel Trait | Day Phase | External I/O |
 | Axon Sentinel | Baking | Columnar Layout | Dense Index | ExternalIoHeader |
-| — | Blueprint | Cone Tracing | — | — |
-| — | Brain Shard | — | — | — |
-| — | BSP Barrier | — | — | — |
+| - | Blueprint | Cone Tracing | - | - |
+| - | Brain Shard | - | - | - |
+| - | BSP Barrier | - | - | - |
 
 | F | G | H | I | L |
 |---|---|---|---|---|
-| — | Genesis-Baker | Hodgkin-Huxley | I/O Matrix | LTM/WM Slot |
-| — | Genesis-Core | — | — | — |
-| — | Genesis-IDE | — | — | — |
-| — | Genesis-Runtime | — | — | — |
-| — | Ghost Axon | — | — | — |
-| — | Ghost Sync Kernel | — | — | — |
-| — | GLIF | — | — | — |
-| — | GSOP | — | — | — |
-| — | GXI | — | — | — |
-| — | GXO | — | — | — |
+| - | Genesis-Baker | Hodgkin-Huxley | I/O Matrix | LTM/WM Slot |
+| - | Genesis-Core | - | - | - |
+| - | Genesis-IDE | - | - | - |
+| - | Genesis-Runtime | - | - | - |
+| - | Ghost Axon | - | - | - |
+| - | Ghost Sync Kernel | - | - | - |
+| - | GLIF | - | - | - |
+| - | GSOP | - | - | - |
+| - | GXI | - | - | - |
+| - | GXO | - | - | - |
 
 | N | P | R | S | T |
 |---|---|---|---|---|
 | Neuron Model | PackedPosition | Readout Interface | Shard | TelemetryFrameHeader |
 | Night Phase | Pruning | RecordOutputs Kernel | Signal Physics | TelemetryServer |
-| — | — | — | SoA | Tick |
-| — | — | — | Spike | — |
-| — | — | — | Sprouting | — |
-| — | — | — | Segment | — |
+| - | - | - | SoA | Tick |
+| - | - | - | Spike | - |
+| - | - | - | Sprouting | - |
+| - | - | - | Segment | - |
 
 | U | V | W | Z |
 |---|---|---|---|
 | UpdateNeurons Kernel | VariantParameters | Warp Alignment | Zone |
-| — | Virtual Axon | — | — |
-| — | v_seg | — | — |
-| — | VramState | — | — |
+| - | Virtual Axon | - | - |
+| - | v_seg | - | - |
+| - | VramState | - | - |
 
 ---
 

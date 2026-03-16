@@ -99,6 +99,8 @@ pub struct ExternalIoServer {
     // R-STDP Dopamine Modulator (Global Reward Broadcast)
     pub global_dopamine: Arc<std::sync::atomic::AtomicI32>,
     pub dopamine_log_counter: AtomicU32,
+    pub telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
+    pub cluster_secret: u64, // [DOD FIX]
 }
 
 impl ExternalIoServer {
@@ -107,6 +109,8 @@ impl ExternalIoServer {
         io_contexts: Vec<(u32, ZoneIoContext)>,
         routing_table: Arc<RoutingTable>,
         socket: Arc<UdpSocket>,
+        telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
+        cluster_secret: u64, // [DOD FIX]
     ) -> Result<Self> {
         Ok(Self {
             is_sleeping,
@@ -116,6 +120,8 @@ impl ExternalIoServer {
             socket,
             global_dopamine: Arc::new(std::sync::atomic::AtomicI32::new(0)),
             dopamine_log_counter: AtomicU32::new(0),
+            telemetry,
+            cluster_secret,
         })
     }
 
@@ -148,19 +154,30 @@ impl ExternalIoServer {
             return;
         }
 
-        let header = unsafe { &*(payload.as_ptr() as *const ExternalIoHeader) };
+        // [DOD FIX] Safe unaligned stack read. Prevents SIGBUS on ARM/Xtensa.
+        let header = unsafe { std::ptr::read_unaligned(payload.as_ptr() as *const ExternalIoHeader) };
 
-        // [Step 19] RouteUpdate check
         if header.magic == genesis_core::ipc::ROUT_MAGIC {
             if payload.len() >= std::mem::size_of::<RouteUpdate>() {
-                let update = unsafe { &*(payload.as_ptr() as *const RouteUpdate) };
+                let update = unsafe { std::ptr::read_unaligned(payload.as_ptr() as *const RouteUpdate) };
+                
+                // [DOD FIX] O(1) Zero-Cost Auth
+                if update.cluster_secret != self.cluster_secret {
+                    self.telemetry.push_log(format!("⚠️ [Security] Unauthorized ROUT_MAGIC from unknown source"), crate::tui::state::LogLevel::Warning);
+                    return;
+                }
+                
+                // 1. Копируем текущую таблицу
                 let mut new_map = unsafe { (*self.routing_table.get_map_ptr()).clone() };
+                
+                // 2. Патчим маршрут
                 let ipv4 = std::net::Ipv4Addr::from(update.new_ipv4);
-                let new_addr = SocketAddr::from((ipv4, update.new_port));
-
+                let new_addr = std::net::SocketAddr::from((ipv4, update.new_port));
                 new_map.insert(update.zone_hash, new_addr);
+                
+                // 3. RCU Swap
                 unsafe { self.routing_table.update_routes(new_map); }
-                println!("[I/O Server] Route updated for zone 0x{:08X} -> {}", update.zone_hash, new_addr);
+                self.telemetry.push_log(format!("📡 [RCU] Dynamic Route Update: 0x{:08X} moved to {}", update.zone_hash, new_addr), crate::tui::state::LogLevel::Info);
             }
             return;
         }
@@ -174,7 +191,7 @@ impl ExternalIoServer {
         let ctx = match self.io_contexts.iter().find(|(h, _)| *h == header.zone_hash) {
             Some((_, ctx)) => ctx,
             None => {
-                println!("⚠️ [I/O Drop] Unknown zone hash 0x{:08X}", header.zone_hash);
+                self.telemetry.push_log(format!("⚠️ [I/O Drop] Unknown zone hash 0x{:08X}", header.zone_hash), crate::tui::state::LogLevel::Warning);
                 return;
             }
         };
@@ -182,7 +199,7 @@ impl ExternalIoServer {
         let offset = match ctx.matrix_offsets.get(&header.matrix_hash) {
             Some(&off) => off as usize,
             None => {
-                println!("⚠️ [I/O Drop] Unknown matrix hash 0x{:08X} for zone 0x{:08X}", header.matrix_hash, header.zone_hash);
+                self.telemetry.push_log(format!("⚠️ [I/O Drop] Unknown matrix hash 0x{:08X} for zone 0x{:08X}", header.matrix_hash, header.zone_hash), crate::tui::state::LogLevel::Warning);
                 return;
             }
         };
@@ -191,7 +208,7 @@ impl ExternalIoServer {
         let payload_data = &payload[payload_start..];
 
         if payload_data.len() != header.payload_size as usize {
-            println!("⚠️ [I/O Drop] Size mismatch. Header expects {}, actual payload is {}", header.payload_size, payload_data.len());
+            self.telemetry.push_log(format!("⚠️ [I/O Drop] Size mismatch. Header expects {}, actual payload is {}", header.payload_size, payload_data.len()), crate::tui::state::LogLevel::Warning);
             return;
         }
 
@@ -203,7 +220,7 @@ impl ExternalIoServer {
         if header.global_reward != 0 {
             let n = self.dopamine_log_counter.fetch_add(1, Ordering::Relaxed);
             if n % 100 == 0 {
-                println!("💉 [Dopamine] Reward Received: {} ({} packets)", header.global_reward, n + 1);
+                self.telemetry.push_log(format!("💉 [Dopamine] Reward Received: {} ({} packets)", header.global_reward, n + 1), crate::tui::state::LogLevel::Info);
             }
         }
     }

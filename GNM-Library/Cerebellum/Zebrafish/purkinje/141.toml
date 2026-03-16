@@ -1,0 +1,42 @@
+[[neuron_type]]
+name = "A2_5dpf_Arch_left-cerebelllum_trace1_2_b"
+is_inhibitory = true
+
+# Мембрана
+threshold = 42000
+rest_potential = 22000
+leak_rate = 200
+refractory_period = 19
+spontaneous_firing_period_ticks = 200
+
+# Адаптация и Тайминги
+homeostasis_penalty = 1000
+homeostasis_decay = 4
+synapse_refractory_period = 15
+signal_propagation_length = 20
+
+# Рост и Морфология
+steering_fov_deg = 60.0
+steering_radius_um = 100.0
+growth_vertical_bias = 0.3
+dendrite_radius_um = 150.0
+type_affinity = 0.5
+sprouting_weight_distance = 0.5
+sprouting_weight_power = 0.4
+sprouting_weight_explore = 0.12
+sprouting_weight_type = 0.2
+steering_weight_inertia = 0.6
+steering_weight_sensor = 0.3
+steering_weight_jitter = 0.1
+
+# Пластичность GSOP
+initial_synapse_weight = 300
+gsop_potentiation = 100
+gsop_depression = 64
+inertia_curve = [128, 123, 117, 112, 106, 100, 94, 87, 81, 73, 66, 58, 48, 38, 26, 2]
+prune_threshold = 25
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 128
+slot_decay_wm = 128
+ltm_slot_count = 64

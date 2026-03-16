@@ -1,4 +1,4 @@
-# 011 — Genesis CLI Dashboard (TUI)
+# 011 - Genesis CLI Dashboard (TUI) [PLANNED]
 
 > Runtime monitoring & control interface built with **ratatui** + **crossterm**.
 > Replaces raw `println!` output with a structured, dynamic terminal UI.
@@ -7,7 +7,7 @@
 
 ## 1. Обзор
 
-Genesis CLI Dashboard — **единственный интерфейс** между оператором и работающим runtime.
+Genesis CLI Dashboard - **единственный интерфейс** между оператором и работающим runtime.
 
 **Принципы:**
 | # | Принцип | Смысл |
@@ -15,7 +15,7 @@ Genesis CLI Dashboard — **единственный интерфейс** меж
 | 1 | **Zero disk I/O** | Вся телеметрия живёт в RAM (sliding window). Никаких логов на диск по умолчанию. |
 | 2 | **In-place rendering** | Один статичный экран, обновляемый 5 раз/сек. Терминал не скроллится. |
 | 3 | **Graceful fallback** | `--log` переключает в plain-text режим (для CI, piping, `tee`). |
-| 4 | **Data-driven** | Все виджеты — read-only представления `DashboardState` в RAM. |
+| 4 | **Data-driven** | Все виджеты - read-only представления `DashboardState` в RAM. |
 
 ---
 
@@ -164,7 +164,7 @@ Runtime пишет в `DashboardState` через `Arc<Mutex<>>`. TUI читае
 
 ---
 
-## 4. Панели — Детализация
+## 4. Панели - Детализация
 
 ### 4.1 Global System State
 
@@ -291,7 +291,7 @@ Gauge::default()
 
 ---
 
-## 5. Кнопка Create — Config Editor Sidebar (PLANNED, v2)
+## 5. Кнопка Create - Config Editor Sidebar (PLANNED, v2)
 
 > [!NOTE]
 > Не реализуется в MVP. Описана для полноты архитектуры.
@@ -404,16 +404,16 @@ genesis-runtime/src/
 
 | Feature | MVP (v1) | v2 |
 |---------|----------|-----|
-| Global State panel | ✅ | — |
+| Global State panel | ✅ | - |
 | Core Loop sparkline | ✅ | Kernel timing (CUDA events) |
 | Zone table | ✅ (static) | Scroll, click-to-inspect |
 | I/O panel + alerts | ✅ | Per-matrix breakdown |
-| Start / Stop | ✅ | — |
+| Start / Stop | ✅ | - |
 | Create sidebar | Dimmed button | Full config editor |
 | Load dialog | Dimmed button | File picker |
 | Event log | ✅ (auto-scroll) | Manual scroll, search |
-| `--log` fallback | ✅ | — |
-| Responsive layout | ✅ (2 breakpoints) | — |
+| `--log` fallback | ✅ | - |
+| Responsive layout | ✅ (2 breakpoints) | - |
 
 ---
 
@@ -423,7 +423,7 @@ genesis-runtime/src/
 |----------|-----------|
 | [07_gpu_runtime.md](07_gpu_runtime.md) | Day/Night Phase loop that feeds metrics |
 | [08_io_matrix.md](08_io_matrix.md) | UDP I/O counters, oversized packet handling |
-| [010_ide.md](010_ide.md) | 3D IDE — complementary to CLI dashboard |
+| [08_ide.md](08_ide.md) | 3D IDE - complementary to CLI dashboard |
 | [02_configuration.md](02_configuration.md) | Config structure for Create sidebar |
 
 ---

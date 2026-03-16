@@ -99,6 +99,7 @@ pub struct VramState {
     pub ptrs:        ShardVramPtrs,
     pub padded_n:    u32,
     pub total_axons: u32,
+    pub total_ghosts: u32,
 }
 
 unsafe impl Send for VramState {}
@@ -106,7 +107,7 @@ unsafe impl Sync for VramState {}
 
 impl VramState {
     /// Аллоцирует VRAM для шарда. Паникует при ошибке CUDA — это Fail-Fast политика.
-    pub fn allocate(padded_n: u32, total_axons: u32) -> Self {
+    pub fn allocate(padded_n: u32, total_axons: u32, total_ghosts: u32) -> Self {
         let mut ptrs = ShardVramPtrs {
             soma_voltage:     std::ptr::null_mut(),
             soma_flags:       std::ptr::null_mut(),
@@ -120,7 +121,12 @@ impl VramState {
         };
         let err = unsafe { ffi::cu_allocate_shard(padded_n, total_axons, &mut ptrs) };
         assert_eq!(err, 0, "FATAL: cu_allocate_shard failed (cudaError={})", err);
-        Self { ptrs, padded_n, total_axons }
+        Self { ptrs, padded_n, total_axons, total_ghosts }
+    }
+
+    // [DOD FIX] Virtual axons start after local AND ghosts
+    pub fn virtual_offset(&self) -> u32 {
+        self.padded_n + self.total_ghosts 
     }
 
     /// Zero-Copy DMA: заливает плоский .state блоб в VRAM.
@@ -145,9 +151,9 @@ impl VramState {
     /// Только аксоны хранятся отдельно: загружает `axon_heads` напрямую.
     pub fn upload_axon_heads(&self, axon_heads_blob: &[u8]) {
         let expected = (self.total_axons as usize) * std::mem::size_of::<genesis_core::layout::BurstHeads8>();
-        assert_eq!(
-            axon_heads_blob.len(), expected,
-            "FATAL: axon_heads blob size mismatch: got {} expected {}",
+        assert!(
+            axon_heads_blob.len() >= expected,
+            "FATAL: axon_heads blob size mismatch: got {} expected at least {}",
             axon_heads_blob.len(), expected
         );
         let err = unsafe {

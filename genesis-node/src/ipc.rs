@@ -79,7 +79,8 @@ impl BakerClient {
         _padded_n: usize,
         timeout: Duration,
         prune_threshold: i16,
-    ) -> Result<()> {
+        max_sprouts: u16,
+    ) -> Result<Vec<genesis_core::ipc::AxonHandoverAck>> {
         if handovers.len() > genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT {
             bail!("Too many handovers: {} > {}", handovers.len(), genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT);
         }
@@ -102,7 +103,7 @@ impl BakerClient {
             zone_hash: self.zone_hash,
             current_tick: 0,
             prune_threshold,
-            _padding: 0,
+            max_sprouts,
         };
 
         unsafe {
@@ -119,13 +120,26 @@ impl BakerClient {
         stream.read_exact(&mut ack).context("Waiting for baker BKOK")?;
         let magic_resp = u32::from_le_bytes(ack);
 
-        if magic_resp == genesis_core::ipc::BAKE_READY_MAGIC {
-            self.set_state(ShmState::Idle);
-            Ok(())
-        } else {
+        if magic_resp != genesis_core::ipc::BAKE_READY_MAGIC {
             self.set_state(ShmState::Idle);
             bail!("Baker daemon returned error magic: {:08X}", magic_resp);
         }
+
+        // Читаем ACKs
+        let mut count_buf = [0u8; 4];
+        stream.read_exact(&mut count_buf).context("Reading ACK count")?;
+        let ack_count = u32::from_le_bytes(count_buf) as usize;
+        
+        let mut acks = vec![genesis_core::ipc::AxonHandoverAck { target_zone_hash: 0, src_axon_id: 0, dst_ghost_id: 0 }; ack_count];
+        if ack_count > 0 {
+            let bytes = unsafe { 
+                std::slice::from_raw_parts_mut(acks.as_mut_ptr() as *mut u8, ack_count * std::mem::size_of::<genesis_core::ipc::AxonHandoverAck>()) 
+            };
+            stream.read_exact(bytes).context("Reading ACK payloads")?;
+        }
+
+        self.set_state(ShmState::Idle);
+        Ok(acks)
     }
 
     #[cfg(unix)]

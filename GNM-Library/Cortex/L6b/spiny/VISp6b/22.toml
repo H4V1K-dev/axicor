@@ -1,0 +1,42 @@
+[[neuron_type]]
+name = "L6b_spiny_VISp6b_22"
+is_inhibitory = false
+
+# Мембрана
+threshold = 36187
+rest_potential = 22846
+leak_rate = 266
+refractory_period = 8
+spontaneous_firing_period_ticks = 872
+
+# Адаптация и Тайминги
+homeostasis_penalty = 1000
+homeostasis_decay = 2
+synapse_refractory_period = 15
+signal_propagation_length = 19
+
+# Рост и Морфология
+steering_fov_deg = 34.4
+steering_radius_um = 66.7
+growth_vertical_bias = 0.95
+dendrite_radius_um = 250.0
+type_affinity = 0.8
+sprouting_weight_distance = 0.5
+sprouting_weight_power = 0.4
+sprouting_weight_explore = 0.11
+sprouting_weight_type = 0.2
+steering_weight_inertia = 0.5
+steering_weight_sensor = 0.4
+steering_weight_jitter = 0.1
+
+# Пластичность GSOP
+initial_synapse_weight = 93
+gsop_potentiation = 60
+gsop_depression = 41
+inertia_curve = [128, 123, 118, 113, 108, 103, 97, 91, 85, 78, 71, 63, 54, 43, 30, 3]
+prune_threshold = 25
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 96
+slot_decay_wm = 190
+ltm_slot_count = 103

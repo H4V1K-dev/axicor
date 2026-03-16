@@ -4,10 +4,13 @@ use std::sync::Arc;
 
 // [DOD] AxonHandoverEvent определён в genesis-core для доступа из baker-daemon
 pub use genesis_core::ipc::AxonHandoverEvent;
+pub use genesis_core::ipc::AxonHandoverPrune;
+pub use genesis_core::ipc::AxonHandoverAck;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum GeometryRequest {
     BulkHandover(Vec<AxonHandoverEvent>),
+    BulkAck(Vec<AxonHandoverAck>),
     Prune(u32),
 }
 
@@ -15,21 +18,6 @@ pub enum GeometryRequest {
 pub enum GeometryResponse {
     Ack(AxonHandoverAck),
     Ok,
-}
-
-#[repr(C, packed)]
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AxonHandoverPrune {
-    pub magic: u32,         // 0x44454144 ("DEAD")
-    pub ghost_id: u32,      
-}
-
-#[repr(C, packed)]
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AxonHandoverAck {
-    pub magic: u32,         // 0x41434B48 ("ACKH")
-    pub local_axon_id: u32, 
-    pub ghost_id: u32,      
 }
 
 pub struct SlowPathQueues {

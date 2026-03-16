@@ -91,7 +91,7 @@ impl TelemetryServer {
     pub async fn start(port: u16) -> Arc<TelemetrySwapchain> {
         let server = Arc::new(Self::new(1024 * 1024).unwrap());
         let server_clone = server.clone();
-        let addr = format!("0.0.0.0:{}", port);
+        let addr = format!("127.0.0.1:{}", port); // [DOD FIX] Security by default
         
         tokio::spawn(async move {
             let _ = server_clone.run(&addr).await;
@@ -165,8 +165,8 @@ async fn websocket_stream(mut socket: WebSocket, server: Arc<TelemetryServer>) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use genesis_core::ipc::TELE_MAGIC;
+    use super::TELE_MAGIC;
+    use genesis_core::ipc::TelemetryFrameHeader;
 
     #[test]
     fn test_telemetry_frame_packing() {

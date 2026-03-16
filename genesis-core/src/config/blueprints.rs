@@ -18,6 +18,9 @@ pub struct NeuronType {
     pub threshold: i32,
     pub rest_potential: i32,
     pub leak_rate: i32,
+    
+    #[serde(default)]
+    pub spontaneous_firing_period_ticks: u32,
 
     // --- Тайминги (u8, Ticks) ---
     pub refractory_period: u8,
@@ -79,12 +82,11 @@ pub struct NeuronType {
     pub slot_decay_ltm: u8,
     pub slot_decay_wm: u8,
 
-    #[serde(default = "default_ltm_slot_count")]
     pub ltm_slot_count: u8,
 
-    // --- Plasticity Inertia (16 рангов) ---
+    // --- Plasticity Inertia (15 рангов) ---
     #[serde(default = "default_inertia_curve")]
-    pub inertia_curve: [u8; 16],
+    pub inertia_curve: [u8; 15],
 
     // --- GSOP ---
     #[serde(default = "default_gsop_pot")]
@@ -130,9 +132,8 @@ fn default_sprouting_power() -> f32 { 0.4 }
 fn default_sprouting_exp() -> f32 { 0.1 }
 fn default_sprouting_type() -> f32 { 0.1 }
 fn default_prune_threshold() -> i16 { 15 }
-fn default_ltm_slot_count() -> u8 { 80 }
-fn default_inertia_curve() -> [u8; 16] {
-    [128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8]
+fn default_inertia_curve() -> [u8; 15] {
+    [128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16]
 }
 
 impl NeuronType {

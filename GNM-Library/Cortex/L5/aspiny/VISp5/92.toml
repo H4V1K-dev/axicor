@@ -1,0 +1,42 @@
+[[neuron_type]]
+name = "L5_aspiny_VISp5_92"
+is_inhibitory = true
+
+# Мембрана
+threshold = 19437
+rest_potential = 6560
+leak_rate = 112
+refractory_period = 20
+spontaneous_firing_period_ticks = 158
+
+# Адаптация и Тайминги
+homeostasis_penalty = 10000
+homeostasis_decay = 15
+synapse_refractory_period = 15
+signal_propagation_length = 21
+
+# Рост и Морфология
+steering_fov_deg = 147.2
+steering_radius_um = 33.0
+growth_vertical_bias = 0.22
+dendrite_radius_um = 150.0
+type_affinity = 0.2
+sprouting_weight_distance = 0.7
+sprouting_weight_power = 0.3
+sprouting_weight_explore = 0.3
+sprouting_weight_type = 0.3
+steering_weight_inertia = 0.2
+steering_weight_sensor = 0.6
+steering_weight_jitter = 0.2
+
+# Пластичность GSOP
+initial_synapse_weight = 386
+gsop_potentiation = 123
+gsop_depression = 71
+inertia_curve = [128, 120, 112, 104, 96, 88, 80, 71, 63, 55, 46, 38, 29, 21, 12, 2]
+prune_threshold = 25
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 128
+slot_decay_wm = 128
+ltm_slot_count = 64

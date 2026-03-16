@@ -11,12 +11,12 @@ use genesis_core::config::blueprints::BlueprintsConfig;
 use genesis_core::constants::MAX_DENDRITE_SLOTS;
 use genesis_core::layout::BurstHeads8;
 
-/// Parses bytes to Vec<u32> without requiring alignment (avoids bytemuck cast_slice).
+/// Parses bytes to Vec<u32> without requiring alignment (avoids bytemuck cast_slice on Windows).
 fn bytes_to_u32_vec(bytes: &[u8]) -> Vec<u32> {
     bytes.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect()
 }
 
-/// Parses bytes to Vec<BurstHeads8> without requiring 32-byte alignment.
+/// Parses bytes to Vec<BurstHeads8> without requiring 32-byte alignment (Windows-safe).
 fn bytes_to_burst_heads(bytes: &[u8]) -> Vec<BurstHeads8> {
     bytes.chunks_exact(32)
         .map(|chunk| BurstHeads8 {
@@ -31,6 +31,7 @@ fn bytes_to_burst_heads(bytes: &[u8]) -> Vec<BurstHeads8> {
         })
         .collect()
 }
+
 struct NightPhaseContext {
     _baked_dir: PathBuf,
     _layer_ranges: Vec<genesis_baker::bake::axon_growth::LayerZRange>,
@@ -46,21 +47,16 @@ struct NightPhaseContext {
     /// Максимальное количество аксонов (включая ghost capacity)
     _total_axons_max: u32,
     
-    // [Шаг 4] Геометрия аксонов, загруженная один раз при старте
-    /// axon_tips_uvw: Vec<u32> — упакованные Z|Y|X координаты кончиков (по одному на аксон)
-    _axon_tips_uvw: Vec<u32>,
-    /// axon_dirs_xyz: Vec<u32> — упакованные направления (по одному на аксон)
-    _axon_dirs_xyz: Vec<u32>,
-    /// axon_heads: Vec<genesis_core::layout::BurstHeads8> — состояние аксонных голов (для инициализации новых ghost аксонов)
-    _axon_heads: Vec<genesis_core::layout::BurstHeads8>,
+    _total_ghosts: u32,
+    _max_x: u32,
+    _max_y: u32,
     
-    // [Шаг 4] soma_to_axon маппинг для интеграции новых ghost axons 
-    /// soma_to_axon: Vec<u32> — маппинг soma_idx → axon_idx
+    _axon_heads: Vec<genesis_core::layout::BurstHeads8>,
     _soma_to_axon: Vec<u32>,
 
-    // [Phase 41.2] Types Cache (1 byte per axon) and Whitelist bitmasks
-    _neuron_types_cache: Vec<u8>,
-    _whitelist_masks: [u16; 16],
+    _geom_mmap: memmap2::MmapMut,
+    _paths_mmap: memmap2::MmapMut,
+    _pos_mmap: memmap2::Mmap,
 }
 
 #[derive(Parser)]
@@ -88,14 +84,8 @@ fn main() {
     let padded_n = manifest.memory.padded_n as u32;
     let total_axons = (manifest.memory.virtual_axons + manifest.memory.ghost_capacity + manifest.memory.padded_n) as u32;
 
-    // 2. Вычисляем размер SHM
-    // ShmHeader (64 байта) + Weights (128 * N * 2 байта) + Targets (128 * N * 4 байта) + Handovers
-    let weights_size = padded_n * 128 * 2;
-    let targets_size = padded_n * 128 * 4;
-    // [DOD FIX] Резервируем память под плоский массив Handovers (160 KB)
-    let handovers_size = (genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT * 16) as u32; // 16 bytes per AxonHandoverEvent
-
-    let shm_len = 64 + weights_size + targets_size + handovers_size;
+    // 2. Вычисляем размер SHM используя централизованную функцию
+    let shm_len = genesis_core::ipc::shm_size(padded_n as usize);
 
     // 3. Создаем file-backed shared memory (cross-platform: Linux + Windows)
     let shm_path = shm_file_path(cli.zone_hash);
@@ -117,13 +107,13 @@ fn main() {
     println!("[Baker Daemon {:08X}] SHM Allocated: {} MB at {:?}. Listening for IPC...", cli.zone_hash, shm_len / 1024 / 1024, shm_path);
 
     // Загружаем blueprints.toml для Dale's Law
-    let blueprints = load_blueprints(&brain_toml);
+    let blueprints = load_blueprints(&brain_toml, zone_hash);
 
     println!("🧠 Genesis Baker Daemon starting (zone_hash={:08X})", zone_hash);
     println!("   Loaded {} neuron types", blueprints.as_ref().map(|b| b.neuron_types.len()).unwrap_or(0));
 
     // [DOD FIX] Кешируем конфиги для inject_ghost_axons — один раз при старте
-    let night_ctx = build_night_context(&cli.baked_dir, &brain_toml);
+    let mut night_ctx = build_night_context(&cli.baked_dir, &brain_toml, zone_hash);
 
     let socket_addr = default_socket_path(zone_hash);
 
@@ -140,7 +130,7 @@ fn main() {
         for stream in listener.incoming() {
             match stream {
                 Ok(s) => {
-                    if let Err(e) = run_night_phase(s, zone_hash, blueprints.as_ref(), night_ctx.as_ref(), mmap.as_mut_ptr() as *mut u8) {
+                    if let Err(e) = run_night_phase(s, zone_hash, blueprints.as_ref(), night_ctx.as_mut(), mmap.as_mut_ptr() as *mut u8) {
                         eprintln!("❌ Night Phase error: {}", e);
                     }
                 }
@@ -158,7 +148,7 @@ fn main() {
         for stream in listener.incoming() {
             match stream {
                 Ok(s) => {
-                    if let Err(e) = run_night_phase(s, zone_hash, blueprints.as_ref(), night_ctx.as_ref(), mmap.as_mut_ptr() as *mut u8) {
+                    if let Err(e) = run_night_phase(s, zone_hash, blueprints.as_ref(), night_ctx.as_mut(), mmap.as_mut_ptr() as *mut u8) {
                         eprintln!("❌ Night Phase error: {}", e);
                     }
                 }
@@ -168,39 +158,39 @@ fn main() {
     }
 }
 
-fn load_blueprints(brain_toml: &PathBuf) -> Option<BlueprintsConfig> {
-    // [DOD FIX] Читаем brain.toml и берём поле `blueprints` из первой зоны.
-    // Это универсальный путь — работает для любого Brain (CartPole, RobotBrain, etc.)
+fn load_blueprints(brain_toml: &PathBuf, zone_hash: u32) -> Option<BlueprintsConfig> {
+    // [DOD FIX] Parse brain.toml properly and find the zone matching our zone_hash
     if let Ok(src) = std::fs::read_to_string(brain_toml) {
-        // Ищем первую строку вида `blueprints = "..."` в файле
-        for line in src.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("blueprints") {
-                if let Some(after_eq) = trimmed.splitn(2, '=').nth(1) {
-                    let path_str = after_eq.trim().trim_matches('"');
-                    let bp_path = std::path::Path::new(path_str);
+        if let Ok(brain_config) = toml::from_str::<genesis_core::config::brain::BrainConfig>(&src) {
+            for zone in &brain_config.zones {
+                let zh = genesis_core::hash::fnv1a_32(zone.name.as_bytes());
+                if zh == zone_hash {
+                    let bp_path = std::path::Path::new(&zone.blueprints);
                     if bp_path.exists() {
                         match BlueprintsConfig::load(bp_path) {
                             Ok(bp) => {
-                                println!("   Blueprints loaded from {:?}", bp_path);
+                                println!("   Blueprints loaded from {:?} (zone: {})", bp_path, zone.name);
                                 return Some(bp);
                             }
                             Err(e) => eprintln!("⚠️  Failed to load blueprints from {:?}: {}", bp_path, e),
                         }
+                    } else {
+                        eprintln!("⚠️  Blueprints path {:?} does not exist for zone {}", bp_path, zone.name);
                     }
+                    break;
                 }
             }
         }
     }
 
-    eprintln!("⚠️  blueprints.toml not found — Dale's Law will use default weights");
+    eprintln!("⚠️  blueprints.toml not found for zone 0x{:08X} — Dale's Law will use default weights", zone_hash);
     None
 }
 
 
 /// Загружает конфиги для inject_ghost_axons один раз при старте Демона.
 /// Option<NightPhaseContext> — None если конфиги не найдены (graceful degradation).
-fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<NightPhaseContext> {
+fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf, zone_hash: u32) -> Option<NightPhaseContext> {
     use genesis_baker::bake::axon_growth::{compute_layer_ranges, ShardBounds};
     use genesis_baker::parser::simulation::SimulationConfig;
 
@@ -215,7 +205,7 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
         .map_err(|e| eprintln!("[Daemon] Cannot load simulation.toml: {}", e)).ok()?;
 
     // Читаем blueprints для NeuronType list
-    let bp = load_blueprints(brain_toml)?;
+    let bp = load_blueprints(brain_toml, zone_hash)?;
     let neuron_types = bp.neuron_types.clone();
 
     // Читаем anatomy из BrainDNA
@@ -239,106 +229,85 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
         .map_err(|e| eprintln!("[Daemon] Cannot parse manifest.toml: {}", e)).ok()?;
 
     let padded_n = manifest.memory.padded_n as u32;
-    let total_axons_max = (manifest.memory.padded_n + manifest.memory.virtual_axons + manifest.memory.ghost_capacity) as u32;
+    // [DOD FIX] Вся математика аксонов обязана быть выровнена по варпам (кратно 32)
+    let raw_axons = manifest.memory.padded_n + manifest.memory.virtual_axons + manifest.memory.ghost_capacity;
+    let total_axons_max = ((raw_axons + 31) & !31) as u32;
 
-    // [Шаг 4] Загружаем геометрию аксонов из дисковых дампов
-    // Файл .axons: просто header + axon_heads (u32 × total_axons)
+    // [DOD FIX] Zero-Copy Memory Mapping instead of std::fs::read.
+    // Guarantees OS page alignment (4096 bytes) -> bytemuck is strictly safe.
+    let state_path = baked_dir.join("shard.state");
+    let state_file = std::fs::File::open(&state_path).ok()?;
+    let state_mmap = unsafe { memmap2::Mmap::map(&state_file).ok()? };
+
     let axons_path = baked_dir.join("shard.axons");
-    let axon_heads = if axons_path.exists() {
-        let data = std::fs::read(&axons_path)
-            .map_err(|e| eprintln!("[Daemon] Cannot read shard.axons: {}", e)).ok()?;
-        // Пропускаем 16B заголовок (AxonsFileHeader), затем BurstHeads8×total_axons
-        if data.len() > 16 {
-            let slice = &data[16..];
-            let count = slice.len() / 32;
-            let mut heads = bytes_to_burst_heads(slice);
-            heads.truncate(count.min(total_axons_max as usize));
-            heads
-        } else {
-            vec![genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL); total_axons_max as usize]
-        }
-    } else {
-        vec![genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL); total_axons_max as usize]
-    };
+    let axons_file = std::fs::File::open(&axons_path).ok()?;
+    let axons_mmap = unsafe { memmap2::Mmap::map(&axons_file).ok()? };
 
-    // Файл .geom: axon_tips_uvw (u32 × total_axons) + axon_dirs_xyz (u32 × total_axons)
-    let geom_path = baked_dir.join("shard.geom");
-    let (axon_tips_uvw, axon_dirs_xyz) = if geom_path.exists() {
-        let data = std::fs::read(&geom_path)
-            .map_err(|e| eprintln!("[Daemon] Cannot read shard.geom: {}", e)).ok()?;
-        // Каждый аксон — 2 × u32, всего 8 * total_axons байт
-        let count = total_axons_max as usize;
-        let expected_size = 8 * count;
-        if data.len() >= expected_size {
-            let tips = bytes_to_u32_vec(&data[0..4 * count]);
-            let dirs = bytes_to_u32_vec(&data[4 * count..8 * count]);
-            (tips, dirs)
-        } else {
-            (vec![0; count], vec![0; count])
-        }
-    } else {
-        (vec![0; total_axons_max as usize], vec![0; total_axons_max as usize])
-    };
+    // Strict validation of the C-ABI Boundary invariant
+    assert_eq!(
+        state_mmap.as_ptr() as usize % 64,
+        0,
+        "FATAL C-ABI BOUNDARY: Memory-mapped .state file is not 64-byte aligned! OS page mapping failed."
+    );
 
-    println!("[Daemon] Loaded {} axon geometries (next_ghost_slot_base={})", total_axons_max, padded_n);
+    let (axon_heads, soma_to_axon) = {
+        // [Windows] Use bytes_to_burst_heads for alignment-safe parsing (avoids bytemuck on unaligned mmap)
+        let mut axon_heads: Vec<genesis_core::layout::BurstHeads8> = {
+            if !axons_mmap.is_empty() {
+                let mut heads = bytes_to_burst_heads(&axons_mmap[..]);
+                heads.truncate(total_axons_max as usize);
+                heads
+            } else {
+                vec![genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL); total_axons_max as usize]
+            }
+        };
+        axon_heads.truncate(total_axons_max as usize);
 
-    // [Шаг 4] Загружаем soma_to_axon маппинг для интеграции новых ghost axons
-    // Файл .state: [padded_n * u32 voltages] + [padded_n * u8 flags] + [padded_n * u32 thresholds] + [padded_n * u8 timers] + [padded_n * u32 soma_to_axon] + ...
-    let soma_to_axon = {
-        let state_path = baked_dir.join("shard.state");
-        if state_path.exists() {
-            let data = std::fs::read(&state_path)
-                .map_err(|e| eprintln!("[Daemon] Cannot read shard.state: {}", e)).ok()?;
-            
-            // Вычисляем offset soma_to_axon в .state бломе
-            // Структура: [u32 voltages: 4*N] + [u8 flags: N] + [u32 thresholds: 4*N] + [u8 timers: N] + [u32 soma_to_axon: 4*N]
+        let data = &state_mmap[..];
+        let state_size = data.len();
+
+        let s2a = if state_size > 0 {
+            let bytes_per_neuron = 4 + 1 + 4 + 1 + 4 + genesis_core::constants::MAX_DENDRITE_SLOTS * (4 + 2 + 1);
+            let padded_n = (state_size / bytes_per_neuron) as u32;
+
             let voltage_offset = 0;
             let flags_offset = voltage_offset + 4 * (padded_n as usize);
             let thresholds_offset = flags_offset + (padded_n as usize);
             let timers_offset = thresholds_offset + 4 * (padded_n as usize);
             let soma_to_axon_offset = timers_offset + (padded_n as usize);
             let soma_to_axon_end = soma_to_axon_offset + 4 * (padded_n as usize);
-            
+
             if data.len() >= soma_to_axon_end {
                 bytes_to_u32_vec(&data[soma_to_axon_offset..soma_to_axon_end])
             } else {
                 vec![u32::MAX; padded_n as usize]
             }
         } else {
-            vec![u32::MAX; padded_n as usize]
-        }
+            vec![u32::MAX; 0]
+        };
+
+        (axon_heads, s2a)
     };
 
-    // [Phase 41.2] Извлечение типов (сдвиг >> 4) из shard.state
-    let neuron_types_cache = {
-        let state_path = baked_dir.join("shard.state");
-        if state_path.exists() {
-            let data = std::fs::read(&state_path).unwrap_or_default();
-            // Структура: [u32 voltages: 4*N] + [u8 flags: N]
-            let flags_offset = 4 * (padded_n as usize);
-            let flags_end = flags_offset + (padded_n as usize);
-            if data.len() >= flags_end {
-                data[flags_offset..flags_end].iter().map(|f| (f >> 4) & 0x0F).collect()
-            } else { vec![0; padded_n as usize] }
-        } else { vec![0; padded_n as usize] }
-    };
+    // [DOD FIX] total_ghosts берется из манифеста
+    let total_ghosts = manifest.memory.ghost_capacity as u32;
+    let max_x = shard_cfg.dimensions.w;
+    let max_y = shard_cfg.dimensions.d;
 
-    let mut whitelist_masks = [0u16; 16];
-    for (i, nt) in neuron_types.iter().enumerate().take(16) {
-        let mut mask = 0u16;
-        if nt.dendrite_whitelist.is_empty() {
-            mask = 0xFFFF; // All types allowed if whitelist is empty
-        } else {
-            for allowed_name in &nt.dendrite_whitelist {
-                for (j, other_nt) in neuron_types.iter().enumerate().take(16) {
-                    if &other_nt.name == allowed_name {
-                        mask |= 1 << j;
-                    }
-                }
-            }
-        }
-        whitelist_masks[i] = mask;
-    }
+    let geom_path = baked_dir.join("shard.geom");
+    let geom_file = std::fs::OpenOptions::new().read(true).write(true).open(&geom_path).ok()?;
+    let geom_mmap = unsafe { memmap2::MmapMut::map_mut(&geom_file).ok()? };
+
+    println!("[Daemon] Loaded {} axon geometries (next_ghost_slot_base={})", total_axons_max, padded_n);
+
+    // Загрузка Paths (R/W) и Pos (R/O)
+    let paths_path = baked_dir.join("shard.paths");
+    let paths_file = std::fs::OpenOptions::new().read(true).write(true).open(&paths_path).ok()?;
+    let paths_mmap = unsafe { memmap2::MmapMut::map_mut(&paths_file).ok()? };
+
+    let pos_path = baked_dir.join("shard.pos");
+    let pos_file = std::fs::File::open(&pos_path).ok()?;
+    let pos_mmap = unsafe { memmap2::Mmap::map(&pos_file).ok()? };
 
     Some(NightPhaseContext {
         _baked_dir: baked_dir.clone(),
@@ -349,12 +318,14 @@ fn build_night_context(baked_dir: &PathBuf, brain_toml: &PathBuf) -> Option<Nigh
         _master_seed: master_seed,
         _next_ghost_slot_base: padded_n,
         _total_axons_max: total_axons_max,
-        _axon_tips_uvw: axon_tips_uvw,
-        _axon_dirs_xyz: axon_dirs_xyz,
+        _total_ghosts: total_ghosts,
+        _max_x: max_x,
+        _max_y: max_y,
         _axon_heads: axon_heads,
         _soma_to_axon: soma_to_axon,
-        _neuron_types_cache: neuron_types_cache,
-        _whitelist_masks: whitelist_masks,
+        _geom_mmap: geom_mmap,
+        _paths_mmap: paths_mmap,
+        _pos_mmap: pos_mmap,
     })
 }
 
@@ -362,7 +333,7 @@ fn run_night_phase<S: Read + Write>(
     mut stream: S,
     _zone_hash: u32,
     blueprints: Option<&BlueprintsConfig>,
-    ctx: Option<&NightPhaseContext>,
+    mut ctx: Option<&mut NightPhaseContext>,
     shm_ptr: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Read binary BakeRequest (16 bytes)
@@ -374,7 +345,9 @@ fn run_night_phase<S: Read + Write>(
         return Err(format!("Invalid BAKE magic: {:08X}", req.magic).into());
     }
     
-    println!("🌙 Night Phase trigger received (tick={}, prune={})", req.current_tick, req.prune_threshold);
+    println!("🌙 Night Phase trigger received (tick={}, prune={}, max_sprouts={})", req.current_tick, req.prune_threshold, req.max_sprouts);
+    
+    // ... (rest of the code)
 
     // 2. Validate SHM Header
     let hdr_ptr = shm_ptr as *mut ShmHeader;
@@ -385,41 +358,102 @@ fn run_night_phase<S: Read + Write>(
     let w_off = hdr.weights_offset as usize;
     let t_off = hdr.targets_offset as usize;
     let h_off = hdr.handovers_offset as usize;
+    let f_off = hdr.flags_offset as usize; // [DOD FIX] Flags extraction
     let h_count = hdr.handovers_count as usize;
     let slot_n = padded_n * MAX_DENDRITE_SLOTS;
 
+    let h_count_max = genesis_core::ipc::MAX_HANDOVERS_PER_NIGHT as usize;
+    
     // 3. Obtain slices directly from SHM (Zero-Copy)
-    let (weights, targets, _handovers) = unsafe {
+    let (weights, targets, flags, handovers) = unsafe {
         let w_ptr = shm_ptr.add(w_off) as *mut i16;
         let t_ptr = shm_ptr.add(t_off) as *mut u32;
-        let h_ptr = shm_ptr.add(h_off) as *const genesis_core::ipc::AxonHandoverEvent;
+        let f_ptr = shm_ptr.add(f_off) as *const u8;
+        let h_ptr = shm_ptr.add(h_off) as *mut genesis_core::ipc::AxonHandoverEvent;
         (
             std::slice::from_raw_parts_mut(w_ptr, slot_n),
             std::slice::from_raw_parts_mut(t_ptr, slot_n),
-            std::slice::from_raw_parts(h_ptr, h_count),
+            std::slice::from_raw_parts(f_ptr, padded_n),
+            std::slice::from_raw_parts_mut(h_ptr, h_count_max),
         )
     };
 
-    // 4. CPU Sprouting (Zero-Copy)
-    let empty_cache: &[u8] = &[];
-    let default_masks = [0xFFFF; 16];
-    let (axon_types_cache, whitelist_masks) = if let Some(c) = ctx {
-        (c._neuron_types_cache.as_slice(), &c._whitelist_masks)
+    // 4. CPU Sprouting & Living Axons (Zero-Copy)
+        let (_new_synapses, generated_handovers, acks) = if let Some(ctx) = ctx.as_deref_mut() {
+        // Каст заголовка и вычисление смещений
+        let paths_hdr = unsafe { &*(ctx._paths_mmap.as_ptr() as *const genesis_core::layout::PathsFileHeader) };
+        let paths_total_axons = paths_hdr.total_axons as usize;
+
+        let lengths_slice = unsafe {
+            std::slice::from_raw_parts_mut(
+                ctx._paths_mmap.as_mut_ptr().add(16),
+                paths_total_axons
+            )
+        };
+
+        let matrix_offset = genesis_core::layout::calculate_paths_matrix_offset(paths_total_axons);
+        let paths_slice = unsafe {
+            std::slice::from_raw_parts_mut(
+                ctx._paths_mmap.as_mut_ptr().add(matrix_offset) as *mut u32,
+                paths_total_axons * 256
+            )
+        };
+
+        let soma_positions = unsafe {
+            std::slice::from_raw_parts(
+                ctx._pos_mmap.as_ptr() as *const u32,
+                padded_n
+            )
+        };
+
+        // Извлекаем tips и dirs из _geom_mmap
+        let geom_total_axons = ctx._total_axons_max as usize;
+        let tips_slice = unsafe {
+            std::slice::from_raw_parts_mut(ctx._geom_mmap.as_mut_ptr() as *mut u32, geom_total_axons)
+        };
+        let dirs_slice = unsafe {
+            std::slice::from_raw_parts_mut(ctx._geom_mmap.as_mut_ptr().add(geom_total_axons * 4) as *mut u32, geom_total_axons)
+        };
+
+        genesis_baker::bake::sprouting::run_sprouting_pass(
+            targets,
+            weights,
+            flags,
+            handovers,            // NEW: передаем очередь
+            h_count,              // НОВЫЙ ПАРАМЕТР
+            tips_slice,           // Из MmapMut
+            dirs_slice,           // Из MmapMut
+            &ctx._soma_to_axon,
+            padded_n,
+            ctx._total_ghosts as usize, // NEW
+            ctx._max_x,           // NEW
+            ctx._max_y,           // NEW
+            blueprints,
+            hdr.epoch,
+            lengths_slice,   // NEW
+            paths_slice,     // NEW
+            soma_positions,  // NEW
+            ctx._master_seed, // <--- [DOD FIX] Проброс энтропии
+            _zone_hash,
+            req.max_sprouts,
+        )
     } else {
-        (empty_cache, &default_masks)
+        (0, 0, vec![])
     };
 
-    let new_synapses = genesis_baker::bake::sprouting::run_sprouting_pass(
-        targets,
-        weights,
-        padded_n,
-        blueprints,
-        hdr.epoch,
-        axon_types_cache,
-        whitelist_masks,
-    );
+    // Обновляем счетчик сгенерированных хэндоверов
+    unsafe {
+        (*hdr_ptr).handovers_count = generated_handovers as u32;
+    }
 
-    println!("   ↳ Sprouted {} new synapses", new_synapses);
+    if let Some(ctx) = ctx.as_deref_mut() {
+        // [DOD FIX] Асинхронный сброс грязных страниц на SSD (Crash Tolerance).
+        // Не блокирует поток, ОС сама скинет данные на диск в фоне.
+        let _ = ctx._paths_mmap.flush_async();
+        let _ = ctx._geom_mmap.flush_async();
+    }
+
+    // println!("   ↳ Sprouted {} new synapses, handovers: {}", new_synapses, generated_handovers);
 
     // 5. GSOP Plasticity / Ghost Integration (TODO/Placeholders)
     // Here we would use `handovers` for GSOP or Growth logic.
@@ -430,12 +464,24 @@ fn run_night_phase<S: Read + Write>(
         shm_ptr.add(5).write_volatile(ShmState::NightDone as u8);
     }
 
-    // 7. Binary Acknowledgement (4 bytes)
-    let ack = genesis_core::ipc::BAKE_READY_MAGIC.to_le_bytes();
-    stream.write_all(&ack)?;
+    // 7. Binary Acknowledgement с Payload'ом
+    let ack_magic = genesis_core::ipc::BAKE_READY_MAGIC.to_le_bytes();
+    stream.write_all(&ack_magic)?;
+    
+    // [DOD FIX] Эта запись ОБЯЗАНА быть снаружи if! 
+    // Клиент всегда ждет 4 байта длины, даже если она 0.
+    let acks_count = acks.len() as u32;
+    stream.write_all(&acks_count.to_le_bytes())?;
+    
+    if acks_count > 0 {
+        let ack_bytes = unsafe { 
+            std::slice::from_raw_parts(acks.as_ptr() as *const u8, acks.len() * std::mem::size_of::<genesis_core::ipc::AxonHandoverAck>()) 
+        };
+        stream.write_all(ack_bytes)?;
+    }
     stream.flush()?;
 
-    println!("🌅 Night Phase complete ({} new synapses)", new_synapses);
+    // println!("🌅 Night Phase complete ({} new synapses)", new_synapses);
     Ok(())
 }
 

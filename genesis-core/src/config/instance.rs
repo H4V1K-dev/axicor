@@ -4,7 +4,7 @@ use std::fs;
 
 /// Configures exactly *what* piece of the brain this node simulates, 
 /// and *where* its neighbors are located.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct InstanceConfig {
     /// Reference to the zone folder name (e.g. "V1")
     pub zone_id: String,
@@ -18,7 +18,32 @@ pub struct InstanceConfig {
     /// Neighborhood topology. "Self" means loopback (toroidal graph mapping),
     /// otherwise an IP:Port string. Left blank if bounded.
     pub neighbors: Neighbors,
+
+    /// Shard-specific runtime settings
+    pub settings: ShardSettings,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct ShardSettings {
+    #[serde(default = "default_checkpoints")]
+    pub save_checkpoints_interval_ticks: u32,
+    
+    // [DOD FIX] Добавляем настройку ночной фазы на уровень шарда
+    #[serde(default = "default_night_interval")]
+    pub night_interval_ticks: u64, 
+    
+    #[serde(default = "default_prune")]
+    pub prune_threshold: i16,
+
+    #[serde(default = "default_max_sprouts")]
+    pub max_sprouts: u16,
+}
+
+fn default_checkpoints() -> u32 { 100_000 }
+fn default_night_interval() -> u64 { 10_000 } // Ночь каждые 1 секунду симуляции по умолчанию
+fn default_prune() -> i16 { 15 }
+fn default_max_sprouts() -> u16 { 4 }
+
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 pub struct Coordinate {

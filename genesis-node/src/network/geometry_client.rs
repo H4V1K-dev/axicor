@@ -47,11 +47,13 @@ pub struct GeometryServer {
 }
 
 impl GeometryServer {
-    pub async fn bind(addr: SocketAddr) -> Result<Self> {
+    pub async fn bind(addr: SocketAddr, shared_acks_queue: Arc<crossbeam::queue::SegQueue<super::slow_path::AxonHandoverAck>>) -> Result<Self> {
         let listener = TcpListener::bind(addr).await?;
+        let mut queues = SlowPathQueues::new();
+        queues.incoming_ack = shared_acks_queue;
         Ok(Self { 
             listener,
-            slow_path_queues: Arc::new(SlowPathQueues::new()),
+            slow_path_queues: Arc::new(queues),
         })
     }
 
@@ -103,6 +105,12 @@ impl GeometryServer {
                             GeometryRequest::BulkHandover(events) => {
                                 for ev in events {
                                     queues.incoming_grow.push(ev);
+                                }
+                            }
+                            GeometryRequest::BulkAck(acks) => {
+                                for ack in acks {
+                                    // Пушим в Lock-Free очередь Оркестратора, которую мы создали на прошлом шаге!
+                                    queues.incoming_ack.push(ack); 
                                 }
                             }
                             GeometryRequest::Prune(_) => {}

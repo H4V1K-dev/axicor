@@ -1,4 +1,4 @@
-use genesis_core::layout::VramState;
+use genesis_core::layout::{VariantParameters, VramState};
 use std::ffi::c_void;
 
 /// Опак-тип для CUDA Stream. В Rust мы не знаем его структуру, просто таскаем указатель.
@@ -44,32 +44,9 @@ pub struct ShardVramPtrs {
 unsafe impl Send for ShardVramPtrs {}
 unsafe impl Sync for ShardVramPtrs {}
 
-/// Параметры физики для одного типа (варианта) нейронов.
-/// [ЗАКОН]: Размер ДОЛЖЕН быть строго 128 байт для выравнивания в Constant Memory.
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
-pub struct VariantParameters {
-    pub threshold: i32,
-    pub rest_potential: i32,
-    pub leak_rate: i32,
-    pub homeostasis_penalty: i32,
-    pub homeostasis_decay: i32,
-    pub gsop_potentiation: i32,
-    pub gsop_depression: i32,
-    pub refractory_period: u8,
-    pub synapse_refractory_period: u8,
-    pub slot_decay_ltm: u8,
-    pub slot_decay_wm: u8,
-    pub signal_propagation_length: u8,
-    pub ltm_slot_count: u8,
-    pub _pad1: [u8; 2],
-    pub inertia_curve: [i16; 16],
-    pub prune_threshold: i16,
-    pub _pad2a: [u8; 32],
-    pub _pad2b: [u8; 26],
-}
 
-#[cfg_attr(not(feature = "mock-gpu"), link(name = "genesis_cuda", kind = "static"))]
+#[cfg_attr(all(not(feature = "mock-gpu"), not(feature = "amd")), link(name = "genesis_cuda", kind = "static"))]
+#[cfg_attr(all(not(feature = "mock-gpu"), feature = "amd"), link(name = "genesis_amd", kind = "static"))]
 extern "C" {
     // =====================================================================
     // § Новый Zero-Cost контракт (cu_* функции)
@@ -82,6 +59,12 @@ extern "C" {
         total_axons: u32,
         out_vram:    *mut ShardVramPtrs,
     ) -> i32;
+
+    pub fn cu_reset_burst_counters(
+        ptrs: *const ShardVramPtrs,
+        padded_n: u32,
+        stream: CudaStream,
+    );
 
     /// Zero-Cost DMA Upload: один cudaMemcpyAsync для всего .state блоба.
     /// state_blob — плоский массив байт в порядке полей ShardVramPtrs.
@@ -109,6 +92,7 @@ extern "C" {
         padded_n: u32,
         total_axons: u32,
         v_seg: u32,
+        current_tick: u32, // <--- PLUMB
         input_bitmask: *const u32,
         virtual_offset: u32,
         num_virtual_axons: u32,
@@ -117,9 +101,11 @@ extern "C" {
         mapped_soma_ids: *const u32,
         output_history: *mut u8,
         num_outputs: u32,
+        dopamine: i16,
+        stream: CudaStream,
     ) -> i32;
 
-    /// Заливает таблицу параметров (16 записей) в __constant__ память GPU.
+    /// Глобальная константная память GPU (448 байт).
     pub fn cu_upload_constant_memory(lut: *const VariantParameters) -> i32;
 
     // =====================================================================
@@ -157,6 +143,9 @@ extern "C" {
         size: usize,
     ) -> bool;
 
+    pub fn gpu_stream_create(out_stream: *mut CudaStream) -> i32;
+    pub fn gpu_stream_destroy(stream: CudaStream) -> i32;
+
     pub fn gpu_stream_synchronize(stream: CudaStream);
     pub fn gpu_set_device(device_id: i32);
     pub fn gpu_device_synchronize();
@@ -166,12 +155,12 @@ extern "C" {
     
     // Загрузка Blueprint-параметров в Constant Memory GPU
     pub fn gpu_load_constants(host_ptr: *const c_void);
-    pub fn update_constant_memory_hot_reload(new_variants: *const genesis_core::config::manifest::GpuVariantParameters, stream: CudaStream);
-    pub fn update_global_dopamine(dopamine: i16, stream: CudaStream);
+    pub fn update_constant_memory_hot_reload(new_variants: *const VariantParameters, stream: CudaStream);
 
     pub fn launch_sort_and_prune(
         ptrs: *const ShardVramPtrs,
         padded_n: u32,
+        prune_threshold: i16,
     );
     
     pub fn launch_extract_outgoing_spikes(
@@ -243,8 +232,13 @@ extern "C" {
         total_pixels: u32,
     );
 
+    pub fn gpu_reset_telemetry_count(
+        ptrs: *const ShardVramPtrs,
+        stream: CudaStream,
+    );
+
     pub fn launch_extract_telemetry(
-        vram: *const ShardVramPtrs,
+        ptrs: *const ShardVramPtrs,
         padded_n: u32,
         out_ids: *mut u32,
         out_count_pinned: *mut u32,
@@ -267,11 +261,13 @@ extern "C" {
         d_incoming_spikes: *mut u32,
         h_incoming_spikes: *const u32,
         schedule_capacity: u32,
+        stream: CudaStream,
     ) -> i32;
 
     pub fn cu_dma_d2h_io(
         h_output_history: *mut u8,
         d_output_history: *const u8,
         output_capacity: u32,
+        stream: CudaStream,
     ) -> i32;
 }

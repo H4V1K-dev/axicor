@@ -19,6 +19,8 @@ fn test_parse_instance_config() {
         x_minus = "127.0.0.1:8000"
         y_plus = "Self"
         z_minus = "127.0.0.2:9000"
+
+        [settings]
     "#;
 
     let config = InstanceConfig::parse(toml_str).expect("Failed to parse");

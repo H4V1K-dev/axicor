@@ -1,0 +1,42 @@
+[[neuron_type]]
+name = "L23_sparsely spiny_VISp23_1"
+is_inhibitory = true
+
+# Мембрана
+threshold = 38781
+rest_potential = 11564
+leak_rate = 112
+refractory_period = 18
+spontaneous_firing_period_ticks = 777
+
+# Адаптация и Тайминги
+homeostasis_penalty = 1000
+homeostasis_decay = 3
+synapse_refractory_period = 15
+signal_propagation_length = 19
+
+# Рост и Морфология
+steering_fov_deg = 55.0
+steering_radius_um = 500.0
+growth_vertical_bias = 0.14
+dendrite_radius_um = 196.2
+type_affinity = 0.5
+sprouting_weight_distance = 0.7
+sprouting_weight_power = 0.3
+sprouting_weight_explore = 0.127
+sprouting_weight_type = 0.3
+steering_weight_inertia = 0.2
+steering_weight_sensor = 0.6
+steering_weight_jitter = 0.2
+
+# Пластичность GSOP
+initial_synapse_weight = 408
+gsop_potentiation = 100
+gsop_depression = 57
+inertia_curve = [128, 123, 118, 112, 107, 101, 95, 89, 82, 75, 68, 60, 51, 40, 27, 2]
+prune_threshold = 25
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 128
+slot_decay_wm = 128
+ltm_slot_count = 64

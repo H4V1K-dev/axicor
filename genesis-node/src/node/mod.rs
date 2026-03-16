@@ -2,12 +2,21 @@ use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::process::{Command, Child};
 use std::env;
+use std::path::PathBuf;
+use std::time::SystemTime;
 use std::sync::atomic::{AtomicU32, Ordering};
 use crossbeam::channel::{bounded, Sender, Receiver};
 use crate::network::io_server::ExternalIoServer;
 use crate::network::bsp::BspBarrier;
 use crate::network::router::RoutingTable;
 use crate::network::inter_node::InterNodeRouter;
+use crate::node::shard_thread::ShardAtomicSettings;
+
+pub struct ShardMetadata {
+    pub manifest_path: PathBuf,
+    pub last_modified: SystemTime,
+    pub atomic_settings: Arc<ShardAtomicSettings>,
+}
 
 pub mod recovery;
 pub mod shard_thread;
@@ -17,8 +26,8 @@ pub enum ComputeCommand {
         tick_base: u32,
         batch_size: u32,
         global_dopamine: i16,
-        telemetry_ptrs: Option<(usize, usize)>,
     },
+    Resurrect, // [DOD] Trigger 100-tick stabilization warmup
     Shutdown,
 }
 
@@ -28,6 +37,7 @@ pub enum ComputeFeedback {
         zone_hash: u32,
         pinned_out_ptr: usize,
         output_bytes: usize,
+        is_warmup: bool, // [DOD] True if shard is stabilizing
     },
 }
 
@@ -38,6 +48,8 @@ pub struct NetworkTopology {
     pub inter_node_router: Arc<crate::network::inter_node::InterNodeRouter>,
     pub egress_pool: Arc<crate::network::egress::EgressPool>,
     pub axon_head_ptrs: HashMap<u32, *mut genesis_core::layout::BurstHeads8>,
+    pub routing_acks: std::sync::Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverAck>>,
+    pub routing_prunes: std::sync::Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverPrune>>,
 }
 
 // Safety: raw pointers in NetworkTopology are pinned GPU pointers owned by ShardEngine.
@@ -51,8 +63,7 @@ pub struct NodeServices {
     pub io_server: Arc<ExternalIoServer>,
     pub routing_table: Arc<RoutingTable>,
     pub bsp_barrier: Arc<BspBarrier>,
-    pub reporter: Arc<crate::simple_reporter::SimpleReporter>,
-    pub telemetry_swapchain: Arc<crate::network::telemetry::TelemetrySwapchain>,
+    pub telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
 }
 
 pub struct NodeRuntime {
@@ -68,10 +79,12 @@ pub struct NodeRuntime {
     pub output_routes: HashMap<u32, Vec<(String, u32)>>,
     // [DOD] Владение дочерними процессами (Baker Daemons)
     pub daemons: Mutex<Vec<Child>>,
-    // [DOD] Night Phase интервал в тиках
-    pub night_interval: u64,
+    // [DOD FIX] Метаданные шардов для Hot-Reload
+    pub manifest_metadata: Mutex<HashMap<u32, ShardMetadata>>,
     pub zone_v_segs: HashMap<u32, u32>,
     pub virtual_offset_map: HashMap<u32, u32>,
+    pub sync_batch_ticks: u32,
+    pub cluster_secret: u64, // [DOD FIX]
 }
 
 unsafe impl Send for NodeRuntime {}
@@ -83,7 +96,7 @@ impl NodeRuntime {
         io_server: Arc<ExternalIoServer>,
         routing_table: Arc<RoutingTable>,
         bsp_barrier: Arc<BspBarrier>,
-        telemetry_swapchain: Arc<crate::network::telemetry::TelemetrySwapchain>,
+        _telemetry_swapchain: Arc<crate::network::telemetry::TelemetrySwapchain>,
         local_ip: std::net::Ipv4Addr,
         local_port: u16,
         output_routes: HashMap<u32, Vec<(String, u32)>>,
@@ -92,8 +105,11 @@ impl NodeRuntime {
         inter_node_router: Arc<crate::network::inter_node::InterNodeRouter>,
         axon_head_ptrs: HashMap<u32, *mut genesis_core::layout::BurstHeads8>,
         egress_pool: Arc<crate::network::egress::EgressPool>,
-        night_interval: u64,
-        reporter: Arc<crate::simple_reporter::SimpleReporter>,
+        manifest_metadata: HashMap<u32, ShardMetadata>,
+        telemetry: Arc<crate::tui::state::LockFreeTelemetry>,
+        shared_acks_queue: Arc<crossbeam::queue::SegQueue<genesis_core::ipc::AxonHandoverAck>>,
+        sync_batch_ticks: u32,
+        cluster_secret: u64, // [DOD FIX]
     ) -> Self {
         let (feedback_tx, feedback_rx) = bounded(shards.len() + 32);
         let total_ticks = Arc::new(AtomicU32::new(0));
@@ -121,6 +137,7 @@ impl NodeRuntime {
         let mut virtual_offset_map = HashMap::new();
 
         // [DOD] Consume shards to spawn threads
+        let mut core_id = 1;
         for desc in shards {
             let hash = desc.hash;
             let v_seg = desc.v_seg;
@@ -134,27 +151,30 @@ impl NodeRuntime {
                 .map(|(_, ctx)| ctx.swapchain.clone())
                 .expect("FATAL: IO Context for zone not found");
 
+            let metadata = manifest_metadata.get(&hash).expect("FATAL: Metadata for zone not found");
+
             let ctx = crate::node::shard_thread::NodeContext {
                 bsp_barrier: bsp_barrier.clone(),
                 io_ctx: my_io_ctx,
                 rt_handle: rt_handle.clone(),
-                night_interval,
+                atomic_settings: metadata.atomic_settings.clone(),
                 incoming_grow: desc.incoming_grow.clone(),
+                telemetry: telemetry.clone(),
+                routing_table: routing_table.clone(), // [DOD FIX]
             };
                 
             crate::node::shard_thread::spawn_shard_thread(
-                desc, ctx, rx, feedback_tx.clone(),
+                desc, ctx, rx, feedback_tx.clone(), core_id, sync_batch_ticks
             );
+            core_id += 1;
         }
-
 
         let node = Self {
             services: NodeServices {
                 io_server,
                 routing_table,
                 bsp_barrier,
-                reporter,
-                telemetry_swapchain,
+                telemetry,
             },
             network: NetworkTopology {
                 intra_gpu_channels,
@@ -162,6 +182,8 @@ impl NodeRuntime {
                 inter_node_router,
                 egress_pool,
                 axon_head_ptrs,
+                routing_acks: shared_acks_queue,
+                routing_prunes: Arc::new(crossbeam::queue::SegQueue::new()),
             },
             compute_dispatchers,
             feedback_sender: feedback_tx,
@@ -171,12 +193,88 @@ impl NodeRuntime {
             local_port,
             output_routes,
             daemons: Mutex::new(daemons),
-            night_interval,
+            manifest_metadata: Mutex::new(manifest_metadata),
             zone_v_segs,
             virtual_offset_map,
+            sync_batch_ticks,
+            cluster_secret,
         };
 
         node
+    }
+
+    fn reload_manifests(&self) {
+        let mut metadata_map = self.manifest_metadata.lock().unwrap();
+        for (hash, metadata) in metadata_map.iter_mut() {
+            if let Ok(attr) = std::fs::metadata(&metadata.manifest_path) {
+                if let Ok(modified) = attr.modified() {
+                    if modified > metadata.last_modified {
+                        println!("♻️ [Hot-Reload] Manifest changed for zone 0x{:08X}", hash);
+                        metadata.last_modified = modified;
+                        
+                        if let Ok(toml_str) = std::fs::read_to_string(&metadata.manifest_path) {
+                            if let Ok(zm) = toml::from_str::<genesis_core::config::manifest::ZoneManifest>(&toml_str) {
+                                // 1. Update Atomic Settings
+                                metadata.atomic_settings.night_interval_ticks.store(zm.settings.night_interval_ticks, Ordering::Relaxed);
+                                metadata.atomic_settings.save_checkpoints_interval_ticks.store(zm.settings.save_checkpoints_interval_ticks, Ordering::Relaxed);
+                                metadata.atomic_settings.prune_threshold.store(zm.settings.plasticity.prune_threshold, Ordering::Relaxed);
+                                metadata.atomic_settings.max_sprouts.store(zm.settings.plasticity.max_sprouts, Ordering::Relaxed);
+                                    
+                                    // 2. Update GPU Constants (Variants)
+                                    let mut gpu_variants = [genesis_core::layout::VariantParameters::default(); 16];
+                                    for v in &zm.variants {
+                                        if (v.id as usize) < 16 {
+                                            gpu_variants[v.id as usize] = v.clone().into_gpu();
+                                        }
+                                    }
+                                    unsafe {
+                                        genesis_compute::ffi::cu_upload_constant_memory(
+                                            gpu_variants.as_ptr() as *const genesis_core::layout::VariantParameters
+                                        );
+                                    }
+                                    self.services.telemetry.push_log(format!("Zone 0x{:08X} updated (Night: {}, Prune: {}, GPU Physics reflashed)", 
+                                        hash, zm.settings.night_interval_ticks, zm.settings.plasticity.prune_threshold), crate::tui::state::LogLevel::Info);
+                                } else {
+                                    self.services.telemetry.push_log(format!("Failed to parse manifest at {:?}", metadata.manifest_path), crate::tui::state::LogLevel::Error);
+                                }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn patch_routing_tables(&mut self) {
+        let stream = std::ptr::null_mut(); 
+
+        while let Some(ack) = self.network.routing_acks.pop() {
+            // Ищем Inter-Node канал (если сосед на другой машине)
+            if let Some((_, channel)) = self.network.inter_node_channels.iter_mut()
+                .find(|(_, c)| c.target_zone_hash == ack.target_zone_hash) 
+            {
+                unsafe { channel.push_route(ack.src_axon_id, ack.dst_ghost_id, stream); }
+            }
+            // Ищем Intra-GPU канал (если обе зоны сидят в нашей VRAM)
+            else if let Some((_, _, channel)) = self.network.intra_gpu_channels.iter_mut()
+                // [DOD FIX] Точный матчинг по хэшам без магических заглушек!
+                .find(|(_, _, c)| c.target_zone_hash == ack.target_zone_hash) 
+            {
+                unsafe { channel.push_route(ack.src_axon_id, ack.dst_ghost_id, stream); }
+            }
+        }
+
+        while let Some(prune) = self.network.routing_prunes.pop() {
+            if let Some((_, channel)) = self.network.inter_node_channels.iter_mut()
+                .find(|(_, c)| c.target_zone_hash == prune.target_zone_hash) 
+            {
+                unsafe { channel.prune_route(prune.dst_ghost_id, stream); }
+            }
+            else if let Some((_, _, channel)) = self.network.intra_gpu_channels.iter_mut()
+                .find(|(_, _, c)| c.target_zone_hash == prune.target_zone_hash) 
+            {
+                unsafe { channel.prune_route(prune.dst_ghost_id, stream); }
+            }
+        }
     }
 
     fn spawn_baker_daemons(
@@ -191,12 +289,22 @@ impl NodeRuntime {
             #[cfg(unix)]
             let _ = std::fs::remove_file(&socket_addr);
 
+            // [DOD FIX] Pass root brain.toml so daemon can find simulation.toml and blueprints
+            let brain_path = desc.baked_dir
+                .parent().unwrap() // Выходим из папки зоны
+                .parent().unwrap() // Выходим из папки baked
+                .join("brain.toml");
+
             println!("[Orchestrator] Spawning CPU Baker Daemon for zone 0x{:08X} at {:?} (IPC: {})", desc.hash, desc.baked_dir, socket_addr);
             let child = Command::new(&daemon_path)
+                .arg("--brain").arg(&brain_path)
                 .arg("--zone-hash")
                 .arg(desc.hash.to_string())
                 .arg("--baked-dir")
                 .arg(&desc.baked_dir)
+                // [DOD FIX] Снимаем глушитель! Мы должны видеть паники CPU-демона в консоли ноды.
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
                 .spawn()
                 .expect("FATAL: Failed to spawn genesis-baker-daemon. Was it compiled?");
             
@@ -206,7 +314,8 @@ impl NodeRuntime {
     }
 
     // [DOD FIX] The correct Pipeline Order: Compute -> Network Tx -> Network Rx Wait
-    pub fn run_node_loop(&self, batch_size: u32) {
+    pub fn run_node_loop(&mut self) {
+        let batch_size = self.sync_batch_ticks;
         let mut current_tick = 0;
         let mut batch_counter: u64 = 0;
 
@@ -216,7 +325,10 @@ impl NodeRuntime {
         // [DOD] Pre-allocate outbound buffers to avoid heap thrashing
         let mut _io_tx_buffer = vec![0u8; genesis_core::constants::MAX_UDP_PAYLOAD];
 
-        println!("[Node] Entering main loop (Batch size: {})", batch_size);
+        self.services.telemetry.push_log(format!("Entering main loop (Batch size: {})", batch_size), crate::tui::state::LogLevel::Info);
+
+        let loop_start = std::time::Instant::now();
+        let mut batch_start = loop_start;
 
         loop {
             // 1. Swap IO Buffers (Acquire semantics)
@@ -225,48 +337,68 @@ impl NodeRuntime {
             }
 
             // 2. Dispatch batches to compute shards
+            /* 
             let current_dopamine = self.services.io_server.global_dopamine.load(Ordering::Relaxed) as i16;
             if current_dopamine != 0 && batch_counter % 100 == 0 {
-                println!("💉 [Node] Dopamine: {}", current_dopamine);
+                self.services.telemetry.push_log(format!("Dopamine: {}", current_dopamine), crate::tui::state::LogLevel::Info);
             }
+            */
+            let current_dopamine = self.services.io_server.global_dopamine.load(Ordering::Relaxed) as i16;
 
             let num_dispatchers = self.compute_dispatchers.len();
             if num_dispatchers == 0 {
                 println!("[!] ERROR: No compute dispatchers found!");
             }
-            let tele_ids = self.services.telemetry_swapchain.back_buffer.load(Ordering::Relaxed) as usize;
-            let tele_count = self.services.telemetry_swapchain.count_buffer.as_ptr() as usize;
-
             for tx in self.compute_dispatchers.values() {
                 let _ = tx.send(ComputeCommand::RunBatch {
                     tick_base: current_tick as u32,
                     batch_size,
                     global_dopamine: current_dopamine,
-                    telemetry_ptrs: Some((tele_ids, tele_count)),
                 });
             }
 
             // 3. Collect feedback
+            let mut pending_outputs = Vec::new();
+
             for _ in 0..num_dispatchers {
                 if let Ok(feedback) = self.feedback_receiver.recv() {
                     match feedback {
-                        ComputeFeedback::BatchComplete { ticks_processed: _, zone_hash, pinned_out_ptr, output_bytes } => {
-                            if output_bytes > 0 {
-                                // Ship outputs to network targets
-                                if let Some(routes) = self.output_routes.get(&zone_hash) {
-                                    for (addr, m_hash) in routes {
-                                        self.services.io_server.send_output_batch_pool(
-                                            &self.network.egress_pool,
-                                            &addr,
-                                            zone_hash,
-                                            *m_hash,
-                                            pinned_out_ptr,
-                                            output_bytes,
-                                        );
+                        ComputeFeedback::BatchComplete { ticks_processed: _, zone_hash, pinned_out_ptr, mut output_bytes, is_warmup } => {
+                            // [DOD] Hardware Gating: Mute all outgoing traffic during Warmup
+                            if is_warmup {
+                                for (_, channel) in &self.network.inter_node_channels {
+                                    if channel.src_zone_hash == zone_hash {
+                                        unsafe { std::ptr::write_volatile(channel.out_count_pinned, 0); }
                                     }
                                 }
+                                output_bytes = 0; // Mute external IO motors
+                            }
+
+                            if output_bytes > 0 {
+                                pending_outputs.push((zone_hash, pinned_out_ptr, output_bytes));
                             }
                         }
+                    }
+                }
+            }
+
+            // [DOD] GPU Hardware Barrier — дожидаемся завершения всех стримов
+            unsafe { genesis_compute::ffi::gpu_device_synchronize(); }
+
+            // Ship outputs to network targets ONLY POST SYNC!
+            for (zone_hash, pinned_out_ptr, output_bytes) in pending_outputs {
+                if let Some(routes) = self.output_routes.get(&zone_hash) {
+                    for (addr, m_hash) in routes {
+                        self.services.io_server.send_output_batch_pool(
+                            &self.network.egress_pool,
+                            &addr,
+                            zone_hash,
+                            *m_hash,
+                            pinned_out_ptr,
+                            output_bytes,
+                        );
+                        // [DOD FIX] Возрождаем счетчик UDP OUT!
+                        self.services.telemetry.udp_out_packets.fetch_add(1, Ordering::Relaxed);
                     }
                 }
             }
@@ -282,24 +414,15 @@ impl NodeRuntime {
                 unsafe { channel.extract_spikes(*src_ptr, batch_size, v_seg, std::ptr::null_mut()); }
             }
 
-            // [DOD] 5. GPU Barrier Sync (дожидаемся завершения физики, sync_ghosts и экстракции)
+            // [DOD] 5. GPU Barrier Sync (дожидаемся sync_ghosts в default stream)
             unsafe { genesis_compute::ffi::gpu_stream_synchronize(std::ptr::null_mut()); }
-
-            // 5.1 Telemetry Commit (Strictly AFTER GPU Sync to guarantee visibility in Pinned RAM)
-            if self.services.telemetry_swapchain.active_clients.load(Ordering::Acquire) > 0 {
-                let count = unsafe { *self.services.telemetry_swapchain.count_buffer.as_ptr() };
-                self.services.telemetry_swapchain.swap_and_ready(count as usize, current_tick as u64, current_dopamine);
-            }
 
             // [DOD] 6. Inter-Node Fast Path (Egress)
             for (_, channel) in &self.network.inter_node_channels {
                 let out_count = unsafe { std::ptr::read_volatile(channel.out_count_pinned) };
 
                 if out_count > 0 {
-                    if batch_counter % 100 == 0 {
-                        println!("🚀 [Egress] Extracted {} spikes for zone 0x{:08X} (batch {})", out_count, channel.target_zone_hash, batch_counter);
-                    }
-                    self.services.reporter.udp_out_packets.fetch_add(1, Ordering::Relaxed);
+                    self.services.telemetry.udp_out_packets.fetch_add(1, Ordering::Relaxed);
                 }
 
                 // BSP Heartbeat: ВСЕГДА формируем и отправляем пакет
@@ -318,12 +441,27 @@ impl NodeRuntime {
             // [DOD] 7. Wait for Ingress data (Strict BSP network sync)
             self.services.bsp_barrier.wait_for_data_sync();
 
-            // [DOD] 8. Synchronize BSP and consume Ghost events
             self.services.bsp_barrier.sync_and_swap();
+
+            // [DOD FIX] 8. Dynamic Capacity Routing: Hot-Patching VRAM
+            // Барьер пройден, GPU стоит. Идеальное время переписать 8 байт по шине PCIe.
+            self.patch_routing_tables();
+
+            let wall_ms = batch_start.elapsed().as_millis() as u64;
+            batch_start = std::time::Instant::now();
 
             current_tick += batch_size;
             batch_counter += 1;
-            self.services.reporter.total_ticks.store(current_tick as u64, Ordering::Relaxed);
+            
+            self.services.telemetry.batch_number.store(batch_counter, Ordering::Relaxed);
+            self.services.telemetry.total_ticks.store(current_tick as u64, Ordering::Relaxed);
+            self.services.telemetry.wall_ms.store(wall_ms, Ordering::Relaxed);
+
+            if batch_counter > 0 && batch_counter % 50 == 0 {
+                // Remove console printing to keep TUI clean, stats are visible in Core Loop widget
+                // [DOD FIX] Hot-Reload entry point
+                self.reload_manifests();
+            }
         }
     }
 }

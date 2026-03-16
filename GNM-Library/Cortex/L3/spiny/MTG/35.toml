@@ -1,0 +1,42 @@
+[[neuron_type]]
+name = "L3_spiny_MTG_35"
+is_inhibitory = false
+
+# Мембрана
+threshold = 38562
+rest_potential = 13498
+leak_rate = 257
+refractory_period = 19
+spontaneous_firing_period_ticks = 74
+
+# Адаптация и Тайминги
+homeostasis_penalty = 10000
+homeostasis_decay = 33
+synapse_refractory_period = 15
+signal_propagation_length = 43
+
+# Рост и Морфология
+steering_fov_deg = 20.0
+steering_radius_um = 324.2
+growth_vertical_bias = 0.3
+dendrite_radius_um = 865.6
+type_affinity = 0.8
+sprouting_weight_distance = 0.3
+sprouting_weight_power = 0.5
+sprouting_weight_explore = 0.27
+sprouting_weight_type = 0.1
+steering_weight_inertia = 0.8
+steering_weight_sensor = 0.1
+steering_weight_jitter = 0.1
+
+# Пластичность GSOP
+initial_synapse_weight = 175
+gsop_potentiation = 93
+gsop_depression = 63
+inertia_curve = [128, 116, 104, 92, 81, 71, 61, 51, 42, 34, 27, 20, 13, 8, 4, 2]
+prune_threshold = 25
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 32
+slot_decay_wm = 250
+ltm_slot_count = 41

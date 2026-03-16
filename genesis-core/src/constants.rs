@@ -21,6 +21,9 @@ pub const TARGET_AXON_MASK: u32 = 0x00FF_FFFF;
 pub const TARGET_SEG_SHIFT: u32 = 24;
 
 /// Warp size for GPU alignment (padded_n must be multiple of this).
+#[cfg(feature = "amd")]
+pub const GPU_WARP_SIZE: usize = 64;
+#[cfg(not(feature = "amd"))]
 pub const GPU_WARP_SIZE: usize = 32;
 
 // ---------------------------------------------------------------------------

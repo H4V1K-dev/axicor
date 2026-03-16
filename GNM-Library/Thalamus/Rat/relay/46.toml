@@ -1,0 +1,42 @@
+[[neuron_type]]
+name = "jy160704_A_idD"
+is_inhibitory = false
+
+# Мембрана
+threshold = 37000
+rest_potential = 17000
+leak_rate = 150
+refractory_period = 14
+spontaneous_firing_period_ticks = 5000
+
+# Адаптация и Тайминги
+homeostasis_penalty = 10000
+homeostasis_decay = 2
+synapse_refractory_period = 15
+signal_propagation_length = 28
+
+# Рост и Морфология
+steering_fov_deg = 60.0
+steering_radius_um = 100.0
+growth_vertical_bias = 0.7
+dendrite_radius_um = 200.0
+type_affinity = 0.5
+sprouting_weight_distance = 0.5
+sprouting_weight_power = 0.4
+sprouting_weight_explore = 0.17
+sprouting_weight_type = 0.2
+steering_weight_inertia = 0.6
+steering_weight_sensor = 0.3
+steering_weight_jitter = 0.1
+
+# Пластичность GSOP
+initial_synapse_weight = 140
+gsop_potentiation = 93
+gsop_depression = 56
+inertia_curve = [128, 123, 118, 113, 108, 102, 97, 91, 84, 77, 70, 62, 53, 43, 30, 2]
+prune_threshold = 25
+
+# --- Динамический Slot Decay (Derived) ---
+slot_decay_ltm = 103
+slot_decay_wm = 178
+ltm_slot_count = 108

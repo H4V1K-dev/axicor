@@ -41,6 +41,10 @@ pub struct ShardSoA {
     pub axon_heads: Vec<genesis_core::layout::BurstHeads8>,
     pub axon_tips_uvw: Vec<u32>, // PackedTip -> .geom
     pub axon_dirs_xyz: Vec<u32>, // PackedDir -> .geom
+    
+    // НОВЫЕ ПОЛЯ
+    pub axon_lengths: Vec<u8>, // size: total_axons
+    pub axon_paths: Vec<u32>,  // size: total_axons * 256
 
     // Маппинг: soma_idx → axon_idx
     pub soma_to_axon: Vec<u32>,
@@ -72,6 +76,9 @@ impl ShardSoA {
             axon_heads: vec![genesis_core::layout::BurstHeads8::empty(AXON_SENTINEL); total_axons],
             axon_tips_uvw: vec![0; total_axons],
             axon_dirs_xyz: vec![0; total_axons],
+            
+            axon_lengths: vec![0; total_axons],
+            axon_paths: vec![0; total_axons * genesis_core::layout::MAX_SEGMENTS_PER_AXON],
 
             soma_to_axon: vec![u32::MAX; padded_n],
             soma_positions: vec![0; padded_n],
@@ -87,15 +94,7 @@ impl ShardSoA {
 
     /// Дамп SoA-структур в бинарные файлы. Zero-cost для загрузки в рантайме.
     pub fn dump_to_disk(&self, out_dir: &Path) {
-        // [Warp Alignment Check]
-        assert!(self.padded_n % 32 == 0, "CRITICAL: padded_n must be multiple of 32");
-
         let state_path = out_dir.join("shard.state");
-        let axons_path = out_dir.join("shard.axons");
-        let geom_path = out_dir.join("shard.geom");
-        let pos_path = out_dir.join("shard.pos");
-
-        // 1. .state (Somas + Dendrites)
         write_state_blob(
             &state_path,
             self.padded_n,
@@ -107,20 +106,19 @@ impl ShardSoA {
             &self.dendrite_targets,
             &self.dendrite_weights,
             &self.dendrite_timers,
-        ).expect("Failed to write .state blob");
+        ).expect("Failed to write state blob");
 
-        // 2. .axons (Heads only)
-        write_axons_blob(&axons_path, &self.axon_heads).expect("Failed to write .axons blob");
+        let axons_path = out_dir.join("shard.axons");
+        write_axons_blob(&axons_path, &self.axon_heads).expect("Failed to write axons blob");
 
-        // 3. .geom (Tips + Dirs for visualization and growth logic)
-        // Note: Not loaded into VRAM by ShardEngine, but needed by baker and telemetry
-        let mut geom_file = File::create(geom_path).expect("Failed to create .geom file");
-        geom_file.write_all(cast_slice(&self.axon_tips_uvw)).unwrap();
-        geom_file.write_all(cast_slice(&self.axon_dirs_xyz)).unwrap();
+        // [DOD FIX] Выгрузка геометрии для Night Phase
+        let paths_path = out_dir.join("shard.paths");
+        write_paths_blob(&paths_path, self.axon_heads.len(), &self.axon_lengths, &self.axon_paths)
+            .expect("Failed to write paths blob");
 
-        // 4. .pos (Packed soma positions u32: Type|Z|Y|X)
-        let mut pos_file = File::create(pos_path).expect("Failed to create .pos file");
-        pos_file.write_all(cast_slice(&self.soma_positions)).unwrap();
+        let pos_path = out_dir.join("shard.pos");
+        std::fs::write(&pos_path, bytemuck::cast_slice(&self.soma_positions))
+            .expect("Failed to write pos blob");
     }
 }
 
@@ -168,5 +166,48 @@ pub fn write_axons_blob(
     let mut file = File::create(path)?;
     file.write_all(cast_slice(axon_heads))?;
     Ok(())
+}
+
+pub fn write_paths_blob(
+    path: &std::path::Path,
+    total_axons: usize,
+    lengths: &[u8],
+    paths_matrix: &[u32],
+) -> std::io::Result<()> {
+    let total_size = genesis_core::layout::calculate_paths_file_size(total_axons);
+    let matrix_offset = genesis_core::layout::calculate_paths_matrix_offset(total_axons);
+    
+    let mut blob = vec![0u8; total_size];
+    
+    // Заголовок
+    let header = genesis_core::layout::PathsFileHeader {
+        magic: genesis_core::layout::PATHS_MAGIC,
+        version: 1,
+        total_axons: total_axons as u32,
+        max_segments: genesis_core::layout::MAX_SEGMENTS_PER_AXON as u32,
+    };
+    
+    // Копирование без аллокаций
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            &header as *const _ as *const u8,
+            blob.as_mut_ptr(),
+            16,
+        );
+        
+        std::ptr::copy_nonoverlapping(
+            lengths.as_ptr(),
+            blob.as_mut_ptr().add(16),
+            total_axons,
+        );
+        
+        std::ptr::copy_nonoverlapping(
+            paths_matrix.as_ptr() as *const u8,
+            blob.as_mut_ptr().add(matrix_offset),
+            total_axons * genesis_core::layout::MAX_SEGMENTS_PER_AXON * 4,
+        );
+    }
+    
+    std::fs::write(path, &blob)
 }
 

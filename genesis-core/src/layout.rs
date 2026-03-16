@@ -8,24 +8,29 @@ pub const MAX_DENDRITES: usize = MAX_DENDRITE_SLOTS;
 /// 64 байта = 1 кэш-линия L2 GPU. 16 типов × 64B = 1024B = весь __constant__-буфер.
 /// Ровно одна строка кэша на тип → 100% Coalesced Access, нулевой False Sharing.
 #[repr(C, align(64))]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
 pub struct VariantParameters {
-    // --- Basic Dynamics (32B) ---
-    pub threshold: i32,                 // 4B — порог деполяризации
-    pub rest_potential: i32,            // 4B — потенциал покоя / утечки
-    pub leak_rate: i32,                 // 4B — скорость зарядного тока покоя
-    pub homeostasis_penalty: i32,       // 4B — штраф Δ-порога за спайк
-    pub homeostasis_decay: u16,         // 2B — скорость восстановления порога
-    pub gsop_potentiation: i16,         // 2B — амплитуда STDP-потенциации
-    pub gsop_depression: i16,           // 2B — амплитуда STDP-депрессии
-    pub refractory_period: u8,          // 1B — абсолютный рефрактерный период, тиков
-    pub synapse_refractory_period: u8,  // 1B — синаптический рефрактер, тиков
-    pub slot_decay_ltm: u8,             // 1B — Long-Term Memory: затухание веса за тик
-    pub slot_decay_wm: u8,              // 1B — Working Memory: затухание веса за тик
-    pub signal_propagation_length: u8,  // 1B — длина «хвоста» сигнала, сегментов
-    pub _padding: [u8; 3],              // 3B — выравнивание до 32B
-    // --- Inertia Curve (32B) ---
-    pub inertia_curve: [i16; 16],       // 32B — кривая коэффициентов GSOP (16 рангов)
+    // --- Basic Dynamics (20B) ---
+    pub threshold: i32,                 // 0..4
+    pub rest_potential: i32,            // 4..8
+    pub leak_rate: i32,                 // 8..12
+    pub homeostasis_penalty: i32,       // 12..16
+    pub homeostasis_decay: u16,         // 16..18
+    // --- Plasticity Core (8B) ---
+    pub gsop_potentiation: i16,         // 18..20
+    pub gsop_depression: i16,           // 20..22
+    pub refractory_period: u8,          // 22..23
+    pub synapse_refractory_period: u8,  // 23..24
+    pub slot_decay_ltm: u8,             // 24..25
+    pub slot_decay_wm: u8,              // 25..26
+    // --- Physics & Modulators (6B) ---
+    pub signal_propagation_length: u8,  // 26..27
+    pub d1_affinity: u8,                // 27..28 (D1-рецептор)
+    pub heartbeat_m: u16,               // 28..30
+    pub d2_affinity: u8,                // 30..31 [D2 Рецептор]
+    pub ltm_slot_count: u8,             // 31..32
+    pub inertia_curve: [i16; 15],       // 32..62 (30 bytes)
+    pub prune_threshold: i16,           // 62..64 [DOD FIX]
 }
 
 const _: () = assert!(std::mem::size_of::<VariantParameters>() == 64);
@@ -137,6 +142,42 @@ impl AxonsFileHeader {
     }
 }
 
+pub const PATHS_MAGIC: u32 = 0x50415448; // "PATH"
+pub const MAX_SEGMENTS_PER_AXON: usize = 256;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct PathsFileHeader {
+    pub magic: u32,
+    pub version: u32,
+    pub total_axons: u32,
+    pub max_segments: u32,
+}
+
+const _: () = assert!(std::mem::size_of::<PathsFileHeader>() == 16, "PathsFileHeader must be 16 bytes");
+
+/// Вычисляет точный размер файла `shard.paths`.
+/// Гарантирует, что матрица segments начнётся с адреса, кратного 64 байтам.
+pub const fn calculate_paths_file_size(total_axons: usize) -> usize {
+    let header_sz = std::mem::size_of::<PathsFileHeader>(); // 16
+    let lengths_sz = total_axons;
+    
+    // Выравнивание до 64 байт
+    let padding = (64 - ((header_sz + lengths_sz) % 64)) % 64;
+    
+    let matrix_sz = total_axons * MAX_SEGMENTS_PER_AXON * 4; // 4 bytes per PackedPosition
+    
+    header_sz + lengths_sz + padding + matrix_sz
+}
+
+/// Смещение до начала матрицы
+pub const fn calculate_paths_matrix_offset(total_axons: usize) -> usize {
+    let header_sz = 16;
+    let lengths_sz = total_axons;
+    let padding = (64 - ((header_sz + lengths_sz) % 64)) % 64;
+    header_sz + lengths_sz + padding
+}
+
 /// Host-side SoA state of a shard.
 /// Used for baking and disk I/O.
 #[repr(C)]
@@ -163,7 +204,7 @@ impl ShardStateSoA {
     /// - `padded_n`: кол-во нейронов (кратно 32).
     /// - `total_axons`: общее кол-во аксонов (локальные + ghost + виртуальные).
     pub fn new(padded_n: usize, total_axons: usize) -> Self {
-        debug_assert!(padded_n % 32 == 0, "padded_n must be warp-aligned (multiple of 32)");
+        assert!(padded_n % 32 == 0, "padded_n must be warp-aligned (multiple of 32)");
         
         Self {
             padded_n,
@@ -183,7 +224,8 @@ impl ShardStateSoA {
     /// Вычисляет плоский индекс для Coalesced Access на GPU
     #[inline(always)]
     pub fn columnar_idx(padded_n: usize, neuron_idx: usize, slot: usize) -> usize {
-        debug_assert!(neuron_idx < padded_n && slot < MAX_DENDRITES);
+        assert!(neuron_idx < padded_n && slot < MAX_DENDRITES,
+    "columnar_idx: neuron_idx={neuron_idx} >= padded_n={padded_n} or slot={slot} >= {MAX_DENDRITES}");
         slot * padded_n + neuron_idx
     }
 }

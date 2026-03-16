@@ -17,7 +17,7 @@ unsafe impl Sync for IoDeviceBuffers {}
 /// Этот крейт не знает ничего про файлы или сеть, только про указатели и VRAM.
 pub struct ShardEngine {
     pub vram: VramState,
-    // В будущем здесь будут cudaStream_t и cudaEvent_t для асинхронности
+    pub stream: crate::ffi::CudaStream,
 }
 
 unsafe impl Send for ShardEngine {}
@@ -25,7 +25,14 @@ unsafe impl Sync for ShardEngine {}
 
 impl ShardEngine {
     pub fn new(vram: VramState) -> Self {
-        Self { vram }
+        let mut stream = std::ptr::null_mut();
+        #[cfg(not(feature = "mock-gpu"))]
+        {
+            let err = unsafe { crate::ffi::gpu_stream_create(&mut stream) };
+            assert_eq!(err, 0, "FATAL: cudaStreamCreate failed");
+            println!("✅ ShardEngine created CUDA Stream: {:?}", stream);
+        }
+        Self { vram, stream }
     }
 
     /// Выполняет весь батч (sync_batch_ticks) автономно на GPU.
@@ -40,6 +47,8 @@ impl ShardEngine {
         num_virtual_axons: u32,
         mapped_soma_ids_device: *const u32, // Загружается при старте шарда
         v_seg: u32,
+        dopamine: i16,
+        tick_base: u32, // <--- ADD
     ) {
         // 1. Bulk DMA H2D (Входы и Сетевые Спайки)
         let total_input_words = io_buffers.input_words_per_tick * sync_batch_ticks;
@@ -53,12 +62,18 @@ impl ShardEngine {
                 io_buffers.d_incoming_spikes,
                 h_incoming_spikes.map_or(ptr::null(), |s| s.as_ptr()),
                 if h_incoming_spikes.is_some() { total_schedule_capacity } else { 0 },
+                self.stream,
             );
         }
+
+        // [DOD FIX] Сброс счетчиков Burst-Dependent Plasticity перед началом нового батча
+        unsafe { crate::ffi::cu_reset_burst_counters(&self.vram.ptrs, self.vram.padded_n, self.stream); }
 
         // 2. Hot Loop по тикам
 
         for tick in 0..sync_batch_ticks {
+            let global_tick = tick_base + tick; // Compute true time
+
             // Вычисляем O(1) смещения для указателей на текущий тик
             let tick_input_ptr = if io_buffers.d_input_bitmask.is_null() {
                 ptr::null()
@@ -87,6 +102,7 @@ impl ShardEngine {
                     self.vram.padded_n,
                     self.vram.total_axons,
                     v_seg,
+                    global_tick, // <--- PLUMB
                     tick_input_ptr,
                     virtual_offset,
                     num_virtual_axons,
@@ -95,13 +111,21 @@ impl ShardEngine {
                     mapped_soma_ids_device,
                     tick_output_ptr,
                     io_buffers.num_outputs,
+                    dopamine,
+                    self.stream,
                 )
             };
             assert_eq!(err, 0, "FATAL: Day Phase Pipeline failed at tick {}", tick);
         }
 
-        // 4. Ждем завершения всего батча (Синхронизация барьера BSP)
+        // 4. Batch is queued in the stream. CPU is immediately free.
+        // Sync is handled globally by Orchestrator (gpu_device_synchronize).
+    }
+}
+
+impl Drop for ShardEngine {
+    fn drop(&mut self) {
         #[cfg(not(feature = "mock-gpu"))]
-        unsafe { crate::ffi::gpu_stream_synchronize(std::ptr::null_mut()) };
+        unsafe { crate::ffi::gpu_stream_destroy(self.stream); }
     }
 }

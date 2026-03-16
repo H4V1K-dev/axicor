@@ -65,10 +65,12 @@ pub fn connect_dendrites(
                 });
                 
                 if !is_duplicate {
-                    let weight = if my_type.is_inhibitory {
-                        -(my_type.initial_synapse_weight as i16)
+                    // [DOD FIX] Dale's Law: Presynaptic neuron dictates the synapse sign
+                    let owner_type = &types[owner_type_idx];
+                    let weight = if owner_type.is_inhibitory {
+                        -(owner_type.initial_synapse_weight as i16)
                     } else {
-                        my_type.initial_synapse_weight as i16
+                        owner_type.initial_synapse_weight as i16
                     };
 
                     slots[*count] = TempSlot {
@@ -117,7 +119,6 @@ mod tests {
     use genesis_core::config::blueprints::NeuronType;
     use crate::bake::axon_growth::GrownAxon;
     use crate::bake::layout::ShardSoA;
-    use genesis_core::constants::MAX_DENDRITE_SLOTS;
 
     #[test]
     fn test_concurrent_somas_connect_to_same_axon() {

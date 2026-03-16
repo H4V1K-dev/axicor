@@ -12,7 +12,7 @@ version = "0.0.0"
 edition = "2021"
 authors = ["Oleksandr Arzamazov <olexandrarzamazov@gmail.com>"]
 license = "GPL-3.0-or-later"
-repository = "https://github.com/OxAlex-AGI/genesis"
+repository = "https://github.com/H4V1K-dev/Axicor"
 
 [workspace.dependencies]
 # genesis-core is a local dep for the others

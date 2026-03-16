@@ -128,12 +128,12 @@ pub const fn update_homeostasis(
 // GSOP Plasticity (Spec 04 §2.4, §2.5)
 // ---------------------------------------------------------------------------
 
-/// Inertia Rank: разделяем диапазон |weight| (0..32767) на 16 рангов по 2048.
+/// Inertia Rank: разделяем диапазон |weight| (0..32767) на 15 рангов по 2048.
 /// `rank = abs_w >> 11`. Это 1 такт ALU, без ветвлений.
 #[inline(always)]
 pub const fn inertia_rank(abs_weight: i32) -> usize {
     let rank = (abs_weight >> 11) as usize;
-    if rank > 15 { 15 } else { rank }
+    if rank > 14 { 14 } else { rank }
 }
 
 /// Вычисляет новый вес синапса с учетом GSOP, инерции и слот-декея.
@@ -335,8 +335,8 @@ mod tests {
         assert_eq!(inertia_rank(2048), 1);
         assert_eq!(inertia_rank(4095), 1);
         assert_eq!(inertia_rank(4096), 2);
-        assert_eq!(inertia_rank(32767), 15);
-        assert_eq!(inertia_rank(40000), 15); // clamped
+        assert_eq!(inertia_rank(32767), 14);
+		assert_eq!(inertia_rank(40000), 14);
     }
 
     #[test]

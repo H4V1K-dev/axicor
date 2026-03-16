@@ -25,14 +25,28 @@ pub struct ShardDescriptor {
     pub incoming_grow: Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
 }
 
+use std::sync::atomic::{AtomicU64, AtomicI16, AtomicU16, Ordering};
+
+// TODO: Найти идеальный баланс для линейного стабильного роста, а потом аппроксимировать и 
+// заложить расчет нейрогенеза для каждого шарда автоматически на основе типов внутри.
+pub struct ShardAtomicSettings {
+    pub night_interval_ticks: AtomicU64,
+    pub save_checkpoints_interval_ticks: AtomicU64, // ticks counter
+    pub prune_threshold: AtomicI16,
+    pub max_sprouts: AtomicU16,
+}
+
 /// [Phase 23] Shared orchestrator resources — cheap Clone via Arc.
 #[derive(Clone)]
 pub struct NodeContext {
     pub bsp_barrier: Arc<BspBarrier>,
     pub io_ctx: Arc<InputSwapchain>,
     pub rt_handle: tokio::runtime::Handle,
-    pub night_interval: u64,
+    pub atomic_settings: Arc<ShardAtomicSettings>,
     pub incoming_grow: Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
+    // [DOD FIX] Удален Mutex<DashboardState>, используем Lock-Free структуру
+    pub telemetry: Arc<crate::tui::state::LockFreeTelemetry>, 
+    pub routing_table: Arc<crate::network::router::RoutingTable>, // [DOD FIX]
 }
 
 
@@ -41,6 +55,7 @@ pub struct ThreadWorkspace {
     pub weights_offset: usize,
     pub targets_offset: usize,
     pub handovers_offset: usize,
+    pub flags_offset: usize, // [DOD FIX] DMA Artery
     pub checkpoint_state_buffer: Vec<u8>,
     pub checkpoint_axons_buffer: Vec<u8>, // [DOD FIX] Буфер для Active Tails
 }
@@ -81,6 +96,7 @@ impl ThreadWorkspace {
                     weights_offset: header.weights_offset as usize,
                     targets_offset: header.targets_offset as usize,
                     handovers_offset: header.handovers_offset as usize,
+                    flags_offset: header.flags_offset as usize, // [DOD FIX]
                     shm_buffer: mmap,
                     checkpoint_state_buffer: vec![0u8; 0],
                     checkpoint_axons_buffer: vec![0u8; 0],
@@ -110,6 +126,15 @@ impl ThreadWorkspace {
             )
         }
     }
+
+    pub fn flags_slice_mut(&mut self, padded_n: usize) -> &mut [u8] {
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                self.shm_buffer.as_mut_ptr().add(self.flags_offset) as *mut u8,
+                padded_n,
+            )
+        }
+    }
 }
 
 // ФАЗА 1: Выполнение GPU батча (Day Phase)
@@ -125,17 +150,11 @@ fn execute_day_phase(
     num_virtual_axons: u32,
     mapped_soma_ids: *const u32,
     v_seg: u32,
-    batch_counter: u64,
+    _batch_counter: u64,
+    tick_base: u32, // <--- ADD
 ) {
     let _sync_batch_ticks = 100u32;
     let input_words_per_tick = (num_virtual_axons + 31) / 32;
-
-    unsafe {
-        genesis_compute::ffi::update_global_dopamine(
-            global_dopamine, 
-            std::ptr::null_mut()
-        );
-    }
 
     let schedule = bsp_barrier.get_read_schedule();
     
@@ -159,7 +178,8 @@ fn execute_day_phase(
         None
     };
 
-    if batch_counter % 100 == 0 {
+    /*
+    if _batch_counter % 100 == 0 {
         println!("🔍 [Shard I/O] v_offset: {}, v_axons: {}, v_seg: {}", virtual_offset, num_virtual_axons, v_seg);
         if let Some(slice) = input_slice {
             let active = slice.iter().any(|&w| w != 0);
@@ -168,6 +188,7 @@ fn execute_day_phase(
             }
         }
     }
+    */
 
     shard.step_day_phase_batch(
         batch_size,
@@ -179,24 +200,28 @@ fn execute_day_phase(
         num_virtual_axons,
         mapped_soma_ids,
         v_seg,
+        global_dopamine,
+        tick_base,
     );
 }
 
-// ФАЗА 2: Чтение выходов
-#[inline(always)]
 fn download_outputs(
     num_outputs: u32,
     pinned_out: &mut genesis_compute::memory::PinnedBuffer<u8>,
     io_buffers: &genesis_compute::compute::shard::IoDeviceBuffers,
     output_bytes: usize,
+    stream: genesis_compute::ffi::CudaStream,
 ) {
     if num_outputs > 0 {
         unsafe {
-            genesis_compute::ffi::gpu_memcpy_device_to_host(
-                pinned_out.as_mut_ptr() as *mut _,
-                io_buffers.d_output_history as *const _,
-                output_bytes,
+            genesis_compute::ffi::cu_dma_d2h_io(
+                pinned_out.as_mut_ptr(),
+                io_buffers.d_output_history,
+                output_bytes as u32,
+                stream,
             );
+            // Synchronize ONLY our stream before CPU reads the PinnedBuffer
+            genesis_compute::ffi::gpu_stream_synchronize(stream);
         }
     }
 }
@@ -250,15 +275,27 @@ fn execute_night_phase(
     shard_config: &InstanceConfig,
     rt_handle: &tokio::runtime::Handle,
     workspace: &mut ThreadWorkspace,
+    prune_threshold: i16,
+    max_sprouts: u16,
+    routing_table: &Arc<crate::network::router::RoutingTable>,
+    telemetry: &Arc<crate::tui::state::LockFreeTelemetry>,
 ) {
     let padded_n = shard.vram.padded_n as usize;
     let dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
 
     unsafe {
+        // 0. DMA: soma_flags to SHM [Capture spikes BEFORE they are cleared by pruning kernel]
+        genesis_compute::ffi::gpu_memcpy_device_to_host(
+            workspace.flags_slice_mut(padded_n).as_mut_ptr() as *mut _,
+            shard.vram.ptrs.soma_flags as *const _,
+            padded_n * std::mem::size_of::<u8>(),
+        );
+
         // 1. GPU Defragmentation & Prune
         genesis_compute::ffi::launch_sort_and_prune(
             &shard.vram.ptrs,
             shard.vram.padded_n,
+            prune_threshold,
         );
         genesis_compute::ffi::gpu_device_synchronize();
 
@@ -293,9 +330,10 @@ fn execute_night_phase(
             &incoming_handovers,
             padded_n,
             std::time::Duration::from_secs(10),
-            0, // [DOD FIX] run_night is still expected to receive prune_threshold, we mock 0
+            prune_threshold,
+            max_sprouts,
         ) {
-            Ok(()) => {
+            Ok(acks) => {
                 unsafe {
                     genesis_compute::ffi::gpu_memcpy_host_to_device(
                         shard.vram.ptrs.dendrite_targets as *mut _,
@@ -312,15 +350,16 @@ fn execute_night_phase(
                 }
 
                 dispatch_handovers(client, shard_config, rt_handle);
-                // println!("🌅 [Shard {:08X}] Night Phase complete. Waking up.", hash);
+                dispatch_acks(acks, rt_handle, routing_table); 
+                telemetry.push_log(format!("🌅 [Shard {:08X}] Night Phase complete. Waking up.", hash), crate::tui::state::LogLevel::Night);
             }
             Err(e) => {
-                println!("❌ [Shard {:08X}] Sprouting failed: {}", hash, e);
+                telemetry.push_log(format!("❌ [Shard {:08X}] Sprouting failed: {}", hash, e), crate::tui::state::LogLevel::Error);
                 *baker_client = None;
             }
         }
     } else {
-        println!("⚠️ [Shard {:08X}] Skipping Sprouting (Daemon not connected). Will retry next night.", hash);
+        telemetry.push_log(format!("⚠️ [Shard {:08X}] Skipping Sprouting (Daemon not connected). Will retry next night.", hash), crate::tui::state::LogLevel::Warning);
     }
 }
 
@@ -408,6 +447,29 @@ fn dispatch_handovers(
     }
 }
 
+fn dispatch_acks(
+    acks: Vec<genesis_core::ipc::AxonHandoverAck>, 
+    rt_handle: &tokio::runtime::Handle,
+    routing_table: &Arc<crate::network::router::RoutingTable>
+) {
+    if acks.is_empty() { return; }
+
+    // Группируем по target_zone_hash (чтобы отправить одним TCP пакетом на ноду)
+    let mut grouped: std::collections::HashMap<u32, Vec<genesis_core::ipc::AxonHandoverAck>> = std::collections::HashMap::new();
+    for ack in acks {
+        grouped.entry(ack.target_zone_hash).or_default().push(ack);
+    }
+
+    for (target_hash, batch) in grouped {
+        if let Some(addr) = routing_table.get_address(target_hash) {
+            rt_handle.spawn(async move {
+                let req = crate::network::slow_path::GeometryRequest::BulkAck(batch);
+                let _ = crate::network::geometry_client::send_geometry_request(addr, &req).await;
+            });
+        }
+    }
+}
+
 // Инициализация VRAM буферов
 fn init_io_buffers(
     num_virtual_axons: u32,
@@ -444,8 +506,9 @@ pub fn spawn_shard_thread(
     ctx: NodeContext,
     rx: Receiver<ComputeCommand>,
     f_tx: crossbeam::channel::Sender<ComputeFeedback>,
+    #[allow(unused)] core_id: usize,
+    sync_batch_ticks: u32,
 ) {
-    let sync_batch_ticks = 100u32;
     let max_spikes_per_tick = 100_000u32;
     let output_bytes = (desc.num_outputs * sync_batch_ticks) as usize;
 
@@ -454,6 +517,19 @@ pub fn spawn_shard_thread(
     thread::Builder::new()
         .name(format!("compute-{}", hash))
         .spawn(move || {
+            // [DOD FIX] Hardware Sympathy: Pinning compute thread (Unix only)
+            #[cfg(unix)]
+            {
+                let mut cpuset: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+                unsafe { libc::CPU_SET(core_id, &mut cpuset) };
+                let res = unsafe { libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &cpuset) };
+                if res != 0 {
+                    eprintln!("Warning: Failed to set thread affinity to core {}", core_id);
+                } else {
+                    println!("🚀 [Core] Shard 0x{:08X} compute locked to OS Thread Core {}", hash, core_id);
+                }
+            }
+
             // 1. Инициализация аппаратного контекста
             unsafe { genesis_compute::ffi::gpu_set_device(0); }
 
@@ -483,40 +559,44 @@ pub fn spawn_shard_thread(
 
             // [DOD] ЕДИНСТВЕННАЯ аллокация на весь жизненный цикл потока
             let mut workspace = ThreadWorkspace::new(hash, padded_n);
-            let axons_size = desc.engine.vram.total_axons as usize * std::mem::size_of::<u32>();
+            let axons_size = desc.engine.vram.total_axons as usize * std::mem::size_of::<genesis_core::layout::BurstHeads8>();
             workspace.checkpoint_state_buffer = vec![0u8; state_size];
             workspace.checkpoint_axons_buffer = vec![0u8; axons_size];
 
             let mut batch_counter: u64 = 0;
+            let mut warmup_ticks_remaining: u32 = 2000;
 
             // 2. Плоский горячий цикл
             while let Ok(cmd) = rx.recv() {
                 match cmd {
-                    ComputeCommand::RunBatch { tick_base: _, batch_size, global_dopamine, telemetry_ptrs } => {
+                    ComputeCommand::Resurrect => {
+                        warmup_ticks_remaining = 100;
+                        ctx.telemetry.push_log(format!("Entering Warmup Phase (100 ticks) for 0x{:08X}", hash), crate::tui::state::LogLevel::Info);
+                    }
+                    ComputeCommand::RunBatch { tick_base, batch_size, global_dopamine } => {
+                        let is_warmup = warmup_ticks_remaining > 0;
+
                         // ФАЗА 1: Выполнение GPU батча (Day Phase)
                         execute_day_phase(
                             &mut desc.engine, batch_size, global_dopamine, &ctx.bsp_barrier,
-                            &ctx.io_ctx, &io_buffers, desc.virtual_offset, desc.num_virtual_axons, mapped_soma_ids, desc.v_seg, batch_counter
+                            &ctx.io_ctx, &io_buffers, desc.virtual_offset, desc.num_virtual_axons, mapped_soma_ids, desc.v_seg, batch_counter, tick_base
                         );
 
-                        if let Some((ids_ptr, count_ptr)) = telemetry_ptrs {
-                            unsafe {
-                                std::ptr::write_volatile(count_ptr as *mut u32, 0);
-                                genesis_compute::ffi::launch_extract_telemetry(
-                                    &desc.engine.vram.ptrs,
-                                    desc.engine.vram.padded_n,
-                                    ids_ptr as *mut u32,
-                                    count_ptr as *mut u32,
-                                    std::ptr::null_mut(), // stream 0
-                                );
+                        // --- ФАЗА 2: Чтение выходов (Асинхронно в своем стриме) ---
+                        if desc.num_outputs > 0 {
+                            download_outputs(desc.num_outputs, &mut pinned_out, &io_buffers, output_bytes, desc.engine.stream);
+                        }
+                        if is_warmup {
+                            warmup_ticks_remaining = warmup_ticks_remaining.saturating_sub(batch_size);
+                            if warmup_ticks_remaining == 0 {
+                                ctx.telemetry.push_log(format!("Warmup complete for 0x{:08X}. Voltage stabilized.", hash), crate::tui::state::LogLevel::Info);
                             }
                         }
 
-                        // ФАЗА 2: Чтение выходов
-                        download_outputs(desc.num_outputs, &mut pinned_out, &io_buffers, output_bytes);
-
                         // ФАЗА 3: Периодический сброс на диск (I/O)
-                        if batch_counter > 0 && batch_counter % 500 == 0 {
+                        let cp_interval_ticks = ctx.atomic_settings.save_checkpoints_interval_ticks.load(Ordering::Relaxed);
+                        let cp_interval = (cp_interval_ticks as u32 / batch_size).max(1);
+                        if batch_counter > 0 && batch_counter % cp_interval as u64 == 0 {
                             save_hot_checkpoint(
                                 &desc.engine, 
                                 hash, 
@@ -528,11 +608,26 @@ pub fn spawn_shard_thread(
 
                         // ФАЗА 4: Обслуживание графа (Night Phase)
                         let current_tick_count = (batch_counter + 1) * batch_size as u64;
-                        if ctx.night_interval > 0 && current_tick_count % ctx.night_interval == 0 {
+                        let n_interval = ctx.atomic_settings.night_interval_ticks.load(Ordering::Relaxed);
+                        if n_interval > 0 && current_tick_count % n_interval == 0 {
+                            let current_prune_threshold = ctx.atomic_settings.prune_threshold.load(Ordering::Relaxed);
+                            let current_max_sprouts = ctx.atomic_settings.max_sprouts.load(Ordering::Relaxed);
+                            let night_start = std::time::Instant::now();
                             execute_night_phase(
                                 &mut desc.engine, hash, std::path::Path::new(&socket_path), &mut baker_client,
                                 &ctx.incoming_grow, &desc.config, &ctx.rt_handle, &mut workspace,
+                                current_prune_threshold, current_max_sprouts, &ctx.routing_table, &ctx.telemetry
                             );
+                            let elapsed_ns = night_start.elapsed().as_nanos();
+                            ctx.telemetry.push_log(format!("🌙 [Shard {:08X}] Night Phase completed in {} ns", hash, elapsed_ns), crate::tui::state::LogLevel::Night);
+                        }
+
+                        // Update spikes in UI
+                        {
+                            let actual_spikes = pinned_out.as_slice().iter().filter(|&&x| x != 0).count() as u32;
+
+                            // [DOD FIX] Zero-cost обновление через атомик, никакого лока планировщика
+                            ctx.telemetry.update_zone_spikes(hash, actual_spikes);
                         }
 
                         // Отправка отчета оркестратору
@@ -541,6 +636,7 @@ pub fn spawn_shard_thread(
                             zone_hash: hash,
                             pinned_out_ptr: pinned_out.as_ptr() as usize,
                             output_bytes,
+                            is_warmup, // [DOD FIX] Tell orchestrator to mute network
                         }).is_err() { break; }
 
                         batch_counter += 1;

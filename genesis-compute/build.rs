@@ -1,4 +1,4 @@
-// genesis-runtime/build.rs
+// genesis-compute/build.rs
 
 /// Detect GPU compute capability via nvidia-smi and return sm_XX arch string.
 /// Returns None if nvidia-smi fails or output is unparseable.
@@ -23,36 +23,51 @@ fn detect_gpu_arch() -> Option<String> {
 }
 
 fn main() {
-    // When running with `--features mock-gpu` (CI, CPU-only tests),
-    // skip the CUDA compilation entirely. mock_ffi.rs provides all symbols
-    // via #[no_mangle] Rust functions, so no native lib is needed.
-    if std::env::var("CARGO_FEATURE_MOCK_GPU").is_ok() {
-        return;
+    println!("cargo:rerun-if-changed=src/cuda/");
+    println!("cargo:rerun-if-changed=src/amd/");
+
+    if cfg!(feature = "mock-gpu") {
+        return; // Используем программные заглушки
     }
 
-    println!("cargo:rerun-if-changed=src/cuda/");
+    if cfg!(feature = "amd") {
+        cc::Build::new()
+            .compiler("hipcc")
+            .file("src/amd/bindings.hip")
+            .file("src/amd/physics.hip")
+            .flag("-O3")
+            .flag("--offload-arch=gfx803") // <-- Флаг для архитектуры AMD Polaris (RX 470/480/570/580)
+            .compile("genesis_amd");
 
-    // GPU arch: CUDA_ARCH env > nvidia-smi auto-detect > sm_75 fallback
-    let arch = std::env::var("CUDA_ARCH").unwrap_or_else(|_| detect_gpu_arch().unwrap_or_else(|| {
-        println!("cargo:warning=Could not detect GPU via nvidia-smi, using sm_75 (Turing). Set CUDA_ARCH to override.");
-        "sm_75".to_string()
-    }));
-    println!("cargo:warning=Building CUDA for -arch={}", arch);
+        println!("cargo:rustc-link-search=native=/opt/rocm/lib");
+        println!("cargo:rustc-link-lib=dylib=amdhip64");
+    } else {
+        // GPU arch: CUDA_ARCH env > nvidia-smi auto-detect > sm_75 fallback (Windows/RTX 4090)
+        let arch = std::env::var("CUDA_ARCH").unwrap_or_else(|_| detect_gpu_arch().unwrap_or_else(|| {
+            println!("cargo:warning=Could not detect GPU via nvidia-smi, using sm_75 (Turing). Set CUDA_ARCH to override.");
+            "sm_75".to_string()
+        }));
+        println!("cargo:warning=Building CUDA for -arch={}", arch);
 
-    let mut build = cc::Build::new();
-    build
-        .cuda(true)
-        .flag("-O3")
-        .flag("-use_fast_math")
-        .flag("-default-stream=per-thread")
-        .flag(&format!("-arch={}", arch));
+        let mut build = cc::Build::new();
+        build
+            .cuda(true)
+            .flag("-O3")
+            .flag("-use_fast_math")
+            .flag("-default-stream=per-thread")
+            .flag("-allow-unsupported-compiler")
+            .flag("-w")
+            .flag(&format!("-arch={}", arch));
 
-    // Host compiler: Linux uses g++-12, Windows uses MSVC (cl.exe) by default
-    #[cfg(unix)]
-    build.flag("-ccbin=g++-12");
+        // Host compiler: Linux gcc-13, Windows uses MSVC (cl.exe) by default
+        #[cfg(unix)]
+        build.flag("-ccbin=gcc-13");
 
-    build
-        .file("src/cuda/bindings.cu")
-        .file("src/cuda/physics.cu")
-        .compile("genesis_cuda");
+        build
+            .file("src/cuda/bindings.cu")
+            .file("src/cuda/physics.cu")
+            .compile("genesis_cuda");
+
+        println!("cargo:rustc-link-lib=dylib=cudart");
+    }
 }

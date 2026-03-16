@@ -9,6 +9,7 @@ fn test_io_parse_basic() {
         target_type = "L4_Stellate"
         width = 64
         height = 64
+		stride = 1
         
         [[input]]
         name = "audio_spectrogram"
@@ -16,6 +17,7 @@ fn test_io_parse_basic() {
         target_type = "ALL"
         width = 128
         height = 16
+		stride = 1
     "#;
 
     let io = IoConfig::parse(toml).unwrap();
@@ -45,6 +47,7 @@ fn test_io_parse_with_outputs() {
         target_type = "L5_Pyramidal"
         width = 8
         height = 8
+		stride = 1
         
         [[output]]
         name = "motor_leg"
@@ -52,6 +55,7 @@ fn test_io_parse_with_outputs() {
         target_type = "ALL"
         width = 4
         height = 4
+		stride = 1
     "#;
 
     let io = IoConfig::parse(toml).unwrap();
