@@ -23,45 +23,111 @@ from genesis.memory import GenesisMemory
 from genesis.surgeon import GenesisSurgeon
 from genesis.brain import fnv1a_32
 
+# ЕКСПЕРИМЕНТАЛЬНЫЕ ПАРАМЕТРЫ ЛИШЬ ДЛЯ ДЕМОНСТРАЦИИ
+#          СБОРКИ СКРИПТА СРЕДЫ ОБУЧЕНИЯ
+# ПОИСК ОПТИМАЛЬНЫХ ПАРАМЕТРОВ ТРЕБУЕТ ИССЛЕДОВАНИЯ
+
 #============================================================
-#                   CONFIGURATION ЕКСПЕРИМЕНТАЛЬНО!
+#       CLIENT & ENVIRONMENT SETTINGS
 #============================================================
 EPISODES = 20_000_000         # Количество эпизодов до остановки обучения
 BATCH_SIZE = 20               # HFT-цикл: 1 пакет = 20 тиков (Должно быть равно tick_duration_us в build_brain.py)
-NIGHT_INTERVAL = 100_000      # Периодичность сна (50к тиков = 100с физики)
-PRUNE_THRESHOLD = 1           # «фильтр выживания» для синапсов. обнуляет слабые синапсы чтобы освободить место для новых
-MAX_SPROUTS_PER_NIGHT = 128   # Максимальное количество новых связей за одну ночь (сколько CPU формирует связей за 1 ночь)
+ENCODER_SIGMA = 0.2           # Сигма энкодера (разброс признаков)
 
+#============================================================
+#       TRAINING: EXPLORATION (Base State)
+#============================================================
+# Целевой показатель (SMA за окно) для перехода к Дистилляции
+EXPLORATION_TARGET_SCORE = 400
+
+EXPLORE_NIGHT_INTERVAL = 50_000      # Периодичность сна
+EXPLORE_PRUNE_THRESHOLD = 1          # «фильтр выживания» для синапсов
+EXPLORE_MAX_SPROUTS = 128            # Максимальное количество новых связей
 # Баланс R-STDP (Near-Zero Economy)
-DOPAMINE_PULSE = 0            # прошлый был -7, Околонулевая эрозия
-DOPAMINE_REWARD = 10          # прошлый был 7, Микро-награда для защиты от LTP Runaway
-DOPAMINE_PUNISHMENT = -210    # прошлый был 0, Death Signal Посылается N батчей после падения
-
+EXPLORE_DOPAMINE_PULSE = -20            # Околонулевая эрозия
+EXPLORE_DOPAMINE_REWARD = 15          # Микро-награда
+EXPLORE_DOPAMINE_PUNISHMENT = -20    # Death Signal
 # Гиперпараметры Физики (GLIF & Receptors)
-D1_AFFINITY = 172             # прошлый был 172, Аффинность D1 делает нейроны более чувствительными к дофамину
-D2_AFFINITY = 252             # прошлый был 252, Аффинность D2 делает нейроны менее чувствительными к дофамину
-LEAK_RATE = 850               # прошлый был 1086, Коэффициент утечки
-HOMEOS_PENALTY = 5560         # прошлый был 5960, Штраф за homeostasis
-HOMEOS_DECAY = 49             # прошлый был 49, Декремент homeostasis
-
+EXPLORE_D1_AFFINITY = 172             # Аффинность D1
+EXPLORE_D2_AFFINITY = 252             # Аффинность D2
+EXPLORE_LEAK_RATE = 850               # Коэффициент утечки
+EXPLORE_HOMEOS_PENALTY = 5560         # Штраф за homeostasis
+EXPLORE_HOMEOS_DECAY = 49             # Декремент homeostasis
 # Тюнинг Градиента (Error Gradient)
-ERROR_ANGLE_WEIGHT = 0.8      # прошлый был 0.8, Вес ошибки угла
-ERROR_VEL_WEIGHT = 0.2        # прошлый был 0.2, Вес ошибки скорости
-ANGLE_LIMIT = 0.2094          # прошлый был 0.2094, 12 градусов
-VELOCITY_LIMIT = 2.0          # прошлый был 2.0, Максимальная скорость
-
+EXPLORE_ERROR_ANGLE_WEIGHT = 0.8      # Вес ошибки угла
+EXPLORE_ERROR_VEL_WEIGHT = 0.2        # Вес ошибки скорости
+EXPLORE_ANGLE_LIMIT = 0.2094          # 12 градусов
+EXPLORE_VELOCITY_LIMIT = 2.0          # Максимальная скорость
 # Тюнинг Болевого Шока (Kinetic Amplifier)
-SHOCK_BASE = 0                # прошлый был 10, Базовый шок
-SHOCK_SCORE_BITSHIFT = 5      # прошлый был 5, score >> 5 (каждые 32 тика +1 батч)
-SHOCK_VEL_MULT = 5            # прошлый был 5, Штраф за скорость удара
-SHOCK_MAX_BATCHES = 2         # прошлый был 100, Сколько батчей подается Death Signal
+EXPLORE_SHOCK_BASE = 0                # Базовый шок
+EXPLORE_SHOCK_SCORE_BITSHIFT = 5      # score >> 5
+EXPLORE_SHOCK_VEL_MULT = 5            # Штраф за скорость удара
+EXPLORE_SHOCK_MAX_BATCHES = 5         # Сколько батчей подается Death Signal
 
-# Архитектурные параметры
-ENCODER_SIGMA = 0.2           # прошлый был 0.2, Сигма энкодера
-TARGET_SCORE = 700            # прошлый был 50000.0 *Недостижимая планка т.к дисциляцию навыка еще нужно реализовывать
+#============================================================
+#               Этап DISTILLATION
+#============================================================
+# Целевой показатель (SMA за окно) для перехода к Кристаллизации
+DISTILLATION_TARGET_SCORE = 600
+
+DISTILL_NIGHT_INTERVAL = 5_000
+DISTILL_PRUNE_THRESHOLD = 10
+DISTILL_MAX_SPROUTS = 64
+# Баланс R-STDP
+DISTILL_DOPAMINE_PULSE = -1
+DISTILL_DOPAMINE_REWARD = 7
+DISTILL_DOPAMINE_PUNISHMENT = -10
+# Гиперпараметры Физики
+DISTILL_D1_AFFINITY = 85
+DISTILL_D2_AFFINITY = 128
+DISTILL_LEAK_RATE = 425
+DISTILL_HOMEOS_PENALTY = 2780
+DISTILL_HOMEOS_DECAY = 24
+# Тюнинг Градиента
+DISTILL_ERROR_ANGLE_WEIGHT = 0.8
+DISTILL_ERROR_VEL_WEIGHT = 0.2
+DISTILL_ANGLE_LIMIT = 0.2094
+DISTILL_VELOCITY_LIMIT = 2.0
+# Тюнинг Болевого Шока
+DISTILL_SHOCK_BASE = 0
+DISTILL_SHOCK_SCORE_BITSHIFT = 5
+DISTILL_SHOCK_VEL_MULT = 2
+DISTILL_SHOCK_MAX_BATCHES = 10
+
+#============================================================
+#               Этап CRYSTALLIZED
+#============================================================
+# Целевой показатель (SMA за окно) для перехода к Кристаллизации
+CRYSTALLIZATION_TARGET_SCORE = 800
+
+CRYSTALLIZED_NIGHT_INTERVAL = 0
+CRYSTALLIZED_PRUNE_THRESHOLD = 0
+CRYSTALLIZED_MAX_SPROUTS = 0
+# Баланс R-STDP
+CRYSTALLIZED_DOPAMINE_PULSE = 0
+CRYSTALLIZED_DOPAMINE_REWARD = 0
+CRYSTALLIZED_DOPAMINE_PUNISHMENT = 0
+# Гиперпараметры Физики
+CRYSTALLIZED_D1_AFFINITY = 0
+CRYSTALLIZED_D2_AFFINITY = 0
+CRYSTALLIZED_LEAK_RATE = 0
+CRYSTALLIZED_HOMEOS_PENALTY = 0
+CRYSTALLIZED_HOMEOS_DECAY = 0
+# Тюнинг Градиента
+CRYSTALLIZED_ERROR_ANGLE_WEIGHT = 0 
+CRYSTALLIZED_ERROR_VEL_WEIGHT = 0
+CRYSTALLIZED_ANGLE_LIMIT = 0
+CRYSTALLIZED_VELOCITY_LIMIT = 0
+# Тюнинг Болевого Шока
+CRYSTALLIZED_SHOCK_BASE = 0
+CRYSTALLIZED_SHOCK_SCORE_BITSHIFT = 5
+CRYSTALLIZED_SHOCK_VEL_MULT = 5
+CRYSTALLIZED_SHOCK_MAX_BATCHES = 2
+
 #============================================================
 #               END OF CONFIGURATION
 #============================================================
+
 def run_cartpole():
     # Синхронизация времени Вселенной и Мозга (1 шаг = 2 мс = 20 тиков)
     env = gym.make("CartPole-v1").unwrapped
@@ -104,18 +170,83 @@ def run_cartpole():
         sys.exit(1)
         
     control = GenesisControl(manifest_path)
-    # [DOD FIX] Вечная жизнь. Сеть никогда не заморозит пластичность.
-    tuner = GenesisAutoTuner(control, target_score=TARGET_SCORE)
+    tuner = GenesisAutoTuner(
+        control, 
+        # Exploration
+        explore_target_score=EXPLORATION_TARGET_SCORE,
+        explore_prune=EXPLORE_PRUNE_THRESHOLD,
+        explore_night=EXPLORE_NIGHT_INTERVAL,
+        explore_sprouts=EXPLORE_MAX_SPROUTS,
+        explore_dopamine_pulse=EXPLORE_DOPAMINE_PULSE,
+        explore_dopamine_reward=EXPLORE_DOPAMINE_REWARD,
+        explore_dopamine_punish=EXPLORE_DOPAMINE_PUNISHMENT,
+        explore_leak=EXPLORE_LEAK_RATE,
+        explore_homeos_penalty=EXPLORE_HOMEOS_PENALTY,
+        explore_homeos_decay=EXPLORE_HOMEOS_DECAY,
+        explore_d1=EXPLORE_D1_AFFINITY,
+        explore_d2=EXPLORE_D2_AFFINITY,
+        explore_err_angle=EXPLORE_ERROR_ANGLE_WEIGHT,
+        explore_err_vel=EXPLORE_ERROR_VEL_WEIGHT,
+        explore_angle_limit=EXPLORE_ANGLE_LIMIT,
+        explore_vel_limit=EXPLORE_VELOCITY_LIMIT,
+        explore_shock_base=EXPLORE_SHOCK_BASE,
+        explore_shock_bitshift=EXPLORE_SHOCK_SCORE_BITSHIFT,
+        explore_shock_vel_mult=EXPLORE_SHOCK_VEL_MULT,
+        explore_shock_max_batches=EXPLORE_SHOCK_MAX_BATCHES,
+
+        # Distillation
+        distill_target_score=DISTILLATION_TARGET_SCORE,
+        distill_prune=DISTILL_PRUNE_THRESHOLD,
+        distill_night=DISTILL_NIGHT_INTERVAL,
+        distill_sprouts=DISTILL_MAX_SPROUTS,
+        distill_dopamine_pulse=DISTILL_DOPAMINE_PULSE,
+        distill_dopamine_reward=DISTILL_DOPAMINE_REWARD,
+        distill_dopamine_punish=DISTILL_DOPAMINE_PUNISHMENT,
+        distill_leak=DISTILL_LEAK_RATE,
+        distill_homeos_penalty=DISTILL_HOMEOS_PENALTY,
+        distill_homeos_decay=DISTILL_HOMEOS_DECAY,
+        distill_d1=DISTILL_D1_AFFINITY,
+        distill_d2=DISTILL_D2_AFFINITY,
+        distill_err_angle=DISTILL_ERROR_ANGLE_WEIGHT,
+        distill_err_vel=DISTILL_ERROR_VEL_WEIGHT,
+        distill_angle_limit=DISTILL_ANGLE_LIMIT,
+        distill_vel_limit=DISTILL_VELOCITY_LIMIT,
+        distill_shock_base=DISTILL_SHOCK_BASE,
+        distill_shock_bitshift=DISTILL_SHOCK_SCORE_BITSHIFT,
+        distill_shock_vel_mult=DISTILL_SHOCK_VEL_MULT,
+        distill_shock_max_batches=DISTILL_SHOCK_MAX_BATCHES,
+        
+        # Crystallized
+        crystallized_target_score=CRYSTALLIZATION_TARGET_SCORE,
+        crystallized_prune=CRYSTALLIZED_PRUNE_THRESHOLD,
+        crystallized_night=CRYSTALLIZED_NIGHT_INTERVAL,
+        crystallized_sprouts=CRYSTALLIZED_MAX_SPROUTS,
+        crystallized_dopamine_pulse=CRYSTALLIZED_DOPAMINE_PULSE,
+        crystallized_dopamine_reward=CRYSTALLIZED_DOPAMINE_REWARD,
+        crystallized_dopamine_punish=CRYSTALLIZED_DOPAMINE_PUNISHMENT,
+        crystallized_leak=CRYSTALLIZED_LEAK_RATE,
+        crystallized_homeos_penalty=CRYSTALLIZED_HOMEOS_PENALTY,
+        crystallized_homeos_decay=CRYSTALLIZED_HOMEOS_DECAY,
+        crystallized_d1=CRYSTALLIZED_D1_AFFINITY,
+        crystallized_d2=CRYSTALLIZED_D2_AFFINITY,
+        crystallized_err_angle=CRYSTALLIZED_ERROR_ANGLE_WEIGHT,
+        crystallized_err_vel=CRYSTALLIZED_ERROR_VEL_WEIGHT,
+        crystallized_angle_limit=CRYSTALLIZED_ANGLE_LIMIT,
+        crystallized_vel_limit=CRYSTALLIZED_VELOCITY_LIMIT,
+        crystallized_shock_base=CRYSTALLIZED_SHOCK_BASE,
+        crystallized_shock_bitshift=CRYSTALLIZED_SHOCK_SCORE_BITSHIFT,
+        crystallized_shock_vel_mult=CRYSTALLIZED_SHOCK_VEL_MULT,
+        crystallized_shock_max_batches=CRYSTALLIZED_SHOCK_MAX_BATCHES
+    )
     
     # [DOD FIX] Принудительная установка интервалов
-    control.set_night_interval(NIGHT_INTERVAL)
-    control.set_prune_threshold(PRUNE_THRESHOLD)
-    control.set_max_sprouts(MAX_SPROUTS_PER_NIGHT)
+    control.set_night_interval(EXPLORE_NIGHT_INTERVAL)
+    control.set_prune_threshold(EXPLORE_PRUNE_THRESHOLD)
+    control.set_max_sprouts(EXPLORE_MAX_SPROUTS)
     
     # Регуляция мембранной физики
-    control.set_membrane_physics(0, LEAK_RATE, HOMEOS_PENALTY, HOMEOS_DECAY)
-    control.set_membrane_physics(1, int(LEAK_RATE * 1.5), int(HOMEOS_PENALTY * 0.8), HOMEOS_DECAY)
-    
+    control.set_membrane_physics(0, EXPLORE_LEAK_RATE, EXPLORE_HOMEOS_PENALTY, EXPLORE_HOMEOS_DECAY)
+    control.set_membrane_physics(1, int(EXPLORE_LEAK_RATE * 1.5), int(EXPLORE_HOMEOS_PENALTY * 0.8), EXPLORE_HOMEOS_DECAY)
     
     # Подключаем Memory Plane для аналитики графа
     print("⏳ Ожидание инициализации Genesis Node (Shared Memory)...")
@@ -136,8 +267,6 @@ def run_cartpole():
         print("❌ FATAL: Could not connect to Shared Memory! Is Genesis Node and Baker Daemon running?")
         sys.exit(1)
     
-
-
     episodes, score = 0, 0
     synapses, avg_w = 0, 0.0
     terminated, truncated = False, False
@@ -153,18 +282,18 @@ def run_cartpole():
             
             # [DOD FIX] Non-Linear Death Signal & Kinetic Amplifier
             # Базовый шок + экспоненциальный штраф за долгий экстаз
-            shock_batches = SHOCK_BASE + (score >> SHOCK_SCORE_BITSHIFT)
+            shock_batches = tuner.shock_base + (score >> tuner.shock_bitshift)
             
             # Кинетический штраф за угловую скорость падения (state[1])
             pole_velocity = abs(state[1])
-            kinetic_penalty = int(pole_velocity * SHOCK_VEL_MULT)
+            kinetic_penalty = int(pole_velocity * tuner.shock_vel_mult)
             
             # Хард-лимит на батчи боли, чтобы не усыпить сеть навсегда
-            total_shock = min(SHOCK_MAX_BATCHES, shock_batches + kinetic_penalty)
+            total_shock = min(tuner.shock_max_batches, shock_batches + kinetic_penalty)
             
             # Пролонгированное выжигание виновных синапсов (LTD)
             for _ in range(total_shock):
-                client.step(DOPAMINE_PUNISHMENT)
+                client.step(tuner.dopamine_punish)
 
             # Извлекаем метрики после падения
             if memory:
@@ -193,14 +322,14 @@ def run_cartpole():
         pole_velocity = abs(state[3])
 
         # 1. Нормализация ошибки (0.0 = идеал, 1.0 = крах)
-        angle_error = min(1.0, pole_angle / ANGLE_LIMIT)
-        vel_error = min(1.0, pole_velocity / VELOCITY_LIMIT)
+        angle_error = min(1.0, pole_angle / tuner.angle_limit)
+        vel_error = min(1.0, pole_velocity / tuner.vel_limit)
  
         # 2. Взвешенная ошибка
-        error = min(1.0, angle_error * ERROR_ANGLE_WEIGHT + vel_error * ERROR_VEL_WEIGHT)
+        error = min(1.0, angle_error * tuner.err_angle_weight + vel_error * tuner.err_vel_weight)
  
         # 3. Линейная алгебра дофамина (без if/else)
-        dopamine_signal = int(DOPAMINE_REWARD * (1.0 - error) + DOPAMINE_PULSE * error)
+        dopamine_signal = int(tuner.dopamine_reward * (1.0 - error) + tuner.dopamine_pulse * error)
         
         # --- SINGLE BATCH HFT (2 ms) ---
         # Теперь 20 тиков ровно хватает на сквойной пролет сигнала через Nuclear Layer

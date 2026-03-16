@@ -3,8 +3,6 @@
 <h1 style="color: red;"> ВРЕМЕННО НЕ РАБОТАЕТ </h1>
 <h3 style="color: red;"> Но можно запускать и експериментировать </h3>
 
-
-
 Высокопроизводительный Embodied AI агент для сложной бипедальной локомоции (Humanoid-v4). Архитектура использует 5-зонный нейро-стек для разделения функций баланса, ритма и сенсорной интеграции.
 
 ## 🚀 Как запустить (Zero-Magic Pipeline)
@@ -37,7 +35,7 @@ cargo run --release -p genesis-node --features amd -- --brain HumanoidAgent --lo
 Запустите Python-шлюз. Он работает в бесконечном цикле без аллокаций, управляя обучением через дофаминовую модуляцию и Auto-Tuner.
 
 ```bash
-python3 examples/humanoid/humanoid_agent.py
+python3 examples/humanoid_exp/humanoid_agent.py
 ```
 
 Это самый сложный пример в Genesis. 17 степеней свободы на Spiking Neural Networks без классического обучения с учителем.

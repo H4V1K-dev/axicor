@@ -70,3 +70,11 @@ class GenesisControl:
             if "plasticity" not in d["settings"]: d["settings"]["plasticity"] = {}
             d["settings"]["plasticity"]["max_sprouts"] = max_sprouts
         self._update_manifest(mutate)
+
+    def disable_all_plasticity(self):
+        """Zero-Downtime патч для фазы CRYSTALLIZED. Полностью выключает GSOP (STDP)."""
+        def mutate(d):
+            for v in d.get("variants", []):
+                v["gsop_potentiation"] = 0
+                v["gsop_depression"] = 0
+        self._update_manifest(mutate)

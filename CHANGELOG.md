@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.639.105] - 2026-03-16 22:23:03
+
+**Dynamic Structural Plasticity & GPU Pruning Threshold**
+
+### Added
+- Replace `_padding: u16` with `max_sprouts: u16` in `BakeRequest` (`genesis-core/src/ipc.rs`) to preserve 16-byte contract
+- Add `max_sprouts` field with Serde default to `ManifestPlasticity` and `ShardSettings` (`genesis-core/src/config/manifest.rs`, `instance.rs`)
+- Integrate `max_sprouts` into `ShardAtomicSettings` and support Hot-Reload in `genesis-node/src/node/mod.rs`
+- Update `BakerClient` and `shard_thread.rs` to read atomic settings and pass `max_sprouts` via IPC to the Baker Daemon
+- Modify `run_sprouting_pass` in `genesis-baker/src/bake/sprouting.rs` to use dynamic `max_sprouts_per_night` parameter
+- Expose `set_max_sprouts(max_sprouts: int)` in `GenesisControl` and `GenesisClusterControl` (`genesis-client/genesis/control.py`, `brain.py`) with atomic TOML mutation
+- Refactor `sort_and_prune_kernel` in `genesis-compute/src/cuda/bindings.cu` and `amd/bindings.hip` to accept `int16_t global_prune_threshold`
+- Update `launch_sort_and_prune` signatures in FFI layer (`genesis-compute/src/ffi.rs`, `mock_ffi.rs`) to include `prune_threshold: i16`
+- Propagate dynamic threshold in orchestrator's `execute_night_phase` (`genesis-node/src/node/shard_thread.rs`)
+
 ## [0.630.105] - 2026-03-16 20:47:10
 
 **Remove experimental CartPole example and associated files**

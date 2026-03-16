@@ -32,7 +32,7 @@ cargo run --release -p genesis-node --features amd -- --brain AntConnectome --lo
 Запустите Python-шлюз. Он работает в бесконечном цикле без аллокаций, передавая состояния среды и управляя обучением через `TARGET_TIME` и `TARGET_SCORE`.
 
 ```bash
-python3 examples/ant/ant_agent.py
+python3 examples/ant_exp/ant_agent.py
 ```
 
-Смотрите на TUI-графики и логи. Вы увидите, как 3-зонная сеть стабилизирует локомоцию муравья, используя аппаратную пластичность (`pot=0, dep=2`) и высокочастотный контроль (2ms)!
+Муравей никогда не падает с нулевой эпохи.
