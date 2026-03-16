@@ -398,7 +398,7 @@ effective_leak = clamp(base_leak_rate + leak_mod, leak_min, leak_max)
 
 ---
 
-## Milestone 3. Burst-Driven Adaptive Leak
+## Milestone 3. Burst-Driven Adaptive Leak [DONE]
 
 ### Цель
 

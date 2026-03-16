@@ -99,26 +99,32 @@ pub const fn compute_glif(
 // Adaptive Leak (LTC Roadmap Milestone 2)
 // ---------------------------------------------------------------------------
 
-/// Dopamine-driven effective leak (LTC Roadmap §Formulas).
+/// Dopamine + burst driven effective leak (LTC Roadmap §Formulas).
 ///
-/// `leak_mod = (dopamine * dopamine_leak_gain) >> 7`
+/// `leak_mod = (dopamine * dopamine_leak_gain) >> 7 + burst_count * burst_leak_gain`
 /// `effective_leak = clamp(base_leak_rate + leak_mod, leak_min, leak_max)`
 ///
 /// When `adaptive_leak_mode == 0` or clamp window invalid (`leak_min >= leak_max`),
 /// returns `base_leak_rate`. Branchless, integer-only.
+///
+/// For v1, `burst_leak_gain >= 0` is the safe default because larger burst trains
+/// increase leak and cool the membrane faster instead of reinforcing runaway activity.
 #[inline(always)]
 pub const fn compute_effective_leak(
     adaptive_leak_mode: u8,
     base_leak_rate: i32,
     dopamine: i16,
     dopamine_leak_gain: i16,
+    burst_count: u8,
+    burst_leak_gain: i16,
     leak_min: i16,
     leak_max: i16,
 ) -> i32 {
     if adaptive_leak_mode == 0 || leak_min >= leak_max {
         return base_leak_rate;
     }
-    let leak_mod = (dopamine as i32 * dopamine_leak_gain as i32) >> 7;
+    let leak_mod = ((dopamine as i32 * dopamine_leak_gain as i32) >> 7)
+        + burst_count as i32 * burst_leak_gain as i32;
     let raw = base_leak_rate + leak_mod;
     let lo = leak_min as i32;
     let hi = leak_max as i32;
@@ -272,28 +278,52 @@ mod tests {
 
     #[test]
     fn test_effective_leak_mode_off_returns_base() {
-        assert_eq!(compute_effective_leak(0, 10, 100, 64, 1, 20), 10);
+        assert_eq!(compute_effective_leak(0, 10, 100, 64, 3, 5, 1, 20), 10);
     }
 
     #[test]
     fn test_effective_leak_invalid_window_returns_base() {
-        assert_eq!(compute_effective_leak(1, 10, 100, 64, 5, 5), 10);
-        assert_eq!(compute_effective_leak(1, 10, 100, 64, 10, 5), 10);
+        assert_eq!(compute_effective_leak(1, 10, 100, 64, 3, 5, 5, 5), 10);
+        assert_eq!(compute_effective_leak(1, 10, 100, 64, 3, 5, 10, 5), 10);
     }
 
     #[test]
     fn test_effective_leak_dopamine_modulation() {
         // leak_mod = (127 * 64) >> 7 = 64, effective = 10 + 64 = 74, clamp(1,20)=20
-        assert_eq!(compute_effective_leak(1, 10, 127, 64, 1, 20), 20);
+        assert_eq!(compute_effective_leak(1, 10, 127, 64, 0, 0, 1, 20), 20);
         // leak_mod = (0 * 64) >> 7 = 0, effective = 10
-        assert_eq!(compute_effective_leak(1, 10, 0, 64, 1, 20), 10);
+        assert_eq!(compute_effective_leak(1, 10, 0, 64, 0, 0, 1, 20), 10);
         // leak_mod = (-128 * 64) >> 7 = -64, effective = 10 - 64 = -54, clamp(1,20)=1
-        assert_eq!(compute_effective_leak(1, 10, -128, 64, 1, 20), 1);
+        assert_eq!(compute_effective_leak(1, 10, -128, 64, 0, 0, 1, 20), 1);
+    }
+
+    #[test]
+    fn test_effective_leak_burst_only() {
+        // leak_mod = 3 * 4 = 12, effective = 10 + 12 = 22, clamp(1, 20)=20
+        assert_eq!(compute_effective_leak(1, 10, 0, 0, 3, 4, 1, 20), 20);
+        // leak_mod = 2 * -3 = -6, effective = 10 - 6 = 4
+        assert_eq!(compute_effective_leak(1, 10, 0, 0, 2, -3, 1, 20), 4);
+    }
+
+    #[test]
+    fn test_effective_leak_combined_modulation() {
+        // dopamine part = (64 * 32) >> 7 = 16
+        // burst part = 3 * 2 = 6
+        // effective = clamp(10 + 22, 1, 40) = 32
+        assert_eq!(compute_effective_leak(1, 10, 64, 32, 3, 2, 1, 40), 32);
+    }
+
+    #[test]
+    fn test_effective_leak_burst_clamp() {
+        // raw = 5 + 7 * 10 = 75 -> clamp to 12
+        assert_eq!(compute_effective_leak(1, 5, 0, 0, 7, 10, 1, 12), 12);
+        // raw = 5 + 7 * -10 = -65 -> clamp to 1
+        assert_eq!(compute_effective_leak(1, 5, 0, 0, 7, -10, 1, 12), 1);
     }
 
     #[test]
     fn test_effective_leak_integration_with_glif() {
-        let eff = compute_effective_leak(1, 2, 10, 64, 1, 20);
+        let eff = compute_effective_leak(1, 2, 10, 64, 2, 3, 1, 20);
         assert!(eff >= 1 && eff <= 20);
         assert_eq!(compute_glif(100, -70, eff, 0), 100 - (170 / eff) + 0);
     }

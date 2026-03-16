@@ -148,7 +148,7 @@ __global__ void cu_propagate_axons_kernel(BurstHeads8* __restrict__ axon_heads,
 
 // ============================================================================
 // 4. Update Neurons Kernel (GLIF + Dendritic Integration)
-// Milestone 2: dopamine-driven adaptive leak when adaptive_leak_mode != 0
+// Milestone 3: dopamine + burst adaptive leak when adaptive_leak_mode != 0
 // ============================================================================
 __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
                                          uint32_t padded_n, uint32_t current_tick,
@@ -216,10 +216,13 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   int32_t sign = (diff > 0) - (diff < 0);
   int32_t abs_diff = diff * sign;
 
-  // Milestone 2: dopamine-driven effective leak (LTC Roadmap §Formulas)
+  uint8_t burst_count = (flags >> 1) & 0x07;
+
+  // Milestone 3: dopamine + burst effective leak (LTC Roadmap §Formulas)
   int32_t leak_used = p.leak_rate;
   if (p.adaptive_leak_mode != 0 && p.leak_min < p.leak_max) {
     int32_t leak_mod = (dopamine * p.dopamine_leak_gain) >> 7;
+    leak_mod += (int32_t)burst_count * p.burst_leak_gain;
     int32_t raw = p.leak_rate + leak_mod;
     int32_t lo = p.leak_min;
     int32_t hi = p.leak_max;
@@ -270,7 +273,9 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
 
   // 8. Запись в VRAM
   vram.soma_voltage[tid] = current_voltage;
-  vram.soma_flags[tid] = flags;
+  uint8_t updated_burst_count = burst_count;
+  updated_burst_count += final_spike * (updated_burst_count < 7);
+  vram.soma_flags[tid] = (flags & 0xF0) | (updated_burst_count << 1) | (uint8_t)final_spike;
   vram.threshold_offset[tid] = thresh_offset;
   vram.timers[tid] = new_timer;
 }

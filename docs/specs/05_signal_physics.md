@@ -133,7 +133,7 @@ __global__ void apply_spike_batch_kernel(u32 num_spikes,
 
 - **Принцип:** Сома стреляет → хвост аксона всё ещё касается дендрита → значит, этот аксон участвовал в возбуждении. Причинно-следственная связь через перекрытие, не через временные метки.
 
-**Constant Memory:** `GenesisConstantMemory` (см. [07_gpu_runtime.md §1.5](./07_gpu_runtime.md)). Содержит array из 16 `VariantParameters` structs (по одному на каждый тип нейрона из blueprints). Milestone 2: при `adaptive_leak_mode != 0` используется dopamine-driven effective leak. Variant ID распаковывается из флагов как `(flags >> 4) & 0xF` (биты 4-7 = 16 типов).
+**Constant Memory:** `GenesisConstantMemory` (см. [07_gpu_runtime.md §1.5](./07_gpu_runtime.md)). Содержит array из 16 `VariantParameters` structs (по одному на каждый тип нейрона из blueprints). Milestone 3: при `adaptive_leak_mode != 0` используется комбинированный effective leak от dopamine и `burst_count`. Variant ID распаковывается из флагов как `(flags >> 4) & 0xF` (биты 4-7 = 16 типов).
 
 ### 1.3. Инференс: Пространственный GSOP и Нейромодуляция
 
@@ -209,15 +209,16 @@ __global__ void apply_spike_batch_kernel(u32 num_spikes,
 
 Ядро, которое собирает всю физику в один проход: GLIF leak, гомеостаз, Early Exit, суммация дендритов, threshold check, fire/reset. Параметры читаются из `GenesisConstantMemory` (см. [07_gpu_runtime.md §1.5](./07_gpu_runtime.md)).
 
-**Milestone 2 — Dopamine-Driven Adaptive Leak:** при `adaptive_leak_mode != 0` и `leak_min < leak_max`:
+**Milestone 3 — Dopamine + Burst Adaptive Leak:** при `adaptive_leak_mode != 0` и `leak_min < leak_max`:
 
 ```text
-leak_mod = (dopamine * dopamine_leak_gain) >> 7
+burst_count = (flags >> 1) & 0x07
+leak_mod = ((dopamine * dopamine_leak_gain) >> 7) + burst_count * burst_leak_gain
 effective_leak = clamp(base_leak_rate + leak_mod, leak_min, leak_max)
 leak_used = max(effective_leak, 1)
 ```
 
-Эффект виден в телеметрии через `ready_dopamine` и изменение spike rate при варьировании dopamine.
+Burst-член использует уже существующий BDP-счётчик и не требует нового per-neuron state. Для v1 безопасный default: `burst_leak_gain >= 0`, чтобы плотные burst trains ускоряли остывание мембраны, а не усиливали runaway feedback.
 
 ```cuda
 __constant__ GenesisConstantMemory const_mem;

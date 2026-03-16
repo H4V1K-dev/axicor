@@ -52,11 +52,11 @@ fn main() {
         let mut build = cc::Build::new();
         build
             .cuda(true)
+            .warnings(false)
             .flag("-O3")
             .flag("-use_fast_math")
             .flag("-default-stream=per-thread")
             .flag("-allow-unsupported-compiler")
-            .flag("-w")
             .flag(&format!("-arch={}", arch));
 
         // Host compiler: Linux gcc-13, Windows uses MSVC (cl.exe) by default
