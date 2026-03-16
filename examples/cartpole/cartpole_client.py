@@ -4,6 +4,7 @@ CartPole ↔ Genesis Neural Node Client
 Population Coding: 4 float → 64 virtual axons (Gaussian Receptive Fields)
 Motor Readout:     popcount(motor_left) vs popcount(motor_right) → WTA
 """
+import random
 import socket
 import struct
 import gymnasium as gym
@@ -107,10 +108,10 @@ def main() -> None:
         cart_x, cart_v, pole_a, pole_av = obs
 
         # ── 2. Dopamine signal (R-STDP steering) ─────────────────
-        # Upright pole → positive. Terminal → softer depression (was -30000).
-        # Added velocity penalty to discourage fast swings.
+        # Upright pole → positive. Terminal → softer depression to reduce
+        # network degradation (was -20000; -5000 allows learning from mistakes).
         if terminated:
-            dopamine = -20000
+            dopamine = -5000
         else:
             dopamine = int((0.03 - abs(pole_a)) * 25000 - abs(pole_av) * 5000)
         dopamine = max(-32768, min(32767, dopamine))
@@ -145,7 +146,9 @@ def main() -> None:
                         total  = np.sum(spikes, axis=0) # shape: (64,)
                         left_power  = int(np.sum(total[0:32]))
                         right_power = int(np.sum(total[32:64]))
-                        action = 0 if left_power >= right_power else 1
+                        action = (0 if left_power > right_power else
+                                  1 if right_power > left_power else
+                                  random.randint(0, 1))
 
         except socket.timeout:
             print("⚠️  [Genesis] RX Timeout — waiting for node...")
