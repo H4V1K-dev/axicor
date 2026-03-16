@@ -80,7 +80,7 @@ struct VariantParameters {
     uint8_t ltm_slot_count;                 // 1 б. - Количество LTM слотов
     int16_t inertia_curve[15];              // 30 б. - Inertia modifiers (rank: abs(weight) >> 11)
     int16_t prune_threshold;                // 2 б. - Порог pruning для Night Phase
-    uint8_t adaptive_leak_mode;             // 1 б. - 0 = disabled
+    uint8_t adaptive_leak_mode;             // 1 б. - 0 = off, 1 = continuous, 2 = discrete modes
     uint8_t _pad_adaptive;                  // 1 б. - ABI padding
     int16_t dopamine_leak_gain;             // 2 б. - Reserved for adaptive leak
     int16_t burst_leak_gain;                // 2 б. - Reserved for adaptive leak
@@ -95,7 +95,7 @@ struct GenesisConstantMemory {
 };   // Умещается в константную память GPU (64KB limit)
 ```
 
-**Доступ из CUDA kernel:** Variant ID извлекается из `soma_flags` за 1 такт: `var_id = (flags[tid] >> 6) & 0x3`. Далее - прямое чтение из L1 (Broadcast Read за 1 такт):
+**Доступ из CUDA kernel:** Variant ID извлекается из `soma_flags` за 1 такт: `var_id = (flags[tid] >> 4) & 0xF`. Далее - прямое чтение из L1 (Broadcast Read за 1 такт):
 
 ```cuda
 int32_t threshold = const_mem.variants[var_id].threshold;
@@ -166,7 +166,7 @@ total_axons = L + G + V (aligned to 32)
 
 ### 1.5. Constant Memory (LUT Layout)
 
-Параметры поведения грузятся в `__constant__` память GPU **один раз** при старте. В Milestone 1 структура `GenesisConstantMemory` занимает 1280 байт (16 вариантов по 80 байт) и по-прежнему с большим запасом помещается в 64KB лимит. Дополнительные 16 байт на вариант резервируются под adaptive leak, но не влияют на поведение, пока модификация leak не активирована.
+Параметры поведения грузятся в `__constant__` память GPU **один раз** при старте. Структура `GenesisConstantMemory` занимает 1280 байт (16 вариантов по 80 байт) и по-прежнему с большим запасом помещается в 64KB лимит. Поля adaptive leak используются для continuous (`adaptive_leak_mode = 1`) и discrete (`adaptive_leak_mode = 2`) membrane modes без расширения ABI.
 
 ```rust
 #[repr(C, align(16))]
@@ -189,12 +189,12 @@ pub struct VariantParameters {            // 80 bytes
     pub ltm_slot_count: u8,               // 1  - Доля слотов, считающихся LTM
     pub inertia_curve: [i16; 15],         // 30 - Inertia modifiers (rank: abs(weight) >> 11)
     pub prune_threshold: i16,             // 2  - Pruning threshold for Night Phase
-    pub adaptive_leak_mode: u8,           // 1  - 0 = disabled
+    pub adaptive_leak_mode: u8,           // 1  - 0 = off, 1 = continuous, 2 = discrete modes
     pub _pad_adaptive: u8,                // 1  - ABI padding
-    pub dopamine_leak_gain: i16,          // 2  - Reserved for dopamine-driven leak modulation
-    pub burst_leak_gain: i16,             // 2  - Reserved for burst-driven leak modulation
-    pub leak_min: i16,                    // 2  - Reserved lower clamp for effective leak
-    pub leak_max: i16,                    // 2  - Reserved upper clamp for effective leak
+    pub dopamine_leak_gain: i16,          // 2  - Gain for dopamine contribution to adaptive leak
+    pub burst_leak_gain: i16,             // 2  - Gain for burst_count contribution to adaptive leak
+    pub leak_min: i16,                    // 2  - Lower clamp / responsive anchor for adaptive leak
+    pub leak_max: i16,                    // 2  - Upper clamp / recovery anchor for adaptive leak
     pub _reserved: [u8; 6],               // 6  - Future ABI reserve
 }
 

@@ -112,7 +112,7 @@ pub struct NeuronType {
     #[serde(default = "default_prune_threshold")]
     pub prune_threshold: i16,
 
-    // --- Adaptive Leak (LTC Milestone 2, off by default) ---
+    // --- Adaptive Leak (LTC Milestone 4, off by default) ---
     #[serde(default)]
     pub adaptive_leak_mode: u8,
     #[serde(default)]

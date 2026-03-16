@@ -143,10 +143,10 @@ gsop_depression = 2
 До **16 уникальных типов** (0..15), каждый с полным набором параметров GLIF и GSOP:
 
 - **Индекс:** 0 - тип из фрагмента `[[neuron_types]]` в `blueprints.toml`
-- **Параметры:** threshold, rest_potential, leak_rate, homeostasis_penalty, homeostasis_decay, gsop_potentiation, gsop_depression, refractory_period, synapse_refractory_period, slot_decay_ltm, slot_decay_wm, signal_propagation_length, а также reserved-поля для adaptive leak (`adaptive_leak_mode`, `dopamine_leak_gain`, `burst_leak_gain`, `leak_min`, `leak_max`)
+- **Параметры:** threshold, rest_potential, leak_rate, homeostasis_penalty, homeostasis_decay, gsop_potentiation, gsop_depression, refractory_period, synapse_refractory_period, slot_decay_ltm, slot_decay_wm, signal_propagation_length, а также поля adaptive leak (`adaptive_leak_mode`, `dopamine_leak_gain`, `burst_leak_gain`, `leak_min`, `leak_max`)
 - **Семантика:** определяется при конфигурации, не жёстко закодирована. Одна конфигурация может иметь типы {ExcitatoryFast, InhibitorySlow}, другая - {Relay, Memory, Burst, Regular}
 
-На этапе **Milestone 1** поля adaptive leak присутствуют только как часть C-ABI и по умолчанию равны нулю. Они не меняют поведение нейрона, пока не будет введена явная leak-модуляция в следующих milestone.
+С `Milestone 4` поле `adaptive_leak_mode` задаёт режим работы adaptive leak: `0 = disabled`, `1 = continuous dopamine+burst modulation`, `2 = discrete membrane modes` (`stable`, `responsive`, `excited`, `recovery`).
 
 При Baking каждому нейрону из `anatomy.toml` назначается `type_idx` (0..15). При загрузке в VRAM `type_idx` кодируется в `flags[dense_index] >> 4`.
 

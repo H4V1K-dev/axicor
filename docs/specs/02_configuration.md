@@ -369,8 +369,8 @@ threshold = 42000               # Порог срабатывания
 rest_potential = 10000           # Потенциал покоя
 leak_rate = 1200                 # Скорость утечки (вычитание каждый тик)
 
-# --- Adaptive Leak (LTC Milestone 3, optional, off by default) ---
-# adaptive_leak_mode = 0          # 0 = disabled, 1 = dopamine+burst modulation
+# --- Adaptive Leak (LTC Milestone 4, optional, off by default) ---
+# adaptive_leak_mode = 0          # 0 = disabled, 1 = continuous dopamine+burst, 2 = discrete membrane modes
 # dopamine_leak_gain = 0          # (dopamine * gain) >> 7 added to leak
 # burst_leak_gain = 0             # burst_count * gain added to leak
 # leak_min = 0                   # Clamp lower bound (must be < leak_max to enable)

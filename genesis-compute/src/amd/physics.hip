@@ -148,7 +148,7 @@ __global__ void cu_propagate_axons_kernel(BurstHeads8* __restrict__ axon_heads,
 
 // ============================================================================
 // 4. Update Neurons Kernel (GLIF + Dendritic Integration)
-// Milestone 3: dopamine + burst adaptive leak when adaptive_leak_mode != 0
+// Milestone 4: continuous or discrete adaptive leak, selected by adaptive_leak_mode
 // ============================================================================
 __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
                                          uint32_t padded_n, uint32_t current_tick,
@@ -218,17 +218,47 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
 
   uint8_t burst_count = (flags >> 1) & 0x07;
 
-  // Milestone 3: dopamine + burst effective leak (LTC Roadmap §Formulas)
+  // Milestone 4: adaptive leak path selection
   int32_t leak_used = p.leak_rate;
   if (p.adaptive_leak_mode != 0 && p.leak_min < p.leak_max) {
-    int32_t leak_mod = (dopamine * p.dopamine_leak_gain) >> 7;
-    leak_mod += (int32_t)burst_count * p.burst_leak_gain;
-    int32_t raw = p.leak_rate + leak_mod;
     int32_t lo = p.leak_min;
     int32_t hi = p.leak_max;
-    int32_t clamped_lo = raw - ((raw - lo) & ((raw - lo) >> 31));
-    int32_t clamped_hi = clamped_lo + ((hi - clamped_lo) & ((hi - clamped_lo) >> 31));
-    leak_used = clamped_hi + ((1 - clamped_hi) & ((clamped_hi - 1) >> 31));
+    int32_t dopamine_mod = (dopamine * p.dopamine_leak_gain) >> 7;
+    int32_t burst_mod = (int32_t)burst_count * p.burst_leak_gain;
+
+    if (p.adaptive_leak_mode == 1) {
+      int32_t raw = p.leak_rate + dopamine_mod + burst_mod;
+      int32_t clamped_lo = raw - ((raw - lo) & ((raw - lo) >> 31));
+      int32_t clamped_hi = clamped_lo + ((hi - clamped_lo) & ((hi - clamped_lo) >> 31));
+      leak_used = clamped_hi + ((1 - clamped_hi) & ((clamped_hi - 1) >> 31));
+    } else {
+      int32_t base_clamped_lo = p.leak_rate - ((p.leak_rate - lo) & ((p.leak_rate - lo) >> 31));
+      int32_t base_clamped = base_clamped_lo + ((hi - base_clamped_lo) & ((hi - base_clamped_lo) >> 31));
+      int32_t combined_mod = dopamine_mod + burst_mod;
+      int32_t band = (hi - lo) >> 2;
+      band = band + ((1 - band) & ((band - 1) >> 31));
+
+      int32_t mode = 0; // stable
+      if (burst_count >= 4 && burst_mod > 0) {
+        mode = 3; // recovery
+      } else if (combined_mod <= -band) {
+        mode = 1; // responsive
+      } else if (combined_mod >= band) {
+        mode = 2; // excited
+      }
+
+      int32_t responsive = (base_clamped + lo) >> 1;
+      int32_t excited = (base_clamped + hi + 1) >> 1;
+      leak_used = base_clamped;
+      if (mode == 1) {
+        leak_used = responsive;
+      } else if (mode == 2) {
+        leak_used = excited;
+      } else if (mode == 3) {
+        leak_used = hi;
+      }
+      leak_used = leak_used + ((1 - leak_used) & ((leak_used - 1) >> 31));
+    }
   }
 
   // Вычитаем утечку из модуля разницы

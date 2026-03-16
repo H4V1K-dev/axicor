@@ -99,12 +99,89 @@ pub const fn compute_glif(
 // Adaptive Leak (LTC Roadmap Milestone 2)
 // ---------------------------------------------------------------------------
 
+pub const ADAPTIVE_LEAK_MODE_DISABLED: u8 = 0;
+pub const ADAPTIVE_LEAK_MODE_CONTINUOUS: u8 = 1;
+pub const ADAPTIVE_LEAK_MODE_DISCRETE: u8 = 2;
+
+pub const MEMBRANE_MODE_STABLE: u8 = 0;
+pub const MEMBRANE_MODE_RESPONSIVE: u8 = 1;
+pub const MEMBRANE_MODE_EXCITED: u8 = 2;
+pub const MEMBRANE_MODE_RECOVERY: u8 = 3;
+pub const RECOVERY_BURST_THRESHOLD: u8 = 4;
+
+#[inline(always)]
+const fn clamp_i32(raw: i32, lo: i32, hi: i32) -> i32 {
+    let clamped_lo = raw - ((raw - lo) & ((raw - lo) >> 31));
+    clamped_lo + ((hi - clamped_lo) & ((hi - clamped_lo) >> 31))
+}
+
+#[inline(always)]
+const fn max_i32(value: i32, minimum: i32) -> i32 {
+    value + ((minimum - value) & ((value - minimum) >> 31))
+}
+
+#[inline(always)]
+const fn adaptive_band(lo: i32, hi: i32) -> i32 {
+    max_i32((hi - lo) >> 2, 1)
+}
+
+/// Returns the discrete membrane mode for `adaptive_leak_mode = 2`.
+///
+/// Transition rules are intentionally simple and LUT-friendly:
+/// - `stable`: modulation stays inside a narrow dead band
+/// - `responsive`: combined modulation is sufficiently negative
+/// - `excited`: combined modulation is sufficiently positive
+/// - `recovery`: burst train is dense enough to trigger a hard cool-down path
+#[inline(always)]
+pub const fn compute_membrane_mode(
+    adaptive_leak_mode: u8,
+    dopamine: i16,
+    dopamine_leak_gain: i16,
+    burst_count: u8,
+    burst_leak_gain: i16,
+    leak_min: i16,
+    leak_max: i16,
+) -> u8 {
+    if adaptive_leak_mode != ADAPTIVE_LEAK_MODE_DISCRETE || leak_min >= leak_max {
+        return MEMBRANE_MODE_STABLE;
+    }
+
+    let dopamine_mod = (dopamine as i32 * dopamine_leak_gain as i32) >> 7;
+    let burst_mod = burst_count as i32 * burst_leak_gain as i32;
+    let combined_mod = dopamine_mod + burst_mod;
+    let band = adaptive_band(leak_min as i32, leak_max as i32);
+
+    if burst_count >= RECOVERY_BURST_THRESHOLD && burst_mod > 0 {
+        MEMBRANE_MODE_RECOVERY
+    } else if combined_mod <= -band {
+        MEMBRANE_MODE_RESPONSIVE
+    } else if combined_mod >= band {
+        MEMBRANE_MODE_EXCITED
+    } else {
+        MEMBRANE_MODE_STABLE
+    }
+}
+
+pub fn membrane_mode_label(mode: u8) -> &'static str {
+    match mode {
+        MEMBRANE_MODE_RESPONSIVE => "responsive",
+        MEMBRANE_MODE_EXCITED => "excited",
+        MEMBRANE_MODE_RECOVERY => "recovery",
+        _ => "stable",
+    }
+}
+
 /// Dopamine + burst driven effective leak (LTC Roadmap §Formulas).
 ///
 /// `leak_mod = (dopamine * dopamine_leak_gain) >> 7 + burst_count * burst_leak_gain`
 /// `effective_leak = clamp(base_leak_rate + leak_mod, leak_min, leak_max)`
 ///
-/// When `adaptive_leak_mode == 0` or clamp window invalid (`leak_min >= leak_max`),
+/// Mode selector:
+/// - `0`: disabled
+/// - `1`: continuous dopamine + burst modulation
+/// - `2`: discrete membrane modes (`stable`, `responsive`, `excited`, `recovery`)
+///
+/// When adaptive leak is disabled or clamp window invalid (`leak_min >= leak_max`),
 /// returns `base_leak_rate`. Branchless, integer-only.
 ///
 /// For v1, `burst_leak_gain >= 0` is the safe default because larger burst trains
@@ -120,20 +197,38 @@ pub const fn compute_effective_leak(
     leak_min: i16,
     leak_max: i16,
 ) -> i32 {
-    if adaptive_leak_mode == 0 || leak_min >= leak_max {
+    if adaptive_leak_mode == ADAPTIVE_LEAK_MODE_DISABLED || leak_min >= leak_max {
         return base_leak_rate;
     }
-    let leak_mod = ((dopamine as i32 * dopamine_leak_gain as i32) >> 7)
-        + burst_count as i32 * burst_leak_gain as i32;
-    let raw = base_leak_rate + leak_mod;
     let lo = leak_min as i32;
     let hi = leak_max as i32;
-    // Branchless clamp: min(max(raw, lo), hi)
-    let clamped_lo = raw - ((raw - lo) & ((raw - lo) >> 31));
-    let clamped_hi = clamped_lo + ((hi - clamped_lo) & ((hi - clamped_lo) >> 31));
-    // Ensure positive for GLIF (avoid div-by-zero): max(result, 1)
-    let result = clamped_hi;
-    result + ((1 - result) & ((result - 1) >> 31))
+    let dopamine_mod = (dopamine as i32 * dopamine_leak_gain as i32) >> 7;
+    let burst_mod = burst_count as i32 * burst_leak_gain as i32;
+
+    if adaptive_leak_mode == ADAPTIVE_LEAK_MODE_CONTINUOUS {
+        let raw = base_leak_rate + dopamine_mod + burst_mod;
+        return max_i32(clamp_i32(raw, lo, hi), 1);
+    }
+
+    let mode = compute_membrane_mode(
+        adaptive_leak_mode,
+        dopamine,
+        dopamine_leak_gain,
+        burst_count,
+        burst_leak_gain,
+        leak_min,
+        leak_max,
+    );
+    let base = clamp_i32(base_leak_rate, lo, hi);
+    let responsive = clamp_i32((base + lo) >> 1, lo, hi);
+    let excited = clamp_i32((base + hi + 1) >> 1, lo, hi);
+    let leak = match mode {
+        MEMBRANE_MODE_RESPONSIVE => responsive,
+        MEMBRANE_MODE_EXCITED => excited,
+        MEMBRANE_MODE_RECOVERY => hi,
+        _ => base,
+    };
+    max_i32(leak, 1)
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +414,39 @@ mod tests {
         assert_eq!(compute_effective_leak(1, 5, 0, 0, 7, 10, 1, 12), 12);
         // raw = 5 + 7 * -10 = -65 -> clamp to 1
         assert_eq!(compute_effective_leak(1, 5, 0, 0, 7, -10, 1, 12), 1);
+    }
+
+    #[test]
+    fn test_discrete_membrane_mode_classification() {
+        assert_eq!(
+            compute_membrane_mode(2, 0, 0, 0, 0, 1, 20),
+            MEMBRANE_MODE_STABLE
+        );
+        assert_eq!(
+            compute_membrane_mode(2, -128, 64, 0, 0, 1, 20),
+            MEMBRANE_MODE_RESPONSIVE
+        );
+        assert_eq!(
+            compute_membrane_mode(2, 127, 64, 0, 0, 1, 20),
+            MEMBRANE_MODE_EXCITED
+        );
+        assert_eq!(
+            compute_membrane_mode(2, 0, 0, 4, 5, 1, 20),
+            MEMBRANE_MODE_RECOVERY
+        );
+        assert_eq!(membrane_mode_label(MEMBRANE_MODE_RECOVERY), "recovery");
+    }
+
+    #[test]
+    fn test_discrete_effective_leak_levels() {
+        // stable => base clamped
+        assert_eq!(compute_effective_leak(2, 10, 0, 0, 0, 0, 1, 20), 10);
+        // responsive => midpoint between base and leak_min
+        assert_eq!(compute_effective_leak(2, 10, -128, 64, 0, 0, 1, 21), 5);
+        // excited => midpoint between base and leak_max
+        assert_eq!(compute_effective_leak(2, 10, 127, 64, 0, 0, 1, 21), 16);
+        // recovery => leak_max
+        assert_eq!(compute_effective_leak(2, 10, 0, 0, 5, 4, 1, 21), 21);
     }
 
     #[test]

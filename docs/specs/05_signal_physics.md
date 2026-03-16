@@ -133,7 +133,7 @@ __global__ void apply_spike_batch_kernel(u32 num_spikes,
 
 - **Принцип:** Сома стреляет → хвост аксона всё ещё касается дендрита → значит, этот аксон участвовал в возбуждении. Причинно-следственная связь через перекрытие, не через временные метки.
 
-**Constant Memory:** `GenesisConstantMemory` (см. [07_gpu_runtime.md §1.5](./07_gpu_runtime.md)). Содержит array из 16 `VariantParameters` structs (по одному на каждый тип нейрона из blueprints). Milestone 3: при `adaptive_leak_mode != 0` используется комбинированный effective leak от dopamine и `burst_count`. Variant ID распаковывается из флагов как `(flags >> 4) & 0xF` (биты 4-7 = 16 типов).
+**Constant Memory:** `GenesisConstantMemory` (см. [07_gpu_runtime.md §1.5](./07_gpu_runtime.md)). Содержит array из 16 `VariantParameters` structs (по одному на каждый тип нейрона из blueprints). `adaptive_leak_mode = 1` включает continuous effective leak от dopamine и `burst_count`, `adaptive_leak_mode = 2` включает discrete membrane modes. Variant ID распаковывается из флагов как `(flags >> 4) & 0xF` (биты 4-7 = 16 типов).
 
 ### 1.3. Инференс: Пространственный GSOP и Нейромодуляция
 
@@ -209,16 +209,23 @@ __global__ void apply_spike_batch_kernel(u32 num_spikes,
 
 Ядро, которое собирает всю физику в один проход: GLIF leak, гомеостаз, Early Exit, суммация дендритов, threshold check, fire/reset. Параметры читаются из `GenesisConstantMemory` (см. [07_gpu_runtime.md §1.5](./07_gpu_runtime.md)).
 
-**Milestone 3 — Dopamine + Burst Adaptive Leak:** при `adaptive_leak_mode != 0` и `leak_min < leak_max`:
+**Milestone 4 — Continuous + Discrete Adaptive Leak:** при `adaptive_leak_mode != 0` и `leak_min < leak_max`:
 
 ```text
 burst_count = (flags >> 1) & 0x07
-leak_mod = ((dopamine * dopamine_leak_gain) >> 7) + burst_count * burst_leak_gain
-effective_leak = clamp(base_leak_rate + leak_mod, leak_min, leak_max)
-leak_used = max(effective_leak, 1)
+adaptive_leak_mode = 1:
+  leak_mod = ((dopamine * dopamine_leak_gain) >> 7) + burst_count * burst_leak_gain
+  effective_leak = clamp(base_leak_rate + leak_mod, leak_min, leak_max)
+  leak_used = max(effective_leak, 1)
+
+adaptive_leak_mode = 2:
+  stable     -> leak_used = base_leak_rate
+  responsive -> leak_used = midpoint(leak_min, base_leak_rate)
+  excited    -> leak_used = midpoint(base_leak_rate, leak_max)
+  recovery   -> leak_used = leak_max
 ```
 
-Burst-член использует уже существующий BDP-счётчик и не требует нового per-neuron state. Для v1 безопасный default: `burst_leak_gain >= 0`, чтобы плотные burst trains ускоряли остывание мембраны, а не усиливали runaway feedback.
+Burst-член использует уже существующий BDP-счётчик и не требует нового per-neuron state. В discrete path переходы LUT-friendly: `recovery` срабатывает при плотном burst train (`burst_count >= 4` и положительном burst-вкладе), `responsive/excited` выбираются по знаку и величине суммарной модуляции. Режимы выводятся в dashboard event log через orchestrator.
 
 ```cuda
 __constant__ GenesisConstantMemory const_mem;

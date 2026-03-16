@@ -437,7 +437,7 @@ effective_leak = clamp(base_leak_rate + leak_mod, leak_min, leak_max)
 
 ---
 
-## Milestone 4. Discrete Membrane Modes
+## Milestone 4. Discrete Membrane Modes [DONE]
 
 ### Цель
 

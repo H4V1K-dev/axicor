@@ -91,6 +91,45 @@ unsafe impl Send for NodeRuntime {}
 unsafe impl Sync for NodeRuntime {}
 
 impl NodeRuntime {
+    fn log_discrete_membrane_modes_from_manifest(
+        &self,
+        hash: u32,
+        manifest: &genesis_core::config::manifest::ZoneManifest,
+    ) {
+        let discrete_variants: Vec<String> = manifest
+            .variants
+            .iter()
+            .filter(|v| v.adaptive_leak_mode == genesis_core::physics::ADAPTIVE_LEAK_MODE_DISCRETE)
+            .map(|v| format!("{}[{},{}]", v.name, v.leak_min, v.leak_max))
+            .collect();
+
+        if discrete_variants.is_empty() {
+            return;
+        }
+
+        self.services.telemetry.push_log(
+            format!(
+                "[Adaptive Leak] Zone 0x{:08X} discrete membrane modes enabled for variants: {}. \
+stable=base, responsive=mid(leak_min, base), excited=mid(base, leak_max), recovery=leak_max when burst_count >= {}.",
+                hash,
+                discrete_variants.join(", "),
+                genesis_core::physics::RECOVERY_BURST_THRESHOLD
+            ),
+            crate::tui::state::LogLevel::Info,
+        );
+    }
+
+    fn log_discrete_membrane_mode_configs(&self) {
+        let metadata_map = self.manifest_metadata.lock().unwrap();
+        for (hash, metadata) in metadata_map.iter() {
+            if let Ok(toml_str) = std::fs::read_to_string(&metadata.manifest_path) {
+                if let Ok(zm) = toml::from_str::<genesis_core::config::manifest::ZoneManifest>(&toml_str) {
+                    self.log_discrete_membrane_modes_from_manifest(*hash, &zm);
+                }
+            }
+        }
+    }
+
     pub fn boot(
         shards: Vec<crate::node::shard_thread::ShardDescriptor>,
         io_server: Arc<ExternalIoServer>,
@@ -232,6 +271,7 @@ impl NodeRuntime {
                                             gpu_variants.as_ptr() as *const genesis_core::layout::VariantParameters
                                         );
                                     }
+                                    self.log_discrete_membrane_modes_from_manifest(*hash, &zm);
                                     self.services.telemetry.push_log(format!("Zone 0x{:08X} updated (Night: {}, Prune: {}, GPU Physics reflashed)", 
                                         hash, zm.settings.night_interval_ticks, zm.settings.plasticity.prune_threshold), crate::tui::state::LogLevel::Info);
                                 } else {
@@ -326,6 +366,7 @@ impl NodeRuntime {
         let mut _io_tx_buffer = vec![0u8; genesis_core::constants::MAX_UDP_PAYLOAD];
 
         self.services.telemetry.push_log(format!("Entering main loop (Batch size: {})", batch_size), crate::tui::state::LogLevel::Info);
+        self.log_discrete_membrane_mode_configs();
 
         let loop_start = std::time::Instant::now();
         let mut batch_start = loop_start;
