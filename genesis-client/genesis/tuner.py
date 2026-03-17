@@ -17,7 +17,8 @@ class GenesisAutoTuner:
         self.target_score = target_score
         self.window = deque(maxlen=window_size)
         self.phase = Phase.EXPLORATION
-        
+        self.last_sma: float = 0.0
+
         # Инициализация фазы эксплорации
         self.control.set_prune_threshold(30)
         self.control.set_night_interval(10000)
@@ -32,13 +33,15 @@ class GenesisAutoTuner:
             
         self.window.append(episode_score)
         if len(self.window) < self.window.maxlen:
+            self.last_sma = sum(self.window) / len(self.window) if self.window else 0.0
             return self.phase # Ждем накопления статистики
-            
+
         sma_score = sum(self.window) / len(self.window)
+        self.last_sma = sma_score
         
         if self.phase == Phase.EXPLORATION:
-            # Сеть нащупала решение (например, стабильно 70+ очков из 100)
-            if sma_score >= self.target_score * 0.7:
+            # Сеть нащупала решение. 0.5 = SMA ≥ 350 при target 700 (раньше 0.7 = 490).
+            if sma_score >= self.target_score * 0.5:
                 self._transition_to_distillation()
                 
         elif self.phase == Phase.DISTILLATION:

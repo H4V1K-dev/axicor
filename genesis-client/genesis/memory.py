@@ -1,6 +1,8 @@
-import os
 import mmap
+import os
 import struct
+import tempfile
+
 import numpy as np
 
 class GenesisMemory:
@@ -16,16 +18,20 @@ class GenesisMemory:
 
     def __init__(self, zone_hash: int, read_only: bool = False):
         self.zone_hash = zone_hash
-        path = f"/dev/shm/genesis_shard_{zone_hash:08X}"
+        path = self._resolve_path(zone_hash)
         
         # Если read_only=True, открываем строго на чтение (Zero-Copy Introspection).
         # Если открыть на запись, numpy мутации могут крашнуть GPU-рантайм, 
         # используйте осторожно для дистилляции (Pruning).
         mode = os.O_RDONLY if read_only else os.O_RDWR
-        prot = mmap.PROT_READ if read_only else mmap.PROT_READ | mmap.PROT_WRITE
         
         fd = os.open(path, mode)
-        self._mm = mmap.mmap(fd, 0, prot=prot)
+        if os.name == "nt":
+            access = mmap.ACCESS_READ if read_only else mmap.ACCESS_WRITE
+            self._mm = mmap.mmap(fd, 0, access=access)
+        else:
+            prot = mmap.PROT_READ if read_only else mmap.PROT_READ | mmap.PROT_WRITE
+            self._mm = mmap.mmap(fd, 0, prot=prot)
         os.close(fd)
         
         # 1. Читаем заголовок
@@ -37,6 +43,9 @@ class GenesisMemory:
         self.weights_offset = header[6]
         self.targets_offset = header[7]
         self.flags_offset = header[16]
+        self.voltage_offset = self.SHM_HEADER_SIZE
+        self.threshold_offset_offset = self.voltage_offset + self.padded_n * 4 + self.padded_n
+        self.timers_offset = self.threshold_offset_offset + self.padded_n * 4
         
         assert self.dendrite_slots == 128, "C-ABI violation: dendrite_slots != 128"
         
@@ -63,6 +72,34 @@ class GenesisMemory:
             offset=self.flags_offset
         )
 
+        self.soma_voltage = np.ndarray(
+            (self.padded_n,),
+            dtype=np.int32,
+            buffer=self._mm,
+            offset=self.voltage_offset
+        )
+
+        self.threshold_offset = np.ndarray(
+            (self.padded_n,),
+            dtype=np.int32,
+            buffer=self._mm,
+            offset=self.threshold_offset_offset
+        )
+
+        self.timers = np.ndarray(
+            (self.padded_n,),
+            dtype=np.uint8,
+            buffer=self._mm,
+            offset=self.timers_offset
+        )
+
+    @staticmethod
+    def _resolve_path(zone_hash: int) -> str:
+        name = f"genesis_shard_{zone_hash:08X}"
+        if os.name == "nt":
+            return os.path.join(tempfile.gettempdir(), name)
+        return os.path.join("/dev/shm", name)
+
     def extract_topology(self, soma_idx: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Векторизованное извлечение геометрии для конкретного нейрона.
@@ -85,19 +122,32 @@ class GenesisMemory:
         
         return axon_ids, seg_offsets, active_weights
 
-    def get_network_stats(self) -> dict:
+    def get_network_stats(self, saturation_threshold: int = 31129) -> dict:
         """Сканирует VRAM (Zero-Copy) и возвращает статистику графа."""
         # Убираем нулевые цели (пустые слоты)
         valid_mask = self.targets != 0
         active_weights = self.weights[valid_mask]
+        abs_weights = np.abs(active_weights)
+        burst_count = (self.soma_flags >> 1) & 0x07
+        spiking_mask = (self.soma_flags & 0x01) != 0
         
         if len(active_weights) == 0:
-            return {"active_synapses": 0, "avg_weight": 0.0, "max_weight": 0}
+            return {
+                "active_synapses": 0,
+                "avg_weight": 0.0,
+                "max_weight": 0,
+                "saturated_weight_share": 0.0,
+                "spike_rate": float(np.mean(spiking_mask)),
+                "mean_burst_count": float(np.mean(burst_count)),
+            }
             
         return {
             "active_synapses": int(np.sum(valid_mask)),
-            "avg_weight": float(np.mean(np.abs(active_weights))),
-            "max_weight": int(np.max(np.abs(active_weights)))
+            "avg_weight": float(np.mean(abs_weights)),
+            "max_weight": int(np.max(abs_weights)),
+            "saturated_weight_share": float(np.mean(abs_weights >= saturation_threshold)),
+            "spike_rate": float(np.mean(spiking_mask)),
+            "mean_burst_count": float(np.mean(burst_count)),
         }
 
     def distill_graph(self, prune_threshold: int) -> int:
