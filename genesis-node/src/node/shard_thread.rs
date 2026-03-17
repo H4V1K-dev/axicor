@@ -21,6 +21,7 @@ pub struct ShardDescriptor {
     pub mapped_soma_ids_host: Option<Vec<u32>>,
     pub baked_dir: std::path::PathBuf,
     pub config: InstanceConfig,
+    pub fast_path_udp_local: u16,
     pub v_seg: u32,
     pub incoming_grow: Arc<crossbeam::queue::SegQueue<AxonHandoverEvent>>,
 }
@@ -551,7 +552,10 @@ pub fn spawn_shard_thread(
             let io_buffers = init_io_buffers(desc.num_virtual_axons, max_spikes_per_tick, desc.num_outputs, sync_batch_ticks);
             let mut pinned_out = genesis_compute::memory::PinnedBuffer::<u8>::new(output_bytes).unwrap();
             let mut baker_client: Option<crate::ipc::BakerClient> = None;
-            let socket_path = genesis_core::ipc::default_socket_path(hash);
+            let socket_path = genesis_core::ipc::socket_path_for_zone(
+                hash,
+                Some(desc.fast_path_udp_local),
+            );
             
             let padded_n = desc.engine.vram.padded_n as usize;
             let _dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
@@ -564,7 +568,9 @@ pub fn spawn_shard_thread(
             workspace.checkpoint_axons_buffer = vec![0u8; axons_size];
 
             let mut batch_counter: u64 = 0;
-            let mut warmup_ticks_remaining: u32 = 2000;
+            // Reduced from 2000: agent times out waiting for first motor packet (CUDA JIT + warmup).
+            // 100 ticks = 1 batch muted; output starts on batch 2 (~30s on Windows with JIT).
+            let mut warmup_ticks_remaining: u32 = 100;
 
             // 2. Плоский горячий цикл
             while let Ok(cmd) = rx.recv() {

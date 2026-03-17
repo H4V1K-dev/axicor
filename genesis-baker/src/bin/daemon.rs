@@ -4,7 +4,7 @@ use clap::Parser;
 
 use genesis_core::ipc::{
     shm_file_path, ShmHeader, ShmState,
-    default_socket_path,
+    socket_path_for_zone,
 };
 use genesis_core::config::manifest::ZoneManifest;
 use genesis_core::config::blueprints::BlueprintsConfig;
@@ -93,10 +93,12 @@ fn main() {
         .read(true)
         .write(true)
         .create(true)
-        .truncate(true)
+        .truncate(false)
         .open(&shm_path)
         .expect("Daemon failed to create SHM file");
-    file.set_len(shm_len as u64).expect("Failed to set SHM size");
+    if file.metadata().map(|m| m.len()).unwrap_or(0) < shm_len as u64 {
+        file.set_len(shm_len as u64).expect("Failed to set SHM size");
+    }
 
     let mut mmap = unsafe { memmap2::MmapMut::map_mut(&file).expect("Daemon failed to mmap SHM") };
 
@@ -115,7 +117,7 @@ fn main() {
     // [DOD FIX] Кешируем конфиги для inject_ghost_axons — один раз при старте
     let mut night_ctx = build_night_context(&cli.baked_dir, &brain_toml, zone_hash);
 
-    let socket_addr = default_socket_path(zone_hash);
+    let socket_addr = socket_path_for_zone(zone_hash, Some(manifest.network.fast_path_udp_local));
 
     // Keep file open so mmap stays valid
     let _shm_file = file;

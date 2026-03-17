@@ -401,6 +401,7 @@ impl Bootloader {
                 mapped_soma_ids_host,
                 baked_dir,
                 config: instance_config,
+                fast_path_udp_local: zone_manifest.network.fast_path_udp_local,
                 v_seg,
                 incoming_grow,
             });

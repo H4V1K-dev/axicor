@@ -101,10 +101,36 @@ pub fn default_socket_path(zone_hash: u32) -> String {
     }
 }
 
+/// Control channel address derived from runtime networking config.
+/// On Windows, `fast_path_udp_local` is used to move baker IPC away from fixed ports.
+pub fn socket_path_for_zone(zone_hash: u32, fast_path_udp_local: Option<u16>) -> String {
+    #[cfg(unix)]
+    {
+        let _ = fast_path_udp_local;
+        format!("/tmp/genesis_baker_{:08X}.sock", zone_hash)
+    }
+    #[cfg(windows)]
+    {
+        let port = match fast_path_udp_local {
+            Some(port) => socket_port_from_fast_path(port),
+            None => default_socket_port(zone_hash),
+        };
+        format!("127.0.0.1:{}", port)
+    }
+}
+
 /// TCP port for baker IPC (Windows). Base 19000 + zone_hash % 1000.
 #[cfg(windows)]
 pub fn default_socket_port(zone_hash: u32) -> u16 {
     (19000 + (zone_hash % 1000)) as u16
+}
+
+/// TCP port for baker IPC derived from the runtime fast-path base port.
+#[cfg(windows)]
+pub fn socket_port_from_fast_path(fast_path_udp_local: u16) -> u16 {
+    fast_path_udp_local
+        .checked_add(100)
+        .expect("fast_path_udp_local too large to derive baker IPC port")
 }
 
 pub const fn shm_size(padded_n: usize) -> usize {

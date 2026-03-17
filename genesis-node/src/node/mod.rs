@@ -325,7 +325,10 @@ stable=base, responsive=mid(leak_min, base), excited=mid(base, leak_max), recove
         let daemon_path = exe_path.with_file_name("genesis-baker-daemon");
 
         for desc in shards {
-            let socket_addr = genesis_core::ipc::default_socket_path(desc.hash);
+            let socket_addr = genesis_core::ipc::socket_path_for_zone(
+                desc.hash,
+                Some(desc.fast_path_udp_local),
+            );
             #[cfg(unix)]
             let _ = std::fs::remove_file(&socket_addr);
 
