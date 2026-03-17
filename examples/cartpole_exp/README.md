@@ -1,38 +1,99 @@
-# 🤖 Genesis HFT: CartPole Example
+# Genesis HFT: CartPole Benchmark Harness
 
-Полностью рабочий Embodied AI агент, который учится балансировать палку в реальном времени с использованием SNN (Spiking Neural Networks) и инъекций дофамина (R-STDP). Никакого Backpropagation.
+`examples/cartpole_exp` is the canonical CartPole workflow for Milestone 5 benchmark and validation on Windows + CUDA.
 
-## 🚀 Как запустить (Zero-Magic Pipeline)
+## Unified Launcher (`run.py`)
 
-**Шаг 0. Активируйте виртуальное окружение**
+Single entry point for all CartPole workflows. Run without arguments for an interactive menu:
+
 ```bash
-source .venv/bin/activate
+# Interactive menu (choose command, then enter parameters)
+python examples/cartpole_exp/run.py
+
+# Or explicitly
+python examples/cartpole_exp/run.py -i
+
+# Build and bake the brain
+python examples/cartpole_exp/run.py build
+
+# Run agent (start node separately in another terminal)
+python examples/cartpole_exp/run.py run --episodes 100
+
+# Start/stop node (for run/render)
+python examples/cartpole_exp/run.py start-node
+python examples/cartpole_exp/run.py stop-node
+
+# Run with live CartPole window (async render at 60 FPS, agent runs at full speed)
+python examples/cartpole_exp/run.py render --episodes 50 --render-fps 60
+
+# Full benchmark (spawns node, runs all scenarios)
+python examples/cartpole_exp/run.py benchmark --quick
+python examples/cartpole_exp/run.py benchmark --rebuild-brain --episodes 25 --seeds 101 202 303
+
+# All-in-one: build + node + render
+python examples/cartpole_exp/run.py full --episodes 200
 ```
 
-**Шаг 1. Сгенерируйте и запеките мозг (One-Click Build)**
-Скрипт сгенерирует TOML-топологию через Python SDK и автоматически вызовет Rust-компилятор (`genesis-baker`), чтобы нарезать бинарные VRAM-дампы.
+## Build Once
+
+Activate the project virtual environment, then bake a deterministic CartPole brain:
+
 ```bash
-python3 examples/cartpole/build_brain.py
+python examples/cartpole_exp/run.py build
+# or: python examples/cartpole_exp/build_brain.py --master-seed GENESIS-CARTPOLE-M5
 ```
 
-**Шаг 2. Запустите HFT-реактор на GPU (Dual-Backend)**
-Оркестратор мгновенно загрузит VRAM-дампы (Zero-Copy) и заблокируется на барьере ожидания данных от среды.
+This generates the brain under `Genesis-Models/CartPole-example` and bakes the runtime artifacts via `genesis-baker`.
 
-# Для NVIDIA (CUDA)
+## Run The Full Milestone 5 Benchmark
+
+The benchmark harness orchestrates the 5 roadmap scenarios:
+
+- baseline
+- dopamine-only adaptive leak
+- burst-only adaptive leak
+- combined adaptive leak
+- combined adaptive leak with input noise
+
+It writes per-run JSON artifacts plus a summary JSON/CSV report.
+
+```bash
+python examples/cartpole_exp/run.py benchmark --rebuild-brain --episodes 25 --seeds 101 202 303
+```
+
+Generated artifacts land in `artifacts/cartpole_benchmark/`:
+
+- `raw_runs/*.json`: per-seed scenario results
+- `benchmark_summary.json`: aggregated milestone verdict
+- `benchmark_summary.csv`: spreadsheet-friendly summary
+- `*_node.log`: captured `genesis-node` logs per isolated run
+
+By default, the benchmark starts and stops `genesis-node` for every scenario/seed pair so weights do not leak across A/B runs.
+
+## Run A Manual CartPole Session
+
+If you want to inspect one scenario interactively, start the node first:
+
 ```bash
 cargo run --release -p genesis-node -- --brain CartPole-example --log
 ```
 
-# Для AMD (ROCm / HIP)
-```bash
-cargo run --release -p genesis-node --features amd -- --brain CartPole-example --log
-```
-
-**Шаг 3. Подключите среду (RL Agent)**
-В новом терминале запустите Python-шлюз. Он начнет слать состояния маятника в виде битовых масок и обучать сеть инъекциями дофамина (-255) при падении и вознаграждать не линейно при успехе.
+Then run the Python agent in a second terminal:
 
 ```bash
-python3 examples/cartpole_exp/agent.py
+python examples/cartpole_exp/run.py run --episodes 100 --scenario-name manual
 ```
 
-Смотрите на график в терминале (TUI) и логи Питона. Вы увидите, как сеть сама выжигает слабые связи и стабилизирует рефлекс!
+For fixed-runtime experiments, disable the autotuner and patch adaptive leak directly from the CLI:
+
+```bash
+python examples/cartpole_exp/run.py run --episodes 40 --fixed-runtime --adaptive-leak-mode 1 --dopamine-leak-gain 96 --burst-leak-gain 24 --leak-min 637 --leak-max 1062
+```
+
+## Notes
+
+- Interactive menu includes `start-node` and `stop-node` to manage genesis-node separately before running the agent.
+- `run.py render` uses async rendering: the agent runs at full speed while a separate thread displays at `--render-fps` (default 60).
+- `run.py build` / `build_brain.py` accept `--master-seed` so topology is reproducible across benchmark reruns.
+- `run.py benchmark` / `benchmark.py` keep batch size and GSOP-sensitive runtime settings constant across scenarios.
+- `run.py run` / `agent.py` emit machine-readable run metrics when `--output-path` is provided.
