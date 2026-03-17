@@ -558,7 +558,7 @@ pub fn spawn_shard_thread(
             );
             
             let padded_n = desc.engine.vram.padded_n as usize;
-            let _dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
+            let dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
             let (_, state_size) = genesis_compute::memory::calculate_state_blob_size(padded_n);
 
             // [DOD] ЕДИНСТВЕННАЯ аллокация на весь жизненный цикл потока
@@ -571,6 +571,27 @@ pub fn spawn_shard_thread(
             // Reduced from 2000: agent times out waiting for first motor packet (CUDA JIT + warmup).
             // 100 ticks = 1 batch muted; output starts on batch 2 (~30s on Windows with JIT).
             let mut warmup_ticks_remaining: u32 = 100;
+
+            // [FIX] Initial DMA: VRAM → SHM so agent sees correct state before first Night Phase.
+            // Baker reuses SHM file (truncate=false) so stale data from previous run persists otherwise.
+            unsafe {
+                genesis_compute::ffi::gpu_memcpy_device_to_host(
+                    workspace.flags_slice_mut(padded_n).as_mut_ptr() as *mut _,
+                    desc.engine.vram.ptrs.soma_flags as *const _,
+                    padded_n * std::mem::size_of::<u8>(),
+                );
+                genesis_compute::ffi::gpu_memcpy_device_to_host(
+                    workspace.weights_slice_mut(padded_n).as_mut_ptr() as *mut _,
+                    desc.engine.vram.ptrs.dendrite_weights as *const _,
+                    dendrites_count * std::mem::size_of::<i16>(),
+                );
+                genesis_compute::ffi::gpu_memcpy_device_to_host(
+                    workspace.targets_slice_mut(padded_n).as_mut_ptr() as *mut _,
+                    desc.engine.vram.ptrs.dendrite_targets as *const _,
+                    dendrites_count * std::mem::size_of::<u32>(),
+                );
+                genesis_compute::ffi::gpu_device_synchronize();
+            }
 
             // 2. Плоский горячий цикл
             while let Ok(cmd) = rx.recv() {
