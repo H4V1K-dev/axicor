@@ -16,6 +16,7 @@ struct ShardVramPtrs {
   uint32_t* __restrict__ soma_to_axon;
   uint32_t* __restrict__ dendrite_targets;
   int16_t* __restrict__ dendrite_weights;
+  uint8_t* __restrict__ dendrite_timers;
   BurstHeads8* __restrict__ axon_heads;
 };
 
@@ -43,24 +44,36 @@ __device__ __forceinline__ void push_burst_head(BurstHeads8* h) {
 
 // Строго 64 байта (1 кэш-линия L1). 16 типов = 1024 байта в Constant Memory.
 struct alignas(64) VariantParameters {
-  int32_t threshold;                  // 0..4
-  int32_t rest_potential;             // 4..8
-  int32_t leak_rate;                  // 8..12
-  int32_t homeostasis_penalty;        // 12..16
-  uint16_t homeostasis_decay;         // 16..18
-  int16_t gsop_potentiation;          // 18..20
-  int16_t gsop_depression;            // 20..22
-  uint8_t refractory_period;          // 22..23
-  uint8_t synapse_refractory_period;  // 23..24
-  uint8_t slot_decay_ltm;             // 24..25
-  uint8_t slot_decay_wm;              // 25..26
-  uint8_t signal_propagation_length;  // 26..27
-  uint8_t d1_affinity;                // 27..28 [D1 Рецептор]
-  uint16_t heartbeat_m;               // 28..30
-  uint8_t d2_affinity;                // 30..31 [D2 Рецептор]
-  uint8_t ltm_slot_count;             // 31..32
-  int16_t inertia_curve[15];          // 32..62 (30 bytes)
-  int16_t prune_threshold;            // 62..64 (2 bytes)
+  // === Блок 1: 32-bit (Смещения 0..20) ===
+  int32_t threshold;
+  int32_t rest_potential;
+  int32_t leak_rate;
+  int32_t homeostasis_penalty;
+  uint32_t spontaneous_firing_period_ticks;
+
+  // === Блок 2: 16-bit (Смещения 20..28) ===
+  uint16_t initial_synapse_weight;
+  uint16_t gsop_potentiation;
+  uint16_t gsop_depression;
+  uint16_t homeostasis_decay;
+
+  // === Блок 3: 8-bit (Смещения 28..32) ===
+  uint8_t refractory_period;
+  uint8_t synapse_refractory_period;
+  uint8_t signal_propagation_length;
+  uint8_t is_inhibitory; // 1 = true (GABA), 0 = false (Glu)
+
+  // === Блок 4: Массивы (Смещения 32..48) ===
+  uint8_t inertia_curve[16];                // 32..48
+
+  // === Блок 5: Adaptive Leak Hardware (Смещения 48..58) ===
+  int32_t adaptive_leak_max;                // 48..52
+  uint16_t adaptive_leak_gain;              // 52..54
+  uint8_t adaptive_mode;                    // 54..55
+  uint8_t _leak_pad[3];                     // 55..58
+
+  // === Блок 6: Pad (Смещения 58..64) ===
+  uint8_t _pad[6];                           // 58..64
 };
 
 // Глобальная константная память. Rust будет заливать сюда конфиг перед стартом.
@@ -197,19 +210,23 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   // Инверсия (~) даст 0x00000000. В итоге decayed & 0 = 0.
   thresh_offset = decayed & ~(decayed >> 31);
 
-  // 4. GLIF Leak (Двусторонняя утечка к rest_potential)
+  // 4. Adaptive GLIF Leak (Linear subtraction per user spec)
+  int32_t current_leak = p.leak_rate;
+  if (p.adaptive_mode == 1) {
+    int32_t adaptive_add = (thresh_offset * p.adaptive_leak_gain) >> 8;
+    current_leak += adaptive_add;
+
+    int32_t over = current_leak - p.adaptive_leak_max;
+    current_leak -= over & ~(over >> 31);
+  }
+
   current_voltage += i_in; // Применяем токи синапсов
-
   int32_t diff = current_voltage - p.rest_potential;
-
-  // Branchless извлечение знака: 1 если > 0, -1 если < 0, 0 если 0
   int32_t sign = (diff > 0) - (diff < 0);
   int32_t abs_diff = diff * sign;
 
-  // Вычитаем утечку из модуля разницы
-  int32_t leaked_abs = abs_diff - p.leak_rate;
-
-  // Branchless clamp: не даем модулю уйти ниже 0 (перелет через rest_potential)
+  // Линейное вычитание адаптивной или статической утечки!
+  int32_t leaked_abs = abs_diff - current_leak;
   leaked_abs = leaked_abs & ~(leaked_abs >> 31);
 
   // Возвращаем знак и прибавляем к потенциалу покоя
@@ -218,9 +235,9 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   int32_t effective_threshold = p.threshold + thresh_offset;
   int32_t is_glif_spiking = (current_voltage >= effective_threshold) ? 1 : 0;
 
-  // DDS Phase Accumulator (§4 neuron_model.md)
-  uint32_t phase = (current_tick * p.heartbeat_m + tid * 104729) & 0xFFFF;
-  int32_t is_heartbeat = (p.heartbeat_m > 0 && phase < p.heartbeat_m) ? 1 : 0;
+  // Spontaneous Firing (Heartbeat) - Branchless period check
+  uint32_t period = p.spontaneous_firing_period_ticks;
+  int32_t is_heartbeat = (period > 0 && ((current_tick + (tid * 104729)) % period) == 0) ? 1 : 0;
 
   // Итоговый спайк (ГЛИФ ИЛИ Heartbeat)
   int32_t final_spike = is_glif_spiking | is_heartbeat;
@@ -308,21 +325,17 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
 
     // 1. Inertia Rank (1 такт, Branchless)
     uint32_t rank = abs_w >> 11;
-    if (rank > 14)
-      rank = 14;
+    if (rank > 15)
+      rank = 15;
     int32_t inertia = p.inertia_curve[rank];
 
-    // 2. Asymmetric Dopamine Modulation (D1/D2 Receptors)
-    int32_t base_pot = p.gsop_potentiation;
-    int32_t base_dep = p.gsop_depression;
-
-    // Сдвиг >> 7 делит на 128 (1.0x множитель)
-    int32_t pot_mod = (dopamine * p.d1_affinity) >> 7;
-    int32_t dep_mod = (dopamine * p.d2_affinity) >> 7;
+    // Dopamine modulation neutralized (fields removed from VariantParameters)
+    int32_t pot_mod = 0;
+    int32_t dep_mod = 0;
 
     // D1 усиливает LTP при награде. D2 давит LTD при награде (спасает связи).
-    int32_t raw_pot = base_pot + pot_mod;
-    int32_t raw_dep = base_dep - dep_mod;
+    int32_t raw_pot = p.gsop_potentiation + pot_mod;
+    int32_t raw_dep = p.gsop_depression - dep_mod;
 
     // Causal LTP может инвертироваться в штраф (нет clamp)
     // Anti-causal LTD не может инвертироваться в рост (оставляем clamp)
@@ -337,8 +350,8 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
     // 3. Causal Delta с экспоненциальным остыванием STDP
     int32_t delta = is_active ? (delta_pot >> cooling_shift) : -delta_dep;
 
-    // 4. Slot Decay
-    int32_t decay = (i < p.ltm_slot_count) ? p.slot_decay_ltm : p.slot_decay_wm;
+    // 4. Slot Decay neutralized (fixed to 1.0x)
+    int32_t decay = 128;
     delta = (delta * decay) >> (7 + cooling_shift);
 
     // 5. Apply & Clamp

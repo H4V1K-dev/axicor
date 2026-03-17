@@ -37,24 +37,36 @@ struct SoA_State {
 
 // Строго 64 байта (1 кэш-линия L1). 16 типов = 1024 байта в Constant Memory.
 struct alignas(64) VariantParameters {
-  int32_t threshold;                  // 0..4
-  int32_t rest_potential;             // 4..8
-  int32_t leak_rate;                  // 8..12
-  int32_t homeostasis_penalty;        // 12..16
-  uint16_t homeostasis_decay;         // 16..18
-  int16_t gsop_potentiation;          // 18..20
-  int16_t gsop_depression;            // 20..22
-  uint8_t refractory_period;          // 22..23
-  uint8_t synapse_refractory_period;  // 23..24
-  uint8_t slot_decay_ltm;             // 24..25
-  uint8_t slot_decay_wm;              // 25..26
-  uint8_t signal_propagation_length;  // 26..27
-  uint8_t d1_affinity;                // 27..28 [D1 Рецептор]
-  uint16_t heartbeat_m;               // 28..30
-  uint8_t d2_affinity;                // 30..31 [D2 Рецептор]
-  uint8_t ltm_slot_count;             // 31..32
-  int16_t inertia_curve[15];          // 32..62 (30 bytes)
-  int16_t prune_threshold;            // 62..64 (2 bytes)
+  // === Блок 1: 32-bit (Смещения 0..20) ===
+  int32_t threshold;
+  int32_t rest_potential;
+  int32_t leak_rate;
+  int32_t homeostasis_penalty;
+  uint32_t spontaneous_firing_period_ticks;
+
+  // === Блок 2: 16-bit (Смещения 20..28) ===
+  uint16_t initial_synapse_weight;
+  uint16_t gsop_potentiation;
+  uint16_t gsop_depression;
+  uint16_t homeostasis_decay;
+
+  // === Блок 3: 8-bit (Смещения 28..32) ===
+  uint8_t refractory_period;
+  uint8_t synapse_refractory_period;
+  uint8_t signal_propagation_length;
+  uint8_t is_inhibitory; // 1 = true (GABA), 0 = false (Glu)
+
+  // === Блок 4: Массивы (Смещения 32..48) ===
+  uint8_t inertia_curve[16];                // 32..48
+
+  // === Блок 5: Adaptive Leak Hardware (Смещения 48..58) ===
+  int32_t adaptive_leak_max;                // 48..52
+  uint16_t adaptive_leak_gain;              // 52..54
+  uint8_t adaptive_mode;                    // 54..55
+  uint8_t _leak_pad[3];                     // 55..58
+
+  // === Блок 6: Pad (Смещения 58..64) ===
+  uint8_t _pad[6];                           // 58..64
 };
 }
 

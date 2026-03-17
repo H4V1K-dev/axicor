@@ -11,26 +11,32 @@ struct alignas(32) BurstHeads8 {
     uint32_t h4; uint32_t h5; uint32_t h6; uint32_t h7;
 };
 
-// Строго 64 байта (1 кэш-линия)
+// Строго 64 байта (1 кэш-линия L1)
 struct alignas(64) VariantParameters {
-    int32_t threshold;
-    int32_t rest_potential;
-    int32_t leak_rate;
-    int32_t homeostasis_penalty;
-    uint16_t homeostasis_decay;
-    int16_t gsop_potentiation;
-    int16_t gsop_depression;
-    uint8_t refractory_period;
-    uint8_t synapse_refractory_period;
-    uint8_t slot_decay_ltm;
-    uint8_t slot_decay_wm;
-    uint8_t signal_propagation_length;
-    uint8_t d1_affinity;
-    uint16_t heartbeat_m;
-    uint8_t d2_affinity;
-    uint8_t ltm_slot_count;
-    int16_t inertia_curve[15]; // !! Changed to 15 elements to match specification
-    int16_t prune_threshold;   // 2 bytes
+  int32_t threshold;                        // 0..4
+  int32_t rest_potential;                   // 4..8
+  int32_t leak_rate;                        // 8..12
+  int32_t homeostasis_penalty;              // 12..16
+  uint32_t spontaneous_firing_period_ticks; // 16..20
+
+  uint16_t initial_synapse_weight;          // 20..22
+  uint16_t gsop_potentiation;               // 22..24
+  uint16_t gsop_depression;                 // 24..26
+  uint16_t homeostasis_decay;               // 26..28
+
+  uint8_t refractory_period;                // 28..29
+  uint8_t synapse_refractory_period;        // 29..30
+  uint8_t signal_propagation_length;        // 30..31
+  uint8_t is_inhibitory;                    // 31..32
+
+  uint8_t inertia_curve[16];                // 32..48
+
+  int32_t adaptive_leak_max;                // 48..52
+  uint16_t adaptive_leak_gain;              // 52..54
+  uint8_t adaptive_mode;                    // 54..55
+  uint8_t _leak_pad[3];                     // 55..58
+
+  uint8_t _pad[6];                          // 58..64
 };
 
 // Read-Only топология (Мапится из Flash-памяти)

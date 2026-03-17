@@ -84,9 +84,17 @@ pub struct NeuronType {
 
     pub ltm_slot_count: u8,
 
-    // --- Plasticity Inertia (15 рангов) ---
+    // --- Plasticity Inertia (16 рангов) ---
     #[serde(default = "default_inertia_curve")]
-    pub inertia_curve: [u8; 15],
+    pub inertia_curve: [u8; 16],
+
+    // --- Adaptive Leak ---
+    #[serde(default)]
+    pub adaptive_leak_max: i32,
+    #[serde(default)]
+    pub adaptive_leak_gain: u16,
+    #[serde(default)]
+    pub adaptive_mode: u8,
 
     // --- GSOP ---
     #[serde(default = "default_gsop_pot")]
@@ -132,8 +140,8 @@ fn default_sprouting_power() -> f32 { 0.4 }
 fn default_sprouting_exp() -> f32 { 0.1 }
 fn default_sprouting_type() -> f32 { 0.1 }
 fn default_prune_threshold() -> i16 { 15 }
-fn default_inertia_curve() -> [u8; 15] {
-    [128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16]
+fn default_inertia_curve() -> [u8; 16] {
+    [128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8]
 }
 
 impl NeuronType {

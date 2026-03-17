@@ -309,21 +309,25 @@ fn serialize_artifacts(
                 rest_potential: v.rest_potential,
                 leak_rate: v.leak_rate,
                 homeostasis_penalty: v.homeostasis_penalty,
-                homeostasis_decay: v.homeostasis_decay as i32,
-                gsop_potentiation: v.gsop_potentiation as i32,
-                gsop_depression: v.gsop_depression as i32,
+                spontaneous_firing_period_ticks: v.spontaneous_firing_period_ticks,
+                initial_synapse_weight: v.initial_synapse_weight,
+                gsop_potentiation: v.gsop_potentiation,
+                gsop_depression: v.gsop_depression,
+                homeostasis_decay: v.homeostasis_decay,
                 refractory_period: v.refractory_period,
                 synapse_refractory_period: v.synapse_refractory_period,
-                slot_decay_ltm: v.slot_decay_ltm as u8,
-                slot_decay_wm: v.slot_decay_wm as u8,
-                signal_propagation_length: v.signal_propagation_length as u8,
-                ltm_slot_count: v.ltm_slot_count,
-                heartbeat_m: v.heartbeat_m,
-                inertia_curve: v.inertia_curve,
-                prune_threshold: 15,
-                // [DOD FIX] Проброс рецепторов в манифест
-                d1_affinity: v.d1_affinity,
-                d2_affinity: v.d2_affinity,
+                signal_propagation_length: v.signal_propagation_length,
+                is_inhibitory: v.is_inhibitory != 0,
+                inertia_curve: {
+                    let mut curve = [0u8; 16];
+                    for (i, &val) in v.inertia_curve.iter().enumerate().take(16) {
+                        curve[i] = val;
+                    }
+                    curve
+                },
+                adaptive_leak_max: v.adaptive_leak_max,
+                adaptive_leak_gain: v.adaptive_leak_gain,
+                adaptive_mode: v.adaptive_mode,
             }
         }).collect(),
     };

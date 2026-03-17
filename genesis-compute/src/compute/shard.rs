@@ -25,6 +25,7 @@ unsafe impl Sync for ShardEngine {}
 
 impl ShardEngine {
     pub fn new(vram: VramState) -> Self {
+        #[cfg_attr(feature = "mock-gpu", allow(unused_mut))]
         let mut stream = std::ptr::null_mut();
         #[cfg(not(feature = "mock-gpu"))]
         {

@@ -10,6 +10,10 @@
   <a href="./docs/specs/">Спецификация</a> · <a href="./CHANGELOG.md">Changelog</a> · <a href="https://t.me/+zptNJAJhDe41ZTEy">Telegram</a>
 </p>
 
+<p align="center">
+  <a href="https://ko-fi.com/axicor"><img src="https://img.shields.io/badge/Support-Ko--fi-FF5E5B?style=flat&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
+</p>
+
 ## ⚡️ Установка в одну строку
 
 ```bash
@@ -155,5 +159,17 @@ Axicor - это шесть компонентов:
 ## Лицензия
 
 GPLv3 + коммерческое лицензирование. Открытый код - каждый может взять, запустить, встроить в своего робота.
+
+---
+
+## 💖 Поддержка проекта
+
+Проект активно развивается. Вы можете поддержать его разработку! 
+
+Ваши пожертвования пойдут на:
+- Оплату Goole Ai Ultra & Claude Code Team/Enterprise и отдельных API, которые помогают быстрее писать код, чаще выпускать обновления и приближают выход релиза.
+- Оплату серверов и нужного железа для тестирования и разработки.
+
+[☕ Поддержать на Ko-fi](https://ko-fi.com/axicor)
 
 <p align="center">Copyright (C) 2026 Oleksandr Arzamazov</p>

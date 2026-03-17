@@ -16,6 +16,7 @@ struct ShardVramPtrs {
   uint32_t* __restrict__ soma_to_axon;
   uint32_t* __restrict__ dendrite_targets;
   int16_t* __restrict__ dendrite_weights;
+  uint8_t* __restrict__ dendrite_timers;
   BurstHeads8* __restrict__ axon_heads;
 };
 
@@ -42,25 +43,32 @@ __device__ __forceinline__ void push_burst_head(BurstHeads8* h) {
 #define MAX_DENDRITES 128
 
 // Строго 64 байта (1 кэш-линия L1). 16 типов = 1024 байта в Constant Memory.
+// Строго 64 байта (1 кэш-линия L1)
 struct alignas(64) VariantParameters {
-  int32_t threshold;                  // 0..4
-  int32_t rest_potential;             // 4..8
-  int32_t leak_rate;                  // 8..12
-  int32_t homeostasis_penalty;        // 12..16
-  uint16_t homeostasis_decay;         // 16..18
-  int16_t gsop_potentiation;          // 18..20
-  int16_t gsop_depression;            // 20..22
-  uint8_t refractory_period;          // 22..23
-  uint8_t synapse_refractory_period;  // 23..24
-  uint8_t slot_decay_ltm;             // 24..25
-  uint8_t slot_decay_wm;              // 25..26
-  uint8_t signal_propagation_length;  // 26..27
-  uint8_t d1_affinity;                // 27..28 [D1 Рецептор]
-  uint16_t heartbeat_m;               // 28..30
-  uint8_t d2_affinity;                // 30..31 [D2 Рецептор]
-  uint8_t ltm_slot_count;             // 31..32
-  int16_t inertia_curve[15];          // 32..62 (30 bytes)
-  int16_t prune_threshold;            // 62..64 (2 bytes)
+  int32_t threshold;                        // 0..4
+  int32_t rest_potential;                   // 4..8
+  int32_t leak_rate;                        // 8..12
+  int32_t homeostasis_penalty;              // 12..16
+  uint32_t spontaneous_firing_period_ticks; // 16..20
+
+  uint16_t initial_synapse_weight;          // 20..22
+  uint16_t gsop_potentiation;               // 22..24
+  uint16_t gsop_depression;                 // 24..26
+  uint16_t homeostasis_decay;               // 26..28
+
+  uint8_t refractory_period;                // 28..29
+  uint8_t synapse_refractory_period;        // 29..30
+  uint8_t signal_propagation_length;        // 30..31
+  uint8_t is_inhibitory;                    // 31..32
+
+  uint8_t inertia_curve[16];                // 32..48
+
+  int32_t adaptive_leak_max;                // 48..52
+  uint16_t adaptive_leak_gain;              // 52..54
+  uint8_t adaptive_mode;                    // 54..55
+  uint8_t _leak_pad[3];                     // 55..58
+
+  uint8_t _pad[6];                          // 58..64
 };
 
 // Глобальная константная память. Rust будет заливать сюда конфиг перед стартом.
@@ -171,8 +179,7 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
     if (target_packed == 0)
       break;
 
-    // [DOD FIX] Subtract 1 to undo +1 from pack_dendrite_target (Zero-Index
-    // Trap)
+    // [DOD FIX] Subtract 1 to undo +1 from pack_dendrite_target (Zero-Index Trap)
     uint32_t target_id = (target_packed & 0x00FFFFFF) - 1;
     uint32_t seg_idx = target_packed >> 24;
 
@@ -193,23 +200,25 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   // [DOD FIX] Branchless Homeostasis Decay (Zero Warp Divergence)
   int32_t thresh_offset = vram.threshold_offset[tid];
   int32_t decayed = thresh_offset - p.homeostasis_decay;
-  // Если decayed < 0, Arithmetic shift (>> 31) даст 0xFFFFFFFF.
-  // Инверсия (~) даст 0x00000000. В итоге decayed & 0 = 0.
   thresh_offset = decayed & ~(decayed >> 31);
 
-  // 4. GLIF Leak (Двусторонняя утечка к rest_potential)
+  // 4. Adaptive GLIF Leak (Linear subtraction per user spec)
+  int32_t current_leak = p.leak_rate;
+  if (p.adaptive_mode == 1) {
+    int32_t adaptive_add = (thresh_offset * p.adaptive_leak_gain) >> 8;
+    current_leak += adaptive_add;
+
+    int32_t over = current_leak - p.adaptive_leak_max;
+    current_leak -= over & ~(over >> 31);
+  }
+
   current_voltage += i_in; // Применяем токи синапсов
-
   int32_t diff = current_voltage - p.rest_potential;
-
-  // Branchless извлечение знака: 1 если > 0, -1 если < 0, 0 если 0
   int32_t sign = (diff > 0) - (diff < 0);
   int32_t abs_diff = diff * sign;
 
-  // Вычитаем утечку из модуля разницы
-  int32_t leaked_abs = abs_diff - p.leak_rate;
-
-  // Branchless clamp: не даем модулю уйти ниже 0 (перелет через rest_potential)
+  // Линейное вычитание адаптивной или статической утечки!
+  int32_t leaked_abs = abs_diff - current_leak;
   leaked_abs = leaked_abs & ~(leaked_abs >> 31);
 
   // Возвращаем знак и прибавляем к потенциалу покоя
@@ -218,9 +227,9 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   int32_t effective_threshold = p.threshold + thresh_offset;
   int32_t is_glif_spiking = (current_voltage >= effective_threshold) ? 1 : 0;
 
-  // DDS Phase Accumulator (§4 neuron_model.md)
-  uint32_t phase = (current_tick * p.heartbeat_m + tid * 104729) & 0xFFFF;
-  int32_t is_heartbeat = (p.heartbeat_m > 0 && phase < p.heartbeat_m) ? 1 : 0;
+  // Spontaneous Firing (Heartbeat) - Branchless period check
+  uint32_t period = p.spontaneous_firing_period_ticks;
+  int32_t is_heartbeat = (period > 0 && ((current_tick + (tid * 104729)) % period) == 0) ? 1 : 0;
 
   // Итоговый спайк (ГЛИФ ИЛИ Heartbeat)
   int32_t final_spike = is_glif_spiking | is_heartbeat;
@@ -242,13 +251,15 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
       vram.axon_heads[my_axon] = h;
     }
   } else {
-    // [DOD FIX] Очищаем ТОЛЬКО мгновенный спайк. Аккумулятор (Bit 1) остается жив до Ночи.
     flags = flags & ~0x01;
   }
 
   // 8. Запись в VRAM
   vram.soma_voltage[tid] = current_voltage;
-  vram.soma_flags[tid] = flags;
+  // [DOD FIX] Branchless BDP Counter update
+  uint8_t burst_count = (flags >> 1) & 0x07;
+  burst_count += final_spike * (burst_count < 7);
+  vram.soma_flags[tid] = (flags & 0xF0) | (burst_count << 1) | (uint8_t)final_spike;
   vram.threshold_offset[tid] = thresh_offset;
   vram.timers[tid] = new_timer;
 }
@@ -262,8 +273,11 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
     return;
 
   uint8_t flags = vram.soma_flags[tid];
-  if ((flags & 0x01) == 0)
-    return;
+  if ((flags & 0x01) == 0) return;
+  
+  // [DOD FIX] Extraction of Burst-Dependent Plasticity multiple
+  uint8_t burst_count = (flags >> 1) & 0x07;
+  int32_t burst_mult = (burst_count > 0) ? burst_count : 1;
 
   uint8_t variant_id = (flags >> 4) & 0x0F;
   VariantParameters p = VARIANT_LUT[variant_id];
@@ -273,16 +287,13 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
     uint32_t target_packed = vram.dendrite_targets[col_idx];
 
     if (target_packed == 0)
-      break; // Пустые слоты в хвосте
+      break; 
 
-    // [DOD FIX] Subtract 1 to undo +1 from pack_dendrite_target (Zero-Index
-    // Trap)
     uint32_t target_id = (target_packed & 0x00FFFFFF) - 1;
     uint32_t seg_idx = target_packed >> 24;
     BurstHeads8 b = vram.axon_heads[target_id];
     uint32_t len = p.signal_propagation_length;
 
-    // Ищем самую свежую (минимальную) дистанцию среди всех голов
     uint32_t min_dist = 0xFFFFFFFF;
     uint32_t d;
     #pragma unroll
@@ -297,53 +308,35 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
     int16_t w = vram.dendrite_weights[col_idx];
     int16_t sign = (w >= 0) ? 1 : -1;
     int32_t abs_w = (int32_t)w;
-    if (abs_w < 0)
-      abs_w = -abs_w;
+    if (abs_w < 0) abs_w = -abs_w;
 
-    // 1. Inertia Rank (1 такт, Branchless)
     uint32_t rank = abs_w >> 11;
-    if (rank > 14)
-      rank = 14;
+    if (rank > 15) rank = 15;
     int32_t inertia = p.inertia_curve[rank];
 
-    // 2. Asymmetric Dopamine Modulation (D1/D2 Receptors)
-    int32_t base_pot = p.gsop_potentiation;
-    int32_t base_dep = p.gsop_depression;
+    int32_t pot_mod = 0;
+    int32_t dep_mod = 0;
 
-    // Сдвиг >> 7 делит на 128 (1.0x множитель)
-    int32_t pot_mod = (dopamine * p.d1_affinity) >> 7;
-    int32_t dep_mod = (dopamine * p.d2_affinity) >> 7;
+    int32_t raw_pot = p.gsop_potentiation + pot_mod;
+    int32_t raw_dep = p.gsop_depression - dep_mod;
 
-    // D1 усиливает LTP при награде. D2 давит LTD при награде (спасает связи).
-    int32_t raw_pot = base_pot + pot_mod;
-    int32_t raw_dep = base_dep - dep_mod;
-
-    // Causal LTP может инвертироваться в штраф (нет clamp)
-    // Anti-causal LTD не может инвертироваться в рост (оставляем clamp)
     int32_t final_dep = raw_dep & ~(raw_dep >> 31);
 
-    int32_t delta_pot = (raw_pot * inertia) >> 7;
-    int32_t delta_dep = (final_dep * inertia) >> 7;
-    // Экспоненциальный сдвиг. Каждые 16 тиков сила обучения падает вдвое (>> 1)
+    // [BIT ACCURACY FIX] Multiplication BEFORE shift strictly exactly like CUDA
+    int32_t delta_pot = (raw_pot * inertia * burst_mult) >> 7;
+    int32_t delta_dep = (final_dep * inertia * burst_mult) >> 7;
+
     uint32_t cooling_shift = is_active ? (min_dist >> 4) : 0;
 
-    // 3. Causal Delta с экспоненциальным остыванием STDP
     int32_t delta = is_active ? (delta_pot >> cooling_shift) : -delta_dep;
 
-    // 4. Slot Decay
-    int32_t decay = (i < p.ltm_slot_count) ? p.slot_decay_ltm : p.slot_decay_wm;
+    int32_t decay = 128;
     delta = (delta * decay) >> (7 + cooling_shift);
 
-    // 5. Apply & Clamp
     int32_t new_abs = abs_w + delta;
-
-    // [DOD FIX] Branchless clamp(0, val). Если new_abs < 0, сдвиг даст 0xFFFFFFFF, инверсия даст 0.
-    // Это предотвращает инверсию знака веса ( Dale's Law Safety ).
     new_abs = new_abs & ~(new_abs >> 31);
 
-    if (new_abs > 32767) {
-      new_abs = 32767;
-    }
+    if (new_abs > 32767) new_abs = 32767;
 
     vram.dendrite_weights[col_idx] = (int16_t)(new_abs * sign);
   }
@@ -363,7 +356,6 @@ __global__ void cu_record_readout_kernel(const uint8_t* __restrict__ soma_flags,
   uint32_t soma_id = mapped_soma_ids[tid];
   uint8_t is_spiking = 0;
 
-  // [DOD] Защита от Memory Out-of-Bounds. Сентинел означает пустой пиксель.
   if (soma_id != 0xFFFFFFFF) {
     is_spiking = soma_flags[soma_id] & 0x01;
   }
@@ -383,28 +375,22 @@ __global__ void cu_extract_telemetry_kernel(
     uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
     uint32_t lane = threadIdx.x % 64;
 
-    // 1. Читаем флаг спайка (бит 0)
     bool is_spiking = false;
     if (tid < padded_n) {
         is_spiking = (soma_flags[tid] & 0x01) != 0;
     }
 
-    // 2. Ballot: каждый поток выставляет свой бит в 32-битную маску варпа
     uint64_t active_mask = __ballot(is_spiking);
     uint32_t warp_pop = __popcll(active_mask);
 
-    // 3. Leader (lane 0) делает единственный atomicAdd в глобальную память
     uint32_t warp_offset = 0;
     if (lane == 0 && warp_pop > 0) {
         warp_offset = atomicAdd(out_count, warp_pop);
     }
 
-    // 4. Leader раздает полученный offset всем потокам варпа
     warp_offset = __shfl(warp_offset, 0);
 
-    // 5. Запись ID в плоский массив без коллизий
     if (is_spiking) {
-        // Вычисляем локальный индекс потока среди стреляющих (считаем единицы до текущего бита)
         uint32_t local_rank = __popcll(active_mask & ((1ull << lane) - 1));
         out_ids[warp_offset + local_rank] = tid;
     }
@@ -417,13 +403,10 @@ extern "C" {
 // ============================================================================
 int32_t cu_step_day_phase(const ShardVramPtrs *vram, uint32_t padded_n,
                           uint32_t total_axons, uint32_t v_seg, uint32_t current_tick,
-                          // --- ВХОДЫ (InjectInputs) ---
                           const uint32_t *input_bitmask,
                           uint32_t virtual_offset, uint32_t num_virtual_axons,
-                          // --- СЕТЬ (ApplySpikeBatch) ---
                           const uint32_t *incoming_spikes,
                           uint32_t num_incoming_spikes,
-                          // --- ВЫХОДЫ (RecordReadout) ---
                           const uint32_t *mapped_soma_ids,
                           uint8_t *output_history, uint32_t num_outputs,
                           int16_t dopamine,
@@ -431,36 +414,29 @@ int32_t cu_step_day_phase(const ShardVramPtrs *vram, uint32_t padded_n,
   int threads = 256;
   int blocks_n = (padded_n + threads - 1) / threads;
 
-  // [DOD FIX] Сброс burst_count (биты [3:1]) в начале каждого батча
   cu_reset_burst_counters_kernel<<<blocks_n, threads, 0, stream>>>(*vram, padded_n);
 
-  // 1. InjectInputs (Только если есть виртуальные аксоны и передана маска)
   if (num_virtual_axons > 0 && input_bitmask != nullptr) {
     int blocks_in = (num_virtual_axons + threads - 1) / threads;
     cu_inject_inputs_kernel<<<blocks_in, threads, 0, stream>>>(
         vram->axon_heads, input_bitmask, virtual_offset, num_virtual_axons);
   }
 
-  // 2. ApplySpikeBatch (Сетевые спайки от соседних зон)
   if (num_incoming_spikes > 0 && incoming_spikes != nullptr) {
     int blocks_spikes = (num_incoming_spikes + threads - 1) / threads;
     cu_apply_spike_batch_kernel<<<blocks_spikes, threads, 0, stream>>>(
         vram->axon_heads, incoming_spikes, num_incoming_spikes, total_axons);
   }
 
-  // 3. PropagateAxons
   int blocks_axons = (total_axons + threads - 1) / threads;
   cu_propagate_axons_kernel<<<blocks_axons, threads, 0, stream>>>(vram->axon_heads,
                                                        total_axons, v_seg);
 
-  // 4. UpdateNeurons (GLIF)
   int blocks_neurons = (padded_n + threads - 1) / threads;
   cu_update_neurons_kernel<<<blocks_neurons, threads, 0, stream>>>(*vram, padded_n, current_tick);
 
-  // 5. ApplyGSOP (Пластичность 3D STDP)
   cu_apply_gsop_kernel<<<blocks_neurons, threads, 0, stream>>>(*vram, padded_n, dopamine);
 
-  // 6. RecordReadout
   if (num_outputs > 0 && mapped_soma_ids != nullptr &&
       output_history != nullptr) {
     int blocks_out = (num_outputs + threads - 1) / threads;
@@ -477,39 +453,23 @@ extern "C" void cu_reset_burst_counters(const ShardVramPtrs *vram, uint32_t padd
   cu_reset_burst_counters_kernel<<<blocks, threads, 0, stream>>>(*vram, padded_n);
 }
 
-// Позволяет заливать параметры вариантов в константную память GPU
 int32_t cu_upload_constant_memory(const VariantParameters *lut) {
     hipError_t err = hipMemcpyToSymbol(HIP_SYMBOL(VARIANT_LUT), lut, sizeof(VariantParameters) * 16, 0, hipMemcpyHostToDevice);
     if (err != hipSuccess) {
         void* ptr = nullptr;
-        if (hipGetSymbolAddress(&ptr, HIP_SYMBOL(VARIANT_LUT)) == hipSuccess) {
-            err = hipMemcpy(ptr, lut, sizeof(VariantParameters) * 16, hipMemcpyHostToDevice);
-        } else if (hipGetSymbolAddress(&ptr, VARIANT_LUT) == hipSuccess) {
+        if (hipGetSymbolAddress(&ptr, HIP_SYMBOL(VARIANT_LUT)) == hipSuccess || hipGetSymbolAddress(&ptr, VARIANT_LUT) == hipSuccess) {
             err = hipMemcpy(ptr, lut, sizeof(VariantParameters) * 16, hipMemcpyHostToDevice);
         }
     }
-    if (err != hipSuccess) {
-        printf("HIP ERROR in cu_upload_constant_memory: %d\n", err);
-    }
-    return err;
+    return (int32_t)err;
 }
 
 void gpu_load_constants(const void *host_ptr) {
-    if (hipMemcpyToSymbol(HIP_SYMBOL(VARIANT_LUT), host_ptr, 1024, 0, hipMemcpyHostToDevice) != hipSuccess) {
-        void* ptr = nullptr;
-        if (hipGetSymbolAddress(&ptr, HIP_SYMBOL(VARIANT_LUT)) == hipSuccess || hipGetSymbolAddress(&ptr, VARIANT_LUT) == hipSuccess) {
-            (void)hipMemcpy(ptr, host_ptr, 1024, hipMemcpyHostToDevice);
-        }
-    }
+    (void)hipMemcpyToSymbol(HIP_SYMBOL(VARIANT_LUT), host_ptr, 1024, 0, hipMemcpyHostToDevice);
 }
 
 void update_constant_memory_hot_reload(const VariantParameters *new_variants, hipStream_t stream) {
-    if (hipMemcpyToSymbolAsync(HIP_SYMBOL(VARIANT_LUT), new_variants, sizeof(VariantParameters) * 16, 0, hipMemcpyHostToDevice, stream) != hipSuccess) {
-        void* ptr = nullptr;
-        if (hipGetSymbolAddress(&ptr, HIP_SYMBOL(VARIANT_LUT)) == hipSuccess || hipGetSymbolAddress(&ptr, VARIANT_LUT) == hipSuccess) {
-            (void)hipMemcpyAsync(ptr, new_variants, sizeof(VariantParameters) * 16, hipMemcpyHostToDevice, stream);
-        }
-    }
+    (void)hipMemcpyToSymbolAsync(HIP_SYMBOL(VARIANT_LUT), new_variants, sizeof(VariantParameters) * 16, 0, hipMemcpyHostToDevice, stream);
 }
 
 void gpu_reset_telemetry_count(const ShardVramPtrs *ptrs, hipStream_t stream) {

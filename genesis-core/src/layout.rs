@@ -8,32 +8,42 @@ pub const MAX_DENDRITES: usize = MAX_DENDRITE_SLOTS;
 /// 64 байта = 1 кэш-линия L2 GPU. 16 типов × 64B = 1024B = весь __constant__-буфер.
 /// Ровно одна строка кэша на тип → 100% Coalesced Access, нулевой False Sharing.
 #[repr(C, align(64))]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
+#[derive(Debug, Clone, Copy, Default, Pod, Zeroable)]
 pub struct VariantParameters {
-    // --- Basic Dynamics (20B) ---
-    pub threshold: i32,                 // 0..4
-    pub rest_potential: i32,            // 4..8
-    pub leak_rate: i32,                 // 8..12
-    pub homeostasis_penalty: i32,       // 12..16
-    pub homeostasis_decay: u16,         // 16..18
-    // --- Plasticity Core (8B) ---
-    pub gsop_potentiation: i16,         // 18..20
-    pub gsop_depression: i16,           // 20..22
-    pub refractory_period: u8,          // 22..23
-    pub synapse_refractory_period: u8,  // 23..24
-    pub slot_decay_ltm: u8,             // 24..25
-    pub slot_decay_wm: u8,              // 25..26
-    // --- Physics & Modulators (6B) ---
-    pub signal_propagation_length: u8,  // 26..27
-    pub d1_affinity: u8,                // 27..28 (D1-рецептор)
-    pub heartbeat_m: u16,               // 28..30
-    pub d2_affinity: u8,                // 30..31 [D2 Рецептор]
-    pub ltm_slot_count: u8,             // 31..32
-    pub inertia_curve: [i16; 15],       // 32..62 (30 bytes)
-    pub prune_threshold: i16,           // 62..64 [DOD FIX]
+    // === Блок 1: 32-bit (Смещения 0..20) ===
+    pub threshold: i32,
+    pub rest_potential: i32,
+    pub leak_rate: i32,
+    pub homeostasis_penalty: i32,
+    pub spontaneous_firing_period_ticks: u32,
+
+    // === Блок 2: 16-bit (Смещения 20..28) ===
+    pub initial_synapse_weight: u16,
+    pub gsop_potentiation: u16,
+    pub gsop_depression: u16,
+    pub homeostasis_decay: u16,
+
+    // === Блок 3: 8-bit (Смещения 28..32) ===
+    pub refractory_period: u8,
+    pub synapse_refractory_period: u8,
+    pub signal_propagation_length: u8,
+    pub is_inhibitory: u8, // 1 = true (GABA), 0 = false (Glu)
+
+    // === Блок 4: Массивы (Смещения 32..48) ===
+    pub inertia_curve: [u8; 16],
+
+    // === Блок 5: Adaptive Leak Hardware (Смещения 48..58) ===
+    pub adaptive_leak_max: i32,    // 48..52
+    pub adaptive_leak_gain: u16,   // 52..54
+    pub adaptive_mode: u8,         // 54..55
+    pub _leak_pad: [u8; 3],        // 55..58
+
+    // === Блок 6: Pad (Смещения 58..64) ===
+    pub _pad: [u8; 6],
 }
 
-const _: () = assert!(std::mem::size_of::<VariantParameters>() == 64);
+const _: () = assert!(std::mem::size_of::<VariantParameters>() == 64, "L1 Cache line size violation!");
+const _: () = assert!(std::mem::align_of::<VariantParameters>() == 64, "Alignment violation!");
 
 // [DOD] 32-byte alignment гарантирует загрузку 8 голов за 1 транзакцию L1 кэша.
 #[repr(C, align(32))]

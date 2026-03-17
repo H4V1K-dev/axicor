@@ -36,25 +36,32 @@ struct SoA_State {
 };
 
 // Строго 64 байта (1 кэш-линия L1). 16 типов = 1024 байта в Constant Memory.
+// Строго 64 байта (1 кэш-линия L1)
 struct alignas(64) VariantParameters {
-  int32_t threshold;                  // 0..4
-  int32_t rest_potential;             // 4..8
-  int32_t leak_rate;                  // 8..12
-  int32_t homeostasis_penalty;        // 12..16
-  uint16_t homeostasis_decay;         // 16..18
-  int16_t gsop_potentiation;          // 18..20
-  int16_t gsop_depression;            // 20..22
-  uint8_t refractory_period;          // 22..23
-  uint8_t synapse_refractory_period;  // 23..24
-  uint8_t slot_decay_ltm;             // 24..25
-  uint8_t slot_decay_wm;              // 25..26
-  uint8_t signal_propagation_length;  // 26..27
-  uint8_t d1_affinity;                // 27..28 [D1 Рецептор]
-  uint16_t heartbeat_m;               // 28..30
-  uint8_t d2_affinity;                // 30..31 [D2 Рецептор]
-  uint8_t ltm_slot_count;             // 31..32
-  int16_t inertia_curve[15];          // 32..62 (30 bytes)
-  int16_t prune_threshold;            // 62..64 (2 bytes)
+  int32_t threshold;                        // 0..4
+  int32_t rest_potential;                   // 4..8
+  int32_t leak_rate;                        // 8..12
+  int32_t homeostasis_penalty;              // 12..16
+  uint32_t spontaneous_firing_period_ticks; // 16..20
+
+  uint16_t initial_synapse_weight;          // 20..22
+  uint16_t gsop_potentiation;               // 22..24
+  uint16_t gsop_depression;                 // 24..26
+  uint16_t homeostasis_decay;               // 26..28
+
+  uint8_t refractory_period;                // 28..29
+  uint8_t synapse_refractory_period;        // 29..30
+  uint8_t signal_propagation_length;        // 30..31
+  uint8_t is_inhibitory;                    // 31..32
+
+  uint8_t inertia_curve[16];                // 32..48
+
+  int32_t adaptive_leak_max;                // 48..52
+  uint16_t adaptive_leak_gain;              // 52..54
+  uint8_t adaptive_mode;                    // 54..55
+  uint8_t _leak_pad[3];                     // 55..58
+
+  uint8_t _pad[6];                          // 58..64
 };
 }
 
@@ -317,7 +324,7 @@ __global__ void ghost_sync_kernel(const BurstHeads8* __restrict__ src_axon_heads
   // Легальный axon_id << 2^31. Всё что >= 0x80000000:
   //   0x80000000 = AXON_SENTINEL (мёртвый аксон)
   //   0xFFFFFFFF = u32::MAX (сома без аксона, soma_to_axon default)
-  // Такой src_idx → out-of-bounds в VRAM → Page Fault → Context Poison.
+  // Такой src_idx → out-of-bounds in VRAM → Page Fault → Context Poison.
   if (src_idx < 0x80000000u) {
     dst_axon_heads[dst_idx] = src_axon_heads[src_idx];
   }
