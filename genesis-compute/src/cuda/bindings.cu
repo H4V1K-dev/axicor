@@ -9,61 +9,69 @@ extern "C" {
 
 // [DOD] 32-byte aligned Burst Architecture
 struct alignas(32) BurstHeads8 {
-  uint32_t h0; uint32_t h1; uint32_t h2; uint32_t h3;
-  uint32_t h4; uint32_t h5; uint32_t h6; uint32_t h7;
+  uint32_t h0;
+  uint32_t h1;
+  uint32_t h2;
+  uint32_t h3;
+  uint32_t h4;
+  uint32_t h5;
+  uint32_t h6;
+  uint32_t h7;
 };
 
 struct SoA_State {
   uint32_t padded_n;
   uint32_t total_axons;
 
-  int32_t* __restrict__ voltage;
-  uint8_t* __restrict__ flags;
-  int32_t* __restrict__ threshold_offset;
-  uint8_t* __restrict__ refractory_timer;
-  uint32_t* __restrict__ soma_to_axon;
+  int32_t *__restrict__ voltage;
+  uint8_t *__restrict__ flags;
+  int32_t *__restrict__ threshold_offset;
+  uint8_t *__restrict__ refractory_timer;
+  uint32_t *__restrict__ soma_to_axon;
 
-  uint32_t* __restrict__ dendrite_targets;
-  int16_t* __restrict__ dendrite_weights;
-  uint8_t* __restrict__ dendrite_timers;
+  uint32_t *__restrict__ dendrite_targets;
+  int16_t *__restrict__ dendrite_weights;
+  uint8_t *__restrict__ dendrite_timers;
 
-  BurstHeads8* __restrict__ axon_heads;
+  BurstHeads8 *__restrict__ axon_heads;
 
-  uint32_t* __restrict__ input_bitmask;
-  uint8_t* __restrict__ output_history;
-  uint32_t* __restrict__ telemetry_count;
-  uint32_t* __restrict__ telemetry_spikes;
+  uint32_t *__restrict__ input_bitmask;
+  uint8_t *__restrict__ output_history;
+  uint32_t *__restrict__ telemetry_count;
+  uint32_t *__restrict__ telemetry_spikes;
 };
 
-// Строго 80 байт. 16 типов = 1280 байт в Constant Memory.
-struct alignas(16) VariantParameters {
-  int32_t threshold;                  // 0..4
-  int32_t rest_potential;             // 4..8
-  int32_t leak_rate;                  // 8..12
-  int32_t homeostasis_penalty;        // 12..16
-  uint16_t homeostasis_decay;         // 16..18
-  int16_t gsop_potentiation;          // 18..20
-  int16_t gsop_depression;            // 20..22
-  uint8_t refractory_period;          // 22..23
-  uint8_t synapse_refractory_period;  // 23..24
-  uint8_t slot_decay_ltm;             // 24..25
-  uint8_t slot_decay_wm;              // 25..26
-  uint8_t signal_propagation_length;  // 26..27
-  uint8_t d1_affinity;                // 27..28 [D1 Рецептор]
-  uint16_t heartbeat_m;               // 28..30
-  uint8_t d2_affinity;                // 30..31 [D2 Рецептор]
-  uint8_t ltm_slot_count;             // 31..32
-  int16_t inertia_curve[15];          // 32..62 (30 bytes)
-  int16_t prune_threshold;            // 62..64 (2 bytes)
-  uint8_t adaptive_leak_mode;         // 64..65
-  uint8_t _pad_adaptive;              // 65..66
-  int16_t dopamine_leak_gain;         // 66..68
-  int16_t burst_leak_gain;            // 68..70
-  int16_t leak_min;                   // 70..72
-  int16_t leak_max;                   // 72..74
-  uint8_t _reserved[6];               // 74..80
+// Строго 64 байта (1 кэш-линия L1). 16 типов = 1024 байта в Constant Memory.
+struct alignas(64) VariantParameters {
+  int32_t threshold;                 // 0..4
+  int32_t rest_potential;            // 4..8
+  int32_t leak_rate;                 // 8..12
+  int32_t homeostasis_penalty;       // 12..16
+  uint16_t homeostasis_decay;        // 16..18
+  int16_t gsop_potentiation;         // 18..20
+  int16_t gsop_depression;           // 20..22
+  uint8_t refractory_period;         // 22..23
+  uint8_t synapse_refractory_period; // 23..24
+  uint8_t slot_decay_ltm;            // 24..25
+  uint8_t slot_decay_wm;             // 25..26
+  uint8_t signal_propagation_length; // 26..27
+  uint8_t d1_affinity;               // 27..28 [D1 Рецептор]
+  uint16_t heartbeat_m;              // 28..30
+  uint8_t d2_affinity;               // 30..31 [D2 Рецептор]
+  uint8_t ltm_slot_count;            // 31..32
+  uint8_t inertia_curve[15];         // 32..47 (15 bytes, was i16)
+  uint8_t _pad_inertia;              // 47..48 (i16 alignment)
+  int16_t prune_threshold;           // 48..50
+  uint8_t adaptive_leak_mode;        // 49..50
+  uint8_t _pad_adaptive;             // 50..51
+  int16_t dopamine_leak_gain;        // 51..53
+  int16_t burst_leak_gain;           // 53..55
+  int16_t leak_min;                  // 55..57
+  int16_t leak_max;                  // 57..59
+  uint8_t _reserved[4];              // 59..63 (total 64)
 };
-static_assert(sizeof(VariantParameters) == 80, "VariantParameters must stay 80 bytes");
+static_assert(sizeof(VariantParameters) == 64,
+              "VariantParameters must stay 64 bytes");
 }
 
 // Глобальная константная память GPU (448 байт).
@@ -72,17 +80,14 @@ extern __constant__ VariantParameters VARIANT_LUT[16];
 __constant__ int16_t current_dopamine;
 
 __global__ void cu_extract_telemetry_kernel(
-    const uint8_t* __restrict__ soma_flags,
-    uint32_t* __restrict__ out_ids,
-    uint32_t* __restrict__ out_count,
-    uint32_t padded_n
-);
+    const uint8_t *__restrict__ soma_flags, uint32_t *__restrict__ out_ids,
+    uint32_t *__restrict__ out_count, uint32_t padded_n);
 
 // Константы (совпадают с constants.rs)
 #define MAX_DENDRITE_SLOTS 128
 #define AXON_SENTINEL 0x80000000
 
-__device__ __forceinline__ void push_burst_head(BurstHeads8* h) {
+__device__ __forceinline__ void push_burst_head(BurstHeads8 *h) {
   h->h7 = h->h6;
   h->h6 = h->h5;
   h->h5 = h->h4;
@@ -97,10 +102,12 @@ __device__ __forceinline__ void push_burst_head(BurstHeads8* h) {
 // Ядро 1: Инъекция внешних сигналов (InjectInputs)
 // Спецификация: 08_io_matrix.md §2.6
 // =====================================================================
-__global__ void
-inject_inputs_kernel(const SoA_State state, const uint32_t* __restrict__ bitmask,
-                     uint32_t virtual_offset, uint32_t current_tick,
-                     uint8_t input_stride, uint32_t total_virtual_axons) {
+__global__ void inject_inputs_kernel(const SoA_State state,
+                                     const uint32_t *__restrict__ bitmask,
+                                     uint32_t virtual_offset,
+                                     uint32_t current_tick,
+                                     uint8_t input_stride,
+                                     uint32_t total_virtual_axons) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= total_virtual_axons)
     return;
@@ -133,11 +140,11 @@ inject_inputs_kernel(const SoA_State state, const uint32_t* __restrict__ bitmask
 // Ядро 2: Инъекция Ghost-спайков (Fast Path)
 // Спецификация: 06_distributed.md §2.4 (Sender-Side Mapping)
 // =====================================================================
-__global__ void apply_spike_batch_kernel(SoA_State state,
-                                         const uint32_t* __restrict__ schedule_buffer,
-                                         const uint32_t* __restrict__ counts,
-                                         uint32_t current_tick,
-                                         uint32_t max_spikes_per_tick) {
+__global__ void
+apply_spike_batch_kernel(SoA_State state,
+                         const uint32_t *__restrict__ schedule_buffer,
+                         const uint32_t *__restrict__ counts,
+                         uint32_t current_tick, uint32_t max_spikes_per_tick) {
   uint32_t num_spikes = counts[current_tick];
   if (num_spikes == 0)
     return; // Early Exit
@@ -168,14 +175,22 @@ __global__ void propagate_axons_kernel(const SoA_State state, uint32_t v_seg) {
     return;
 
   BurstHeads8 h = state.axon_heads[tid];
-  if (h.h0 != AXON_SENTINEL) h.h0 += v_seg;
-  if (h.h1 != AXON_SENTINEL) h.h1 += v_seg;
-  if (h.h2 != AXON_SENTINEL) h.h2 += v_seg;
-  if (h.h3 != AXON_SENTINEL) h.h3 += v_seg;
-  if (h.h4 != AXON_SENTINEL) h.h4 += v_seg;
-  if (h.h5 != AXON_SENTINEL) h.h5 += v_seg;
-  if (h.h6 != AXON_SENTINEL) h.h6 += v_seg;
-  if (h.h7 != AXON_SENTINEL) h.h7 += v_seg;
+  if (h.h0 != AXON_SENTINEL)
+    h.h0 += v_seg;
+  if (h.h1 != AXON_SENTINEL)
+    h.h1 += v_seg;
+  if (h.h2 != AXON_SENTINEL)
+    h.h2 += v_seg;
+  if (h.h3 != AXON_SENTINEL)
+    h.h3 += v_seg;
+  if (h.h4 != AXON_SENTINEL)
+    h.h4 += v_seg;
+  if (h.h5 != AXON_SENTINEL)
+    h.h5 += v_seg;
+  if (h.h6 != AXON_SENTINEL)
+    h.h6 += v_seg;
+  if (h.h7 != AXON_SENTINEL)
+    h.h7 += v_seg;
   state.axon_heads[tid] = h;
 }
 
@@ -183,10 +198,10 @@ __global__ void propagate_axons_kernel(const SoA_State state, uint32_t v_seg) {
 // Ядро 6: Запись истории активности (Direct Memory Access)
 // Спецификация: 08_io_matrix.md §3.2
 // =====================================================================
-__global__ void record_readout_kernel(const SoA_State state,
-                                      const uint32_t* __restrict__ mapped_soma_ids,
-                                      uint32_t num_channels,
-                                      uint32_t current_tick) {
+__global__ void
+record_readout_kernel(const SoA_State state,
+                      const uint32_t *__restrict__ mapped_soma_ids,
+                      uint32_t num_channels, uint32_t current_tick) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= num_channels)
     return;
@@ -332,10 +347,11 @@ void launch_record_readout(SoA_State vram, const uint32_t *mapped_soma_ids,
 // =====================================================================
 // Ядро 7: Синхронизация Ghost Axons
 // =====================================================================
-__global__ void ghost_sync_kernel(const BurstHeads8* __restrict__ src_axon_heads,
-                                  BurstHeads8* __restrict__ dst_axon_heads,
-                                  const uint32_t* __restrict__ src_indices,
-                                  const uint32_t* __restrict__ dst_indices, uint32_t count) {
+__global__ void
+ghost_sync_kernel(const BurstHeads8 *__restrict__ src_axon_heads,
+                  BurstHeads8 *__restrict__ dst_axon_heads,
+                  const uint32_t *__restrict__ src_indices,
+                  const uint32_t *__restrict__ dst_indices, uint32_t count) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= count)
     return;
@@ -370,44 +386,46 @@ struct SpikeEvent {
 
 // Ядро компактизирует спайки из гигабайтного графа в плоский Pinned RAM буфер
 __global__ void extract_outgoing_spikes_kernel(
-    const BurstHeads8* __restrict__ axon_heads,
-    const uint32_t* __restrict__ src_indices,   
-    const uint32_t* __restrict__ dst_ghost_ids, 
-    uint32_t count, uint32_t sync_batch_ticks, uint32_t v_seg,
-    SpikeEvent* __restrict__ out_events, 
-    uint32_t* __restrict__ out_count     
-) {
+    const BurstHeads8 *__restrict__ axon_heads,
+    const uint32_t *__restrict__ src_indices,
+    const uint32_t *__restrict__ dst_ghost_ids, uint32_t count,
+    uint32_t sync_batch_ticks, uint32_t v_seg,
+    SpikeEvent *__restrict__ out_events, uint32_t *__restrict__ out_count) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-  if (tid >= count) return;
+  if (tid >= count)
+    return;
 
   uint32_t local_axon = src_indices[tid];
 
   // [DOD FIX] Hardware Memory Protection
   // 0x80000000 = AXON_SENTINEL (empty pixel)
   // 0xFFFFFFFF = u32::MAX (soma without axon)
-  if (local_axon >= 0x80000000u) return;
+  if (local_axon >= 0x80000000u)
+    return;
 
   BurstHeads8 h = axon_heads[local_axon];
   uint32_t ghost_id = dst_ghost_ids[tid];
 
   // Кастуем структуру к массиву для развернутого прохода (Zero-cost)
-  const uint32_t* heads = (const uint32_t*)&h;
+  const uint32_t *heads = (const uint32_t *)&h;
 
-  #pragma unroll
+#pragma unroll
   for (int i = 0; i < 8; ++i) {
-      uint32_t head = heads[i];
-      
-      // Игнорируем мертвые хвосты (AXON_SENTINEL = 0x80000000)
-      if (head >= 0x70000000u) continue;
+    uint32_t head = heads[i];
 
-      uint32_t ticks_since_spike = head / v_seg;
+    // Игнорируем мертвые хвосты (AXON_SENTINEL = 0x80000000)
+    if (head >= 0x70000000u)
+      continue;
 
-      // Если спайк произошел ВНУТРИ текущего батча
-      if (ticks_since_spike < sync_batch_ticks) {
-          uint32_t out_idx = atomicAdd(out_count, 1);
-          out_events[out_idx].ghost_id = ghost_id;
-          out_events[out_idx].tick_offset = sync_batch_ticks - 1 - ticks_since_spike;
-      }
+    uint32_t ticks_since_spike = head / v_seg;
+
+    // Если спайк произошел ВНУТРИ текущего батча
+    if (ticks_since_spike < sync_batch_ticks) {
+      uint32_t out_idx = atomicAdd(out_count, 1);
+      out_events[out_idx].ghost_id = ghost_id;
+      out_events[out_idx].tick_offset =
+          sync_batch_ticks - 1 - ticks_since_spike;
+    }
   }
 }
 
@@ -415,9 +433,8 @@ void launch_extract_outgoing_spikes(const BurstHeads8 *axon_heads,
                                     const uint32_t *src_indices,
                                     const uint32_t *dst_ghost_ids,
                                     uint32_t count, uint32_t sync_batch_ticks,
-                                    uint32_t v_seg,
-                                    void *out_events, uint32_t *out_count,
-                                    cudaStream_t stream) {
+                                    uint32_t v_seg, void *out_events,
+                                    uint32_t *out_count, cudaStream_t stream) {
   uint32_t threads = 256;
   uint32_t blocks = (count + threads - 1) / threads;
 
@@ -441,17 +458,20 @@ struct DendriteSlot {
 // =====================================================================
 // Ядро 8: Сортировка и прунинг синапсов (Night Phase)
 // =====================================================================
-__global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n, int16_t global_prune_threshold) {
+__global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n,
+                                      int16_t global_prune_threshold) {
   uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   if (tid >= padded_n)
     return;
 
   uint8_t flag = state.flags[tid];
-  // [DOD FIX] Полная очистка аккумулятора спайков [3:1], сохраняя Type [7:4] и Spike 
+  // [DOD FIX] Полная очистка аккумулятора спайков [3:1], сохраняя Type [7:4] и
+  // Spike
   state.flags[tid] = flag & 0xF1;
-  
+
   uint8_t variant_id = (flag >> 4) & 0x0F;
-  // [DOD FIX] Удалено чтение из VARIANT_LUT. Используем переданный global_prune_threshold.
+  // [DOD FIX] Удалено чтение из VARIANT_LUT. Используем переданный
+  // global_prune_threshold.
   int16_t prune_threshold = global_prune_threshold;
 
   __shared__ DendriteSlot smem[WARP_SIZE][MAX_DENDRITE_SLOTS];
@@ -533,15 +553,15 @@ extern "C" {
 
 // Зеркало Rust #[repr(C)] struct ShardVramPtrs
 struct ShardVramPtrs {
-  int32_t* __restrict__ soma_voltage; // base ptr всего state-блоба
-  uint8_t* __restrict__ soma_flags;
-  int32_t* __restrict__ threshold_offset;
-  uint8_t* __restrict__ timers;
-  uint32_t* __restrict__ soma_to_axon;
-  uint32_t* __restrict__ dendrite_targets;
-  int16_t* __restrict__ dendrite_weights;
-  uint8_t* __restrict__ dendrite_timers;
-  BurstHeads8* __restrict__ axon_heads; // отдельный буфер
+  int32_t *__restrict__ soma_voltage; // base ptr всего state-блоба
+  uint8_t *__restrict__ soma_flags;
+  int32_t *__restrict__ threshold_offset;
+  uint8_t *__restrict__ timers;
+  uint32_t *__restrict__ soma_to_axon;
+  uint32_t *__restrict__ dendrite_targets;
+  int16_t *__restrict__ dendrite_weights;
+  uint8_t *__restrict__ dendrite_timers;
+  BurstHeads8 *__restrict__ axon_heads; // отдельный буфер
 };
 
 #define MAX_DENDRITES_SV 128
@@ -607,7 +627,8 @@ int32_t cu_allocate_shard(uint32_t padded_n, uint32_t total_axons,
   }
 
   // Инициализируем аксоны нулём (живые). Baker перезапишет нужные значения.
-  cudaMemset(out_vram->axon_heads, 0, (size_t)total_axons * sizeof(BurstHeads8));
+  cudaMemset(out_vram->axon_heads, 0,
+             (size_t)total_axons * sizeof(BurstHeads8));
 
   return 0;
 }
@@ -678,7 +699,9 @@ void cu_free_shard(ShardVramPtrs *vram) {
 // Один блок = один нейрон (32 потока). Идеальная утилизация Shared Memory.
 // Без stream — ночная фаза синхронна.
 // =====================================================================
-extern "C" void launch_sort_and_prune(const ShardVramPtrs *ptrs, uint32_t padded_n, int16_t prune_threshold) {
+extern "C" void launch_sort_and_prune(const ShardVramPtrs *ptrs,
+                                      uint32_t padded_n,
+                                      int16_t prune_threshold) {
   dim3 threads(WARP_SIZE, 1);
   dim3 blocks((padded_n + WARP_SIZE - 1) / WARP_SIZE, 1);
 
@@ -732,12 +755,12 @@ int32_t cu_dma_h2d_io(uint32_t *d_input_bitmask,
                       const uint32_t *h_input_bitmask, uint32_t input_words,
                       uint32_t *d_incoming_spikes,
                       const uint32_t *h_incoming_spikes,
-                      uint32_t schedule_capacity,
-                      cudaStream_t stream) {
+                      uint32_t schedule_capacity, cudaStream_t stream) {
   // Асинхронная загрузка в переданный Stream
   if (input_words > 0 && d_input_bitmask && h_input_bitmask) {
     cudaMemcpyAsync(d_input_bitmask, h_input_bitmask,
-                    input_words * sizeof(uint32_t), cudaMemcpyHostToDevice, stream);
+                    input_words * sizeof(uint32_t), cudaMemcpyHostToDevice,
+                    stream);
   }
   if (schedule_capacity > 0 && d_incoming_spikes && h_incoming_spikes) {
     cudaMemcpyAsync(d_incoming_spikes, h_incoming_spikes,
@@ -748,8 +771,7 @@ int32_t cu_dma_h2d_io(uint32_t *d_input_bitmask,
 }
 
 int32_t cu_dma_d2h_io(uint8_t *h_output_history,
-                      const uint8_t *d_output_history,
-                      uint32_t output_capacity,
+                      const uint8_t *d_output_history, uint32_t output_capacity,
                       cudaStream_t stream) {
   if (output_capacity > 0 && d_output_history && h_output_history) {
     cudaMemcpyAsync(h_output_history, d_output_history,
@@ -760,20 +782,20 @@ int32_t cu_dma_d2h_io(uint8_t *h_output_history,
 }
 
 void gpu_reset_telemetry_count(const ShardVramPtrs *ptrs, cudaStream_t stream) {
-    (void)ptrs; (void)stream;
+  (void)ptrs;
+  (void)stream;
 }
 
-void launch_extract_telemetry(const ShardVramPtrs *ptrs, uint32_t padded_n, uint32_t *out_ids, uint32_t *out_count_pinned, cudaStream_t stream) {
-    if (out_ids == nullptr || out_count_pinned == nullptr || ptrs == nullptr) return;
+void launch_extract_telemetry(const ShardVramPtrs *ptrs, uint32_t padded_n,
+                              uint32_t *out_ids, uint32_t *out_count_pinned,
+                              cudaStream_t stream) {
+  if (out_ids == nullptr || out_count_pinned == nullptr || ptrs == nullptr)
+    return;
 
-    int threads = 256;
-    int blocks = (padded_n + threads - 1) / threads;
-    
-    cu_extract_telemetry_kernel<<<blocks, threads, 0, stream>>>(
-        ptrs->soma_flags,
-        out_ids,
-        out_count_pinned,
-        padded_n
-    );
+  int threads = 256;
+  int blocks = (padded_n + threads - 1) / threads;
+
+  cu_extract_telemetry_kernel<<<blocks, threads, 0, stream>>>(
+      ptrs->soma_flags, out_ids, out_count_pinned, padded_n);
 }
 } // Final closing brace for extern "C"

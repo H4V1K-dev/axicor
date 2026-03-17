@@ -5,9 +5,9 @@ use bytemuck::{Pod, Zeroable};
 pub const MAX_DENDRITES: usize = MAX_DENDRITE_SLOTS;
 
 /// Структура параметров типа нейрона.
-/// 80 байт = компактный ABI-блок для 16 вариантов (1280 байт в Constant Memory).
-/// Milestone 1 резервирует поля под adaptive leak, не меняя поведение по умолчанию.
-#[repr(C, align(16))]
+/// 64 байта = 1 кэш-линия L1 GPU. 16 типов × 64B = 1024B = весь __constant__-буфер.
+/// inertia_curve сжат до u8 (0..255), освободив 15 байт под adaptive leak.
+#[repr(C, align(64))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
 pub struct VariantParameters {
     // --- Basic Dynamics (20B) ---
@@ -29,20 +29,21 @@ pub struct VariantParameters {
     pub heartbeat_m: u16,               // 28..30
     pub d2_affinity: u8,                // 30..31 [D2 Рецептор]
     pub ltm_slot_count: u8,             // 31..32
-    pub inertia_curve: [i16; 15],       // 32..62 (30 bytes)
-    pub prune_threshold: i16,           // 62..64 [DOD FIX]
-    // --- Adaptive Leak ABI Reserve (16B) ---
-    pub adaptive_leak_mode: u8,         // 64..65 (0 = disabled)
-    pub _pad_adaptive: u8,              // 65..66
-    pub dopamine_leak_gain: i16,        // 66..68
-    pub burst_leak_gain: i16,           // 68..70
-    pub leak_min: i16,                  // 70..72
-    pub leak_max: i16,                  // 72..74
-    pub _reserved: [u8; 6],             // 74..80
+    pub inertia_curve: [u8; 15],        // 32..47 (15 bytes, was i16)
+    pub _pad_inertia: u8,               // 47..48 (i16 alignment for prune_threshold)
+    pub prune_threshold: i16,           // 48..50 [DOD FIX]
+    // --- Adaptive Leak (15B) ---
+    pub adaptive_leak_mode: u8,         // 49..50 (0 = disabled)
+    pub _pad_adaptive: u8,              // 50..51
+    pub dopamine_leak_gain: i16,        // 51..53
+    pub burst_leak_gain: i16,           // 53..55
+    pub leak_min: i16,                  // 55..57
+    pub leak_max: i16,                  // 57..59
+    pub _reserved: [u8; 4],             // 59..63 (total 64 with align)
 }
 
-const _: () = assert!(std::mem::size_of::<VariantParameters>() == 80);
-const _: () = assert!(std::mem::align_of::<VariantParameters>() == 16);
+const _: () = assert!(std::mem::size_of::<VariantParameters>() == 64);
+const _: () = assert!(std::mem::align_of::<VariantParameters>() == 64);
 
 // [DOD] 32-byte alignment гарантирует загрузку 8 голов за 1 транзакцию L1 кэша.
 #[repr(C, align(32))]

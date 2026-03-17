@@ -187,17 +187,15 @@ pub struct GenesisConstantMemory {
     pub variants: [crate::layout::VariantParameters; 16],
 }
 
-// Гаранты детерминизма. Компилятор упадёт здесь, если кто-то сломает выравнивание.
-/*
+// Гаранты детерминизма. 64B = 1 L1 cache line, 16×64 = 1024B в Constant Memory.
 const _: () = assert!(
-    std::mem::size_of::<VariantParameters>() == 80,
-    "VariantParameters MUST be exactly 80 bytes for the adaptive leak ABI"
+    std::mem::size_of::<crate::layout::VariantParameters>() == 64,
+    "VariantParameters MUST be exactly 64 bytes (L1 cache line)"
 );
 const _: () = assert!(
-    std::mem::size_of::<GenesisConstantMemory>() == 1280,
-    "GenesisConstantMemory MUST be exactly 1280 bytes"
+    std::mem::size_of::<GenesisConstantMemory>() == 1024,
+    "GenesisConstantMemory MUST be exactly 1024 bytes (16×64B)"
 );
-*/
 
 // #[cfg(test)]
 // #[path = "test_blueprints.rs"]

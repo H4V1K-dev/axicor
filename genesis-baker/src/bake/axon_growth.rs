@@ -679,7 +679,7 @@ mod tests {
         let positions: Vec<PackedPosition> = vec![];
         use genesis_core::layout::{VariantParameters};
         use genesis_core::config::blueprints::{GenesisConstantMemory};
-        let empty_const_mem = GenesisConstantMemory {
+        let _empty_const_mem = GenesisConstantMemory {
             variants: [VariantParameters {
                 threshold: 0, rest_potential: 0, leak_rate: 0, homeostasis_penalty: 0,
                 gsop_potentiation: 0, gsop_depression: 0, homeostasis_decay: 0,

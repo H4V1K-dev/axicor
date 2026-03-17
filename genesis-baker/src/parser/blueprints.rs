@@ -35,10 +35,10 @@ pub fn parse_blueprints(toml_content: &str) -> (GenesisConstantMemory, Vec<Neuro
 
         name_map.insert(nt.name.clone(), i as u8);
 
-        let mut inertia = [0i16; 15];
+        let mut inertia = [0u8; 15];
         for (idx, &val) in nt.inertia_curve.iter().enumerate() {
             if idx < 15 {
-                inertia[idx] = val as i16;
+                inertia[idx] = val.clamp(0, 255);
             }
         }
 
@@ -91,6 +91,7 @@ pub fn parse_blueprints(toml_content: &str) -> (GenesisConstantMemory, Vec<Neuro
             d2_affinity,
             ltm_slot_count: nt.ltm_slot_count,
             inertia_curve: inertia,
+            _pad_inertia: 0,
             prune_threshold: nt.prune_threshold,
             adaptive_leak_mode: nt.adaptive_leak_mode,
             _pad_adaptive: 0,
@@ -98,7 +99,7 @@ pub fn parse_blueprints(toml_content: &str) -> (GenesisConstantMemory, Vec<Neuro
             burst_leak_gain: nt.burst_leak_gain,
             leak_min: nt.leak_min,
             leak_max: nt.leak_max,
-            _reserved: [0; 6],
+            _reserved: [0; 4],
         };
     }
 

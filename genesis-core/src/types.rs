@@ -116,9 +116,9 @@ mod tests {
     #[test]
     fn test_variant_parameters_layout() {
         use crate::layout::VariantParameters;
-        // Milestone 1 ABI reserve: 16 variants × 80B = 1280B in Constant Memory
-        assert_eq!(std::mem::size_of::<VariantParameters>(), 80);
-        assert_eq!(std::mem::align_of::<VariantParameters>(), 16);
+        // 64B L1 cache line: 16 variants × 64B = 1024B in Constant Memory
+        assert_eq!(std::mem::size_of::<VariantParameters>(), 64);
+        assert_eq!(std::mem::align_of::<VariantParameters>(), 64);
     }
 
     #[test]

@@ -78,20 +78,21 @@ struct VariantParameters {
     uint16_t heartbeat_m;                   // 2 б. - DDS Heartbeat множитель (0 = отключено, 1..65535)
     uint8_t d2_affinity;                    // 1 б. - Множитель дофамина для LTD (128 = 1.0x)
     uint8_t ltm_slot_count;                 // 1 б. - Количество LTM слотов
-    int16_t inertia_curve[15];              // 30 б. - Inertia modifiers (rank: abs(weight) >> 11)
-    int16_t prune_threshold;                // 2 б. - Порог pruning для Night Phase
-    uint8_t adaptive_leak_mode;             // 1 б. - 0 = off, 1 = continuous, 2 = discrete modes
-    uint8_t _pad_adaptive;                  // 1 б. - ABI padding
-    int16_t dopamine_leak_gain;             // 2 б. - Reserved for adaptive leak
-    int16_t burst_leak_gain;                // 2 б. - Reserved for adaptive leak
-    int16_t leak_min;                       // 2 б. - Reserved clamp lower bound
-    int16_t leak_max;                       // 2 б. - Reserved clamp upper bound
-    uint8_t _reserved[6];                   // 6 б. - Future ABI reserve
-}; // Итого: ровно 80 байт
+    uint8_t inertia_curve[15];               // 15 б. - Inertia modifiers (rank: abs(weight) >> 11), was i16
+    uint8_t _pad_inertia;                    // 1 б. - i16 alignment for prune_threshold
+    int16_t prune_threshold;                 // 2 б. - Порог pruning для Night Phase
+    uint8_t adaptive_leak_mode;              // 1 б. - 0 = off, 1 = continuous, 2 = discrete modes
+    uint8_t _pad_adaptive;                   // 1 б. - ABI padding
+    int16_t dopamine_leak_gain;              // 2 б. - Gain for adaptive leak
+    int16_t burst_leak_gain;                 // 2 б. - Gain for adaptive leak
+    int16_t leak_min;                        // 2 б. - Clamp lower bound
+    int16_t leak_max;                        // 2 б. - Clamp upper bound
+    uint8_t _reserved[4];                    // 4 б. - Future ABI reserve
+}; // Итого: ровно 64 байта (1 L1 cache line)
 
 // Контейнер для 16 вариантов
 struct GenesisConstantMemory {
-    VariantParameters variants[16];          // 1280 bytes total
+    VariantParameters variants[16];          // 1024 bytes total (16×64B)
 };   // Умещается в константную память GPU (64KB limit)
 ```
 
@@ -166,11 +167,11 @@ total_axons = L + G + V (aligned to 32)
 
 ### 1.5. Constant Memory (LUT Layout)
 
-Параметры поведения грузятся в `__constant__` память GPU **один раз** при старте. Структура `GenesisConstantMemory` занимает 1280 байт (16 вариантов по 80 байт) и по-прежнему с большим запасом помещается в 64KB лимит. Поля adaptive leak используются для continuous (`adaptive_leak_mode = 1`) и discrete (`adaptive_leak_mode = 2`) membrane modes без расширения ABI.
+Параметры поведения грузятся в `__constant__` память GPU **один раз** при старте. Структура `GenesisConstantMemory` занимает 1024 байта (16 вариантов по 64 байта) и по-прежнему с большим запасом помещается в 64KB лимит. inertia_curve сжат до u8 (0..255), освободив 15 байт под adaptive leak. Поля adaptive leak используются для continuous (`adaptive_leak_mode = 1`) и discrete (`adaptive_leak_mode = 2`) membrane modes.
 
 ```rust
-#[repr(C, align(16))]
-pub struct VariantParameters {            // 80 bytes
+#[repr(C, align(64))]
+pub struct VariantParameters {            // 64 bytes (1 L1 cache line)
     pub threshold: i32,                   // 4  - Base threshold
     pub rest_potential: i32,              // 4  - Rest potential (GLIF reset)
     pub leak_rate: i32,                   // 4  - GLIF Leakage per tick
@@ -187,19 +188,20 @@ pub struct VariantParameters {            // 80 bytes
     pub heartbeat_m: u16,                 // 2  - DDS Heartbeat множитель (0 = отключено, 1..65535)
     pub d2_affinity: u8,                  // 1  - Множитель дофамина для LTD (128 = 1.0x)
     pub ltm_slot_count: u8,               // 1  - Доля слотов, считающихся LTM
-    pub inertia_curve: [i16; 15],         // 30 - Inertia modifiers (rank: abs(weight) >> 11)
-    pub prune_threshold: i16,             // 2  - Pruning threshold for Night Phase
+    pub inertia_curve: [u8; 15],          // 15 - Inertia modifiers (rank: abs(weight) >> 11), was i16
+    pub _pad_inertia: u8,                  // 1  - i16 alignment for prune_threshold
+    pub prune_threshold: i16,              // 2  - Pruning threshold for Night Phase
     pub adaptive_leak_mode: u8,           // 1  - 0 = off, 1 = continuous, 2 = discrete modes
     pub _pad_adaptive: u8,                // 1  - ABI padding
     pub dopamine_leak_gain: i16,          // 2  - Gain for dopamine contribution to adaptive leak
-    pub burst_leak_gain: i16,             // 2  - Gain for burst_count contribution to adaptive leak
-    pub leak_min: i16,                    // 2  - Lower clamp / responsive anchor for adaptive leak
-    pub leak_max: i16,                    // 2  - Upper clamp / recovery anchor for adaptive leak
-    pub _reserved: [u8; 6],               // 6  - Future ABI reserve
+    pub burst_leak_gain: i16,              // 2  - Gain for burst_count contribution to adaptive leak
+    pub leak_min: i16,                    // 2  - Lower clamp for adaptive leak
+    pub leak_max: i16,                    // 2  - Upper clamp for adaptive leak
+    pub _reserved: [u8; 4],                // 4  - Future ABI reserve
 }
 
-#[repr(C, align(16))]
-pub struct GenesisConstantMemory {        // 1280 bytes
+#[repr(C, align(64))]
+pub struct GenesisConstantMemory {        // 1024 bytes (16×64B)
     pub variants: [VariantParameters; 16], // 16 variants supported
 }
 ```

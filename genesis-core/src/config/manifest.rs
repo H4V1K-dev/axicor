@@ -26,7 +26,7 @@ pub struct ManifestVariant {
     #[serde(default = "default_ltm_slot_count")]
     pub ltm_slot_count: u8,
     #[serde(default = "default_inertia_curve")]
-    pub inertia_curve: [i16; 15],
+    pub inertia_curve: [u8; 15],
     #[serde(default = "default_prune_threshold")]
     pub prune_threshold: i16,
     #[serde(default)]
@@ -51,7 +51,7 @@ pub struct ManifestVariant {
 
 fn default_prune_threshold() -> i16 { 15 }
 fn default_ltm_slot_count() -> u8 { 80 }
-fn default_inertia_curve() -> [i16; 15] {
+fn default_inertia_curve() -> [u8; 15] {
     [100, 95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30]
 }
 
@@ -75,13 +75,8 @@ impl ManifestVariant {
             heartbeat_m: self.heartbeat_m,
             d2_affinity: self.d2_affinity,
             ltm_slot_count: self.ltm_slot_count,
-            inertia_curve: {
-                let mut curve = [0i16; 15];
-                for i in 0..15.min(self.inertia_curve.len()) {
-                    curve[i] = self.inertia_curve[i];
-                }
-                curve
-            },
+            inertia_curve: self.inertia_curve,
+            _pad_inertia: 0,
             prune_threshold: self.prune_threshold,
             adaptive_leak_mode: self.adaptive_leak_mode,
             _pad_adaptive: 0,
@@ -89,7 +84,7 @@ impl ManifestVariant {
             burst_leak_gain: self.burst_leak_gain,
             leak_min: self.leak_min,
             leak_max: self.leak_max,
-            _reserved: [0; 6],
+            _reserved: [0; 4],
         }
     }
 }
