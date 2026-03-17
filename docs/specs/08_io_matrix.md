@@ -142,61 +142,24 @@ $$\text{size} = \lceil \text{total\_virtual\_axons} / 32 \rceil \times 4 \times 
 
 **Инвариант Bulk:** Четыре DMA за батч (100 ms): H2D input, H2D schedule, D2H output, D2H activity. Ноль микротранзакций в горячем цикле. Хост полностью деспотичен.
 
-### 2.7. UDP Протокол (External I/O Communication)
+### 2.7. Сетевой Контракт (C-ABI)
 
-Хост формирует массивный батч данных, превышающий UDP MTU, и режет его на фрагменты. Нода потребляет их как непрерывный **Data-Stream**.
+Обмен данными между средой (хостом) и нодой идет строго через UDP. Каждый пакет обязан предваряться 20-байтовым Little-Endian заголовком `ExternalIoHeader`. Никаких JSON или Protobuf.
 
-**Структура каждого UDP чанка:**
-
-```rust
-// Header (20 байт, <IIIIhH)
+```cpp
+// Строго 20 байт. C-ABI совместимость.
 #[repr(C)]
 pub struct ExternalIoHeader {
-    pub magic: u32,          // 0x4F495347 (GSIO) или 0x4F4F5347 (GSOO)
-    pub zone_hash: u32,      // FNV-1a hash имени zone
-    pub matrix_hash: u32,    // FNV-1a hash matrix name
-    pub payload_size: u32,   // Размер payload в ЭТОМ чанке (байт)
-    pub global_reward: i16,  // Сигнал подкрепления (Dopamine)
-    pub _padding: u16,       // Добивка
+    pub magic: u32,         // 0x4F495347 ("GSIO") для входа, 0x4F4F5347 ("GSOO") для выхода
+    pub zone_hash: u32,     // FNV-1a хэш имени зоны (например, "SensoryCortex")
+    pub matrix_hash: u32,   // FNV-1a хэш I/O матрицы (например, "cartpole_sensors")
+    pub payload_size: u32,  // Размер битовой маски в байтах (БЕЗ учета самого заголовка)
+    pub global_reward: i16, // [DOD] R-STDP Dopamine Modulator (-32768..32767)
+    pub _padding: u16,      // Выравнивание структуры до 20 байт
 }
-
-// Payload: Кусок данных батча
 ```
 
-> [!IMPORTANT]
-> Заголовок прикрепляется к **каждому** UDP-пакету. Поле `payload_size` указывает размер конкретного куска. Это позволяет Ноде корректно собирать мега-батчи из разрозненных фрагментов.
-
-**Примеры хеширования (FNV-1a):**
-```python
-import struct
-
-def fnv1a_32(data: bytes) -> int:
-    hash_val = 0x811c9dc5
-    for b in data:
-        hash_val ^= b
-        hash_val = (hash_val * 0x01000193) & 0xFFFFFFFF
-    return hash_val
-
-zone_hash = fnv1a_32(b"SensoryCortex")        # zone в io.toml
-matrix_hash = fnv1a_32(b"retina")             # name матрицы в io.toml
-```
-
-**Портовые конвенции:**
-
-| Направление | Порт (пример) | Источник | Приёмник | Протокол |
-|---|---|---|---|---|
-| **Входы** (Input) | 8081 | Хост (сенсор) | Genesis Runtime | UDP |
-| **Выходы** (Output) | 8082 | Genesis Runtime | Хост (мотор) | UDP |
-
-Runtime слушает на входящем (`sock_in`) и отправляет на исходящем (`sock_out`). Клиент запоминает адрес первого входящего пакета и отправляет выходы по этому адресу.
-
-**Синхронизация:**
-
-- **Батч получен** → `cudaMemcpyAsync` в VRAM, старт Day Phase
-- **Батча нет** → Day Phase запускается с предыдущей маской (или нулевой - конфигурируемо)
-- Runtime проверяет наличие нового батча **в конце каждого текущего батча** (синхр. точка BSP Barrier)
-
-**Фрагментация:** UDP лимит = 65507 байт. Пакеты больше 65KB автоматически дропятся (защита от EMSGSIZE отравления сокета). Для очень больших батчей требуется либо фрагментация на хосте, либо переход на TCP/shared memory.
+Дисфрагментация: UDP пакеты больше 65507 байт (MTU) автоматически дропятся (отсутствует EMSGSIZE отравление сокета).
 
 ### 2.8. Асимметрия и Feature Pyramid Batching (Абстракция)
 

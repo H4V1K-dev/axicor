@@ -333,39 +333,34 @@ magic=0x53534e47, tick=42, spikes_count=100
 
 **GeometryServer Protocol:**
 
-```
+```text
 REQUEST (IDE → Runtime):
 ┌─────────────────────┐
 │ Magic: "GEOM" (4B)  │ [0x474f4d45 little-endian: 'G', 'E', 'O', 'M']
-│ Shard ID (u32)      │ Какой шард просить (если multi-shard; debug: пока всегда 0)
-│ Reserved (4B)       │ Выравнивание; игнорируется
 └─────────────────────┘
-Total: 12 bytes
+Total: 4 bytes
 
 RESPONSE (Runtime → IDE):
 ┌──────────────────────────────────────────────┐
-│ Header: Magic (4B) = 0x474f4d45 ("GEOM")     │
-│ Neuron Count (u32)                           │ N - кол-во soma
-│ Reserved (4B)                                │
+│ Header (8 bytes)                             │
+│   Magic (4B) = 0x474f4d45 ("GEOM")           │
+│   Neuron Count (u32)                         │ N - кол-во soma
 ├──────────────────────────────────────────────┤
-│ Frame Buffer (N × 16 bytes)                  │
+│ Frame Buffer (N × 4 bytes)                   │
 │ ┌─────────────────────────────────┐          │
-│ │ X (f32)                         │          │ Мировая координата X нейрона
-│ │ Y (f32)                         │          │ Мировая координата Y нейрона
-│ │ Z (f32)                         │          │ Мировая координата Z нейрона
-│ │Type_ID (u32; 4-bit в soma_flags)│          │ Тип нейрона (0–15)
+│ │ PackedPosition (u32)            │          │ Zero-Cost дамп (X|Y|Z|Type)
 │ └─────────────────────────────────┘          │
-│ × N нейронов (одна строка на soma)           │
+│ × N нейронов (сплошной массив)               │
 └──────────────────────────────────────────────┘
-Total: 12 + (N × 16) bytes
-```
+Total: 8 + (N × 4) bytes
 
-**IDE consumption:**
-1. `fetch_real_geometry(config: Res<IdeConfig>)` в schedule `Startup` → спаун Tokio thread с TCP connect
-2. Отправить REQUEST
-3. Получить RESPONSE → парсировать N × 16 байт позиций
-4. Создать InstancedMesh с N вершинами, заполнить instance buffer из полученных позиций
-5. Передать в ECS-систему `render_neuron_network()`
+IDE consumption:
+
+    fetch_real_geometry(config: Res) в schedule Startup → отправляет 4 байта "GEOM".
+    Читает 8 байт заголовка, извлекает N.
+    Читает N * 4 байт прямым дампом в Vec<u32>.
+    Без парсинга f32 передает PackedPosition напрямую в GPU буфер InstancedMesh.
+```
 
 > **Асинхронность:** TCP запрос в отдельном Tokio::Runtime потоке (не блокирует Bevy). Результат кэшируется; повторный запрос не нужен до перезагрузки IDE.
 

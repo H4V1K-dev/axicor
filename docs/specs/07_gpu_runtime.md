@@ -5,190 +5,98 @@
 ---
 
 ## 1. Архитектура Памяти и Данных (GPU & Storage)
- 
- **Инвариант:** Полный отказ от объектов (AoS) в памяти GPU. Данные лежат плоскими векторами (SoA) для обеспечения 100% Coalesced Memory Access. 
-- NVIDIA: 32 потока (Warp).
-- AMD ROCm/HIP: 64 потока (Wavefront).
 
-Движок поддерживает **Dual-Backend** архитектуру: нативный CUDA и нативный HIP (через `hipcc`). Все вычисления - исключительно в целых числах (Integer Physics).
+**Инвариант:** Полный отказ от объектов (AoS) в горячей памяти. Данные лежат плоскими векторами (SoA) для обеспечения 100% Coalesced Memory Access на GPU и векторизации на CPU/MCU. 
+
+Движок поддерживает **Dual-Backend** архитектуру: нативный CUDA и нативный HIP. Все вычисления — исключительно в целых числах (Integer Physics).
 
 ### 1.1. Строгий FFI-Контракт VRAM (Headerless SoA)
 
-Движок не парсит данные. Бинарные файлы `.state` и `.axons` - это чистые дампы памяти (Headerless), готовые к `cudaMemcpyAsync`.
+Движок не парсит данные при старте. Бинарные файлы `.state` и `.axons` — это чистые дампы памяти (Headerless), готовые к `cudaMemcpyAsync` или `spi_flash_mmap` (ESP32).
 
-**Размер полезной нагрузки строго детерминирован: 782 байта на нейрон** (с учётом 128 слотов дендритов).
+**Раскладка ShardVramPtrs (строгий побайтовый порядок в .state блобе):**
 
-**Раскладка `ShardVramPtrs` (порядок байт в .state блобе):**
+Размеры массивов зависят от `N` (`padded_n`, выровненного по 32).
+*   `soma_voltage`       [N] × `i32`   (4N bytes)
+*   `soma_flags`         [N] × `u8`    (1N bytes)
+*   `threshold_offset`   [N] × `i32`   (4N bytes)
+*   `timers`             [N] × `u8`    (1N bytes)
+*   `soma_to_axon`       [N] × `u32`   (4N bytes)
+*   `dendrite_targets`   [128 × N] × `u32` (512N bytes)
+*   `dendrite_weights`   [128 × N] × `i16` (256N bytes)
+*   `dendrite_timers`    [128 × N] × `u8`  (128N bytes)
 
-// Размеры массивов (N = padded_n, кратно 32):
-//   soma_voltage       [N]     i32   | 4N bytes
-//   soma_flags         [N]     u8    | 1N bytes
-//   threshold_offset   [N]     i32   | 4N bytes
-//   timers             [N]     u8    | 1N bytes
-//   soma_to_axon       [N]     u32   | 4N bytes
-//   dendrite_targets   [128 * N] u32   | 512N bytes
-//   dendrite_weights   [128 * N] i16   | 256N bytes
-//   dendrite_timers    [128 * N] u8    | 128N bytes
-//   [DOD FIX] Burst Architecture
-//   axon_heads         [A]     BurstHeads8 | 32A bytes  (A = total_axons)
-// =============================================================================
+*Примечание для Edge (ESP32): При дистилляции 128 слотов урезаются до 32 (WTA Distillation).*
 
-**Инвариант 64-байтного Выравнивания:** Каждый SoA-массив обязан начинаться с адреса, кратного **64 байтам** (размер L2-кэш линии). Padding между массивами обязателен. Это гарантирует, что при Load происходит максимум одна L2-операция и нет конфликтов банков памяти.
+**Аксоны (.axons блоб):**
+Вынесены в отдельный файл, так как количество аксонов `A` (`total_axons` = Local + Ghost + Virtual) не равно `N`.
+*   `axon_heads`         [A] × `BurstHeads8` (32A bytes)
 
-**GXO Capacity:** Поддержка сложных слоёв считывания ограничивает максимальный размер выходной матрицы `MAX_GXO_PIXELS = 1,048,576` (1 миллион каналов). Это соответствует 1K × 1K текстуре в GPU памяти (~4 МБ).
-
-**Инвариант Выравнивания:** Все массивы имеют длину `padded_n`, кратную `GPU_WARP_SIZE`. 
-- Для NVIDIA: `multiple of 32`.
-- Для AMD: `multiple of 64`.
-
-Дамп памяти хранится в Little-Endian, без заголовков, без метаданных. Baker гарантирует byte-for-byte совпадение дампа с VRAM layout.
-
-**Извлечение типа за 1 такт ALU:**
-
-```cuda
-u8  f = flags[tid];                       // 1 байт, 32 байта на варп = 1 сектор L1
-u8  type_mask = f >> 4;                   // 4-бит тип
-u8  sign_bit  = (type_mask >> 1) & 0x1;   // 0 = Excitatory, 1 = Inhibitory
-u8  var_id    = (type_mask >> 2) & 0x3;   // Variant → LUT index в VariantParameters
-```
-
-### 1.2. Константная Память (VariantParameters)
-
-Параметры мембраны и пластичности загружаются в `__constant__` память GPU один раз при старте.
-
-**Размер структуры строго 64 байта для идеального попадания в L1 Cache.**
+**Инвариант 32-байтного Выравнивания Аксонов:** 
+Структура `BurstHeads8` обязана быть выровнена по 32 байтам. На Xtensa LX7 (ESP32) чтение невыровненных 32-байтных блоков через векторные инструкции вызовет аппаратное исключение.
 
 ```cpp
-struct VariantParameters {
-    int32_t threshold;                      // 4 б. - Base threshold
-    int32_t rest_potential;                 // 4 б. - Rest potential (GLIF reset)
-    int32_t leak_rate;                      // 4 б. - GLIF Leakage per tick
-    int32_t homeostasis_penalty;            // 4 б. - Penalty on spike
-    int32_t homeostasis_decay;              // 4 б. - Decay per tick (i32: zero casts)
-    int16_t gsop_potentiation;              // 2 б. - Unsigned delta (sign in weight)
-    int16_t gsop_depression;                // 2 б. - Unsigned delta
-    uint8_t refractory_period;              // 1 б. - Soma refractory (ticks)
-    uint8_t synapse_refractory_period;      // 1 б. - Synapse refractory (ticks)
-    uint8_t slot_decay_ltm;                 // 1 б. - Множитель GSOP для LTM (0-79). Fixed: 128 = 1.0×
-    uint8_t slot_decay_wm;                  // 1 б. - Множитель GSOP для WM (80-127). Fixed: 128 = 1.0×
-    uint8_t signal_propagation_length;      // 1 б. - Active Tail length
-    uint8_t d1_affinity;                    // 1 б. - Множитель дофамина для LTP (128 = 1.0x)
-    uint16_t heartbeat_m;                   // 2 б. - DDS Heartbeat множитель (0 = отключено, 1..65535)
-    uint8_t d2_affinity;                    // 1 б. - Множитель дофамина для LTD (128 = 1.0x)
-    uint8_t _pad;                           // 1 б. - Выравнивание до 32 байт перед массивом
-    int16_t inertia_curve[16];              // 32 б. - Inertia modifiers (rank: abs(weight) >> 11)
-}; // Итого: ровно 64 байта
+// 32-byte alignment гарантирует загрузку 8 голов за 1 транзакцию L1 кэша.
+struct alignas(32) BurstHeads8 {
+    uint32_t h0; uint32_t h1; uint32_t h2; uint32_t h3;
+    uint32_t h4; uint32_t h5; uint32_t h6; uint32_t h7;
+};
+```
 
-// Контейнер для 16 вариантов
+Битовая семантика `soma_flags` (1 байт): Запрещено перезаписывать байт целиком. Чтение и запись строго через битовые маски.
+
+*   `[7:4]` type_mask (u4): Индекс типа нейрона (0..15). Прямой индекс в VARIANT_LUT.
+*   `[3:1]` burst_count (u3): Счетчик серийных спайков для Burst-Dependent Plasticity (BDP).
+*   `[0:0]` is_spiking (u1): Флаг спайка в текущем тике (1 = fired).
+
+Очистка флага спайка без уничтожения BDP-аккумулятора: `flags[tid] &= ~0x01;`.
+
+### 1.2. Константная Память (VariantParameters)
+Параметры мембраны и пластичности загружаются в constant память GPU (или лежат во Flash-памяти MCU) один раз при старте.
+Размер структуры строго 64 байта для идеального попадания в L1 Cache. Любое смещение убьет Coalesced Access.
+
+```cpp
+// Строго 64 байта (1 кэш-линия L1)
+struct alignas(64) VariantParameters {
+    // === Блок 1: 32-bit (Смещения 0..20) ===
+    int32_t threshold;                        // 0..4
+    int32_t rest_potential;                   // 4..8
+    int32_t leak_rate;                        // 8..12
+    int32_t homeostasis_penalty;              // 12..16
+    uint32_t spontaneous_firing_period_ticks; // 16..20
+
+    // === Блок 2: 16-bit (Смещения 20..28) ===
+    uint16_t initial_synapse_weight;          // 20..22
+    uint16_t gsop_potentiation;               // 22..24
+    uint16_t gsop_depression;                 // 24..26
+    uint16_t homeostasis_decay;               // 26..28
+
+    // === Блок 3: 8-bit (Смещения 28..32) ===
+    uint8_t refractory_period;                // 28..29
+    uint8_t synapse_refractory_period;        // 29..30
+    uint8_t signal_propagation_length;        // 30..31
+    uint8_t is_inhibitory;                    // 31..32
+
+    // === Блок 4: Массивы (Смещения 32..48) ===
+    uint8_t inertia_curve[16];                // 32..48 (ранги: abs(w) >> 11)
+
+    // === Блок 5: Adaptive Leak Hardware (Смещения 48..58) ===
+    int32_t adaptive_leak_max;                // 48..52
+    uint16_t adaptive_leak_gain;              // 52..54
+    uint8_t adaptive_mode;                    // 54..55
+    uint8_t _leak_pad[3];                     // 55..58
+
+    // === Блок 6: Pad (Смещения 58..64) ===
+    uint8_t _pad[6];                          // 58..64 (Выравнивание)
+};
+
+// Контейнер для 16 вариантов (Ровно 1024 байта)
 struct GenesisConstantMemory {
-    VariantParameters variants[16];          // 1024 bytes total
-};   // Умещается в константную память GPU (64KB limit)
+    VariantParameters variants[16];
+};
 ```
 
-**Доступ из CUDA kernel:** Variant ID извлекается из `soma_flags` за 1 такт: `var_id = (flags[tid] >> 6) & 0x3`. Далее - прямое чтение из L1 (Broadcast Read за 1 такт):
-
-```cuda
-int32_t threshold = const_mem.variants[var_id].threshold;
-int32_t rest_potential = const_mem.variants[var_id].rest_potential;
-// и т.д. - все параметры доступны за 1 такт ALU на весь варп
-```
-
-**Инвариант:** Ни один разработчик не должен добавлять поля после `_padding`. Это жёсткий контракт VRAM. Любое расширение требует версионирования структуры и переподготовки Baking Tool.
-
-### 1.2.1. Аксонные Массивы (Axon State)
-
-Размер = `total_axons` (Local + Ghost + Virtual), **не** `padded_n`. Выровнен до кратного 32.
-
-```rust
-// [DOD] 32-byte alignment гарантирует загрузку 8 голов за 1 транзакцию L1 кэша.
-#[repr(C, align(32))]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct BurstHeads8 {
-    pub h0: u32,
-    pub h1: u32,
-    pub h2: u32,
-    pub h3: u32,
-    pub h4: u32,
-    pub h5: u32,
-    pub h6: u32,
-    pub h7: u32,
-}
-
-struct AxonState {
-    head_index:    *mut BurstHeads8, // PropagateAxons: += v_seg для каждой активной головы
-    soma_to_axon:  *mut u32,         // Маппинг Dense Soma Index → Axon ID
-}
-```
-
-**Зонирование `axon_heads` (Baking-time layout):**
-
-```
-axon_heads[total_axons]:
-┌──────────────────┬──────────────────┬──────────────────┐
-│  Local Axons     │  Ghost Axons     │  Virtual Axons   │
-│  [0 .. L-1]      │  [L .. L+G-1]    │  [L+G .. A-1]    │
-│  soma_to_axon[]  │  ApplySpikeBatch │  InjectInputs    │
-└──────────────────┴──────────────────┴──────────────────┘
-total_axons = L + G + V (aligned to 32)
-```
-
-- **Local:** Родные аксоны сом. Маппинг через `soma_to_axon[dense_id]`.
-- **Ghost:** Входящие от соседних шардов. `ApplySpikeBatch` сбрасывает `axon_heads[ghost_id] = 0`.
-- **Virtual:** Внешние сенсорные входы. `InjectInputs` сбрасывает `axon_heads[virt_id] = 0`.
-- **Инициализация:** Все = `AXON_SENTINEL` (0x80000000). `PropagateAxons` сдвигает **всех** без проверки типа.
-
-### 1.3. Разделение Аксонов: Статика vs Динамика
-
-Паттерны доступа к геометрии и к активности кардинально отличаются - разнесены в разные типы памяти:
-
-| Класс | Содержимое | GPU Memory | Паттерн |
-|---|---|---|---|
-| **Static Geometry** (Read-Only) | Координаты, длины сегментов, топология графа (`soma_to_axon`, `dendrite_targets`) | L1 Read-Only Data Cache | Не изменяется днём. Чтение идёт через `const __restrict__` указатели в ядрах. Максимальная скорость. |
-| **Dynamic State** (Hot) | Вектора сигналов (`axon_heads`), веса синапсов (`dendrite_weights`), таймеры, вольтаж, флаги | Global Memory (L1 RW Cache) | Перезаписывается **каждый тик** в горячем цикле. |
-
-### 1.4. Zero-Copy Загрузка (Fast Boot)
-
-Движок в рантайме **не занимается десериализацией** JSON или TOML.
-
-- На этапе Baking CPU формирует бинарные файлы `.state` и `.axons`.
-- Их структура **байт-в-байт совпадает** с раскладкой памяти в VRAM (включая padding до 32 байт для выравнивания варпов).
-- Загрузка шарда - прямой вызов `cudaMemcpy` (или `mmap`) сырого дампа с NVMe SSD в видеопамять. Время загрузки ограничено только пропускной способностью шины PCIe.
-
-### 1.5. Constant Memory (LUT Layout)
-
-Параметры поведения грузятся в `__constant__` память GPU **один раз** при старте. Структура `GenesisConstantMemory` занимает 1024 байта (16 вариантов по 64 байта), что идеально помещается в 64KB лимит и обеспечивает Broadcast Read за 1 такт, если все треды в варпе имеют одинаковый Variant.
-
-```rust
-#[repr(C, align(64))]
-pub struct VariantParameters {            // 64 bytes
-    pub threshold: i32,                   // 4  - Base threshold
-    pub rest_potential: i32,              // 4  - Rest potential (GLIF reset)
-    pub leak_rate: i32,                   // 4  - GLIF Leakage per tick
-    pub homeostasis_penalty: i32,         // 4  - Penalty on spike
-    pub homeostasis_decay: i32,           // 4  - Decay per tick (i32: zero casts)
-    pub gsop_potentiation: i16,           // 2  - Unsigned delta (sign in weight)
-    pub gsop_depression: i16,             // 2  - Unsigned delta
-    pub refractory_period: u8,            // 1  - Soma refractory (ticks)
-    pub synapse_refractory_period: u8,    // 1  - Synapse refractory (ticks)
-    pub slot_decay_ltm: u8,               // 1  - Множитель GSOP для LTM (0-79). Fixed: 128 = 1.0×
-    pub slot_decay_wm: u8,                // 1  - Множитель GSOP для WM (80-127). Fixed: 128 = 1.0×
-    pub signal_propagation_length: u8,    // 1  - Active Tail length
-    pub d1_affinity: u8,                  // 1  - Множитель дофамина для LTP (128 = 1.0x)
-    pub heartbeat_m: u16,                 // 2  - DDS Heartbeat множитель (0 = отключено, 1..65535)
-    pub d2_affinity: u8,                  // 1  - Множитель дофамина для LTD (128 = 1.0x)
-    pub _pad: u8,                         // 1  - Выравнивание
-    pub inertia_curve: [i16; 16],         // 32 - Inertia modifiers (rank: abs(weight) >> 11)
-}
-
-#[repr(C, align(128))]
-pub struct GenesisConstantMemory {        // 1024 bytes
-    pub variants: [VariantParameters; 16], // 16 variants supported
-}
-```
-
-**Доступ из CUDA kernel:** Variant ID извлекается из `flags` за 1 такт: `(flags[tid] >> 4) & 0xF`. Далее прямое чтение: `const_mem.variants[variant].threshold`.
-
-> **⚠️ Baking Tool Validator (inertia_lut):** При сборке `GenesisConstantMemory` необходимо проверять, что минимальный результат `(gsop_potentiation * inertia_lut[rank]) >> 7 >= 1` для **всех** рангов и вариантов. Если результат равен 0, возникает «Мёртвая зона пластичности» - вес синапса перестаёт адаптироваться навсегда. Это задача валидатора Baking Tool (и в перспективе IDE с live-подсказками по конфигу).
+Доступ из горячего цикла: Variant ID извлекается из `soma_flags` за 1 такт ALU: `u8 var_id = (flags[tid] >> 4) & 0xF;` Далее — прямое чтение параметров из памяти без ветвлений `const_mem.variants[var_id].threshold;`.
 
 ### 1.6. Cross-Platform IPC & Zero-Copy Mmap
 
@@ -570,61 +478,6 @@ impl WaitStrategy {
 2. **Безопасность:** BSP-барьер - единственное место, где CPU физически ждёт события. Нет Mutex, нет CAS-loop.
 3. **Портативность:** Ядро физики (GSOP, спайки, диффузия) идентично во всех профилях. Меняется только OS-level scheduling поведение.
 
----
-
-## Связанные документы
-
-| Документ | Что связывается |
-|---|---|
-| [05_signal_physics.md](./05_signal_physics.md) | Day Pipeline kernels (§1.0), Constant Memory параметры |
-| [06_distributed.md](./06_distributed.md) | Ring Buffer, Ghost Axons, BSP sync, сетевой I/O |
-| [02_configuration.md](./02_configuration.md) | Определения Variant'ов, blueprints, валидация параметров |
-| [09_baking_pipeline.md](./09_baking_pipeline.md) | .state/.axons формат файле, Sort&Prune в Night |
-| [project_structure.md](../project_structure.md) | Обзор архитектуры |
-
----
-
-## Changelog
-
-| Дата | Версия | Описание |
-|---|---|---|
-| 2026-02-28 | 2.1 | Синхронизирована VramState с реальным memory.rs (добавлены I/O Matrix поля, readout буферы). Обновлена таблица Day Phase с 6 kernels и ссылками на источники. Добавлен раздел External I/O Server для UDP мультиплексирования. |
-| TBD | 2.0 | Первая версия |
-- CPU строит маппинг: `PackedPosition → dense_id` для всех `target_packed` в массиве дендритов.
-- В массив `targets[]` вписываются DenseIndex + segment offset.
-
-**c) Columnar Layout Defrag:**
-- Новые связи вписываются в транспонированную матрицу `Column[Slot_K]`, не в конец массива.
-
-**d) Warp Alignment:**
-- `padded_n = align_to_warp(neuron_count)` → padding до кратного 32.
-- Итоговые `.state` и `.axons` блобы байт-в-байт совпадают с VRAM layout → Step 5: `cudaMemcpyAsync`.
-
-### 2.3. External I/O Server (UDP для вѝԳется/выходов)
-
-Отдельный Tokio-сервер (третью ѰЯдро) для вчёт-раза Internal Compute. Обрабатывает I/O неавтонно.
-
-```rust
-pub struct ExternalIoServer {
-    sock_in: Arc<UdpSocket>,        // Port N: ресивер Input Bitmasks
-    sock_out: Arc<UdpSocket>,       // Port N+1: сендер Output History
-    last_client_addr: Option<SocketAddr>, // Мемория о клиенте
-}
-
-// Протокол пакета
-#[repr(C)]
-pub struct ExternalIoHeader {
-    pub zone_hash: u32,     // идентификатор Zone
-    pub matrix_hash: u32,   // идентификатор Input/Output матрицы
-    pub payload_size: u32,  // размер пайлоада
-}
-```
-
-**ДислокČрагментирование:** UDP пакеты больше 65KB автоматически дропъются (отсутствует EMSGSIZE потравления сокета). Полные алвания когда батч готов.
-
-**ПԼтАгтѯн**:
-- На каждом батче (когда `current_tick_in_batch == 0`) нчамск услюгные нервые высылают UDP датаграммю с `output_history` предыдущего батча клиенту (роботика, визуализация).
-- Одновременно вычитывает входящие `Input Bitmask` из датаграмм, сканирует через `try_recv_input()` в неблокирующем положенны и ассоциирует пиксели с Virtual Axons (`InjectInputs`).
 
 ### 2.4. Легализованная Амнезия (Spike Drop)
 
@@ -634,11 +487,6 @@ pub struct ExternalIoHeader {
 - Ноль копирований в VRAM. Ноль ветвлений. Информация теряется **физиологически достоверно**.
 - **Биологический аналог:** Человек во сне не обрабатывает зрительный вход. Это нормальное поведение живой системы, не ошибка инференс-сервера.
 
----
-
-## 3. Инварианты Жизненного Цикла (Lifecycle Invariants)
-
----
 
 ## Connected Documents
 
@@ -654,10 +502,11 @@ pub struct ExternalIoHeader {
 
 ## Changelog
 
-| Date | Version | Changes |
+| Дата | Версия | Описание |
 |---|---|---|
-| 2026-02-28 | 2.1 | Synchronized VramState with real memory.rs (added I/O Matrix fields, readout buffers). Updated Day Phase table with 6 kernels and source references. Added External I/O Server section for UDP multiplexing. |
-| TBD | 2.0 | First version |
+| 2026-03-17 | 2.2 | Полная переработка раскладки VRAM и VariantParameters. Введен BurstHeads8 (32-byte alignment). Уточнена битовая семантика soma_flags. Исправлен inertia_curve (u8[16]). |
+| 2026-02-28 | 2.1 | Синхронизирована VramState с реальным memory.rs (добавлены I/O Matrix поля, readout буферы). Обновлена таблица Day Phase с 6 kernels и ссылками на источники. Добавлен раздел External I/O Server для UDP мультиплексирования. |
+| TBD | 2.0 | Первая версия |
 
 ---
 

@@ -8,6 +8,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.680.105] - 2026-03-17 22:49:48
+
+**Dynamic MTU Implementation and Networking Logic Consolidation**
+
+### Added
+- Move all Inter-Node routing logic, including InterNodeRouter, flush_outgoing_batch_pool, and spawn_ghost_listener, into genesis-node/src/network/router.rs
+- Implement dynamic MTU calculation in flush_outgoing_batch_pool using formula max_events_per_packet = (peer_mtu - 16) / 8
+- Remove duplicate flush_outgoing_batch_pool method and consolidate RoutingTable logic within router.rs
+- Completely rollback genesis-node/src/network/inter_node.rs to handle only InterNodeChannel and GPU Pinned-buffers
+- Remove InterNodeRouter, SpikeBatchHeaderV2, SpikeEventV2, and all networking/router logic from inter_node.rs
+- Add description of mtu field in RCU-routing mechanism to docs/specs/06_distributed.md
+- Document dynamic MAX_EVENTS_PER_PACKET calculation formula in 06_distributed.md
+- Rewrite transport layer section to "LwIP UDP Profile" in docs/specs/11_edge_bare_metal.md
+- Specify hard MTU = 1400 for ESP32 and outline L7-fragmentation strategy in 11_edge_bare_metal.md
+- Update genesis-node/src/boot.rs and genesis-node/src/node/mod.rs to import InterNodeRouter from router module
+- Adjust InterNodeRouter::new constructor to satisfy existing usage patterns
+- Update imports in genesis-node/src/network/io_server.rs, genesis-node/src/node/recovery.rs, and genesis-node/src/node/shard_thread.rs
+
+## [0.672.105] - 2026-03-17 21:46:30
+
+**Implement biology.rs and refactor VariantParameters across compute and c**
+
+### Added
+- Add genesis-baker/src/biology.rs with TomlNeuronType struct and From<TomlNeuronType> for VariantParameters
+- Replace algorithmic D1/D2 receptor derivation with direct fields: is_inhibitory, spontaneous_firing_period_ticks, initial_synapse_weight
+- Remove slot_decay_ltm, slot_decay_wm, ltm_slot_count, heartbeat_m, prune_threshold, d1_affinity, d2_affinity
+- Add adaptive leak fields: adaptive_leak_max, adaptive_leak_gain, adaptive_mode
+- Change inertia_curve from i16[15] to u8[16] in all representations
+- Refactor genesis-baker/src/main.rs serialize_artifacts to map new VariantParameters fields
+- Refactor genesis-baker/src/parser/blueprints.rs parse_blueprints to populate new fields and remove GSOP dead zone validation
+- Update genesis-core/src/config/blueprints.rs and genesis-core/src/config/manifest.rs to reflect new parameter set
+- Adjust genesis-core/src/layout.rs VariantParameters struct alignment and padding
+- Update genesis-compute/src/amd/bindings.hip VariantParameters to match new layout with 64-byte alignment
+- Update genesis-compute/src/cuda/bindings.cu VariantParameters identically for CUDA
+- Refactor genesis-compute/src/amd/physics.hip and genesis-compute/src/cuda/physics.cu kernels to use new fields
+- Add genesis-compute/src/compute/shard.rs placeholder change
+- Add Ko-fi support badge and donation section to README.md
+- Clarify dopamine penalty duration in docs/Architecture_and_Troubleshooting.md from "10 мс" to "2-10 мс"
+- Update genesis-lite/main/genesis_core.hpp header to reflect new struct layout
+
+## [0.660.105] - 2026-03-17 18:04:16
+
+**docs: add GitHub funding configuration**
+
+## [0.659.105] - 2026-03-17 00:37:57
+
+**Distributed Ghost Pruning: O(1) Garbage Collection & Death Routing**
+
+### Added
+- Add `ghost_origins: Vec<u32>` to `ThreadWorkspace` in `shard_thread.rs` for O(1) ghost ownership lookup
+- Update `run_sprouting_pass` in `sprouting.rs` to accept `ghost_origins` and implement axon reference tracking with `active_axons` bitmask
+- Implement orphan sweeping in `sprouting.rs` to identify ghost axons with no dendrite connections and record prune events in SHM
+- Read prune records from SHM in `shard_thread.rs` and dispatch `GeometryRequest::Prune` via Slow Path
+- Handle `GeometryRequest::Prune` in `geometry_client.rs` and push to `incoming_prune` queue
+- Process `incoming_prune` queue during BSP barrier in `node/mod.rs` and call `prune_route` on all `InterNodeChannel` and `IntraGpuChannel` instances
+- Update `ShmHeader` in `ipc.rs` with `prunes_offset` and `prunes_count` fields and increase SHM buffer size for prune capacity
+- Implement `prune_route`/`remove_route` with Swap-and-Pop (O(1)) logic in `inter_node.rs` and `intra_gpu.rs`
+- Ensure baker sweep is linear to ghost capacity with Zero-Overhead
+
 ## [0.650.105] - 2026-03-16 23:32:02
 
 **AutoTuner Structural Plasticity & Phase Hyperparameter Integration**

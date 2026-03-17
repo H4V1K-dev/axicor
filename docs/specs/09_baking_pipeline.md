@@ -145,32 +145,23 @@ fn bake_connection(conn, src_zone, dst_zone) -> GhostFile:
 
 Все файлы - little-endian, без сжатия. Загрузка = один `read()` + cast.
 
-### 2.1. `.gxi` (Input Mapping)
+### 2.1. .gxi (Input Mapping)
 
-**Format** (synced with [genesis-runtime/src/input.rs](../../../../genesis-runtime/src/input.rs)):
+**Format** (synced with `genesis-core/src/ipc.rs`):
 
-```
+```text
 ┌──────────────────────────────────────┐
-│ Header (12 bytes)                    │
+│ Header (32 bytes)                    │
 │   magic:         u32 = 0x47584900    │  "GXI\0"
-│   version:       u8  = 1            │  GXI_VERSION
-│   _padding:      u8[1]               │
-│   num_matrices:  u16                 │  number of [[input]] sections
-│   total_pixels:  u32                 │  sum of W×H across all inputs
-├──────────────────────────────────────┤
-│ Matrix Descriptors (16 bytes each)   │
-│ × num_matrices                       │
-│   name_hash:     u32                 │  fnv1a_32(input.name)
-│   offset:        u32                 │  index in Axon Array
-│   width:         u16                 │
-│   height:        u16                 │
-│   stride:        u8                  │  0=once, 1=per_tick, N=every_N_th
-│   _padding:      u8[3]               │
+│   zone_hash:     u32                 │  FNV-1a of zone name
+│   matrix_hash:   u32                 │  FNV-1a of matrix name
+│   input_count:   u32                 │  Number of virtual axons
+│   total_pixels:  u32                 │  W × H
+│   _padding:      u32[1]              │  Reserved; always zero
 ├──────────────────────────────────────┤
 │ Axon Array (u32 per pixel)           │
 │ total_pixels × 4 bytes               │
 │   axon_local_id: u32                 │  index in axon_heads[] GPU array
-│                                      │  (INVALID if growth failed)
 └──────────────────────────────────────┘
 ```
 
@@ -181,32 +172,21 @@ if let Ok(parsed) = genesis_runtime::input::GxiFile::load(path) {
 }
 ```
 
-### 2.2. `.gxo` (Output Mapping)
+### 2.2. .gxo (Output Mapping)
+Format (synced with genesis-core/src/ipc.rs):
 
-**Format** (synced with [genesis-runtime/src/output.rs](../../../../genesis-runtime/src/output.rs)):
-
-```
 ┌──────────────────────────────────────┐
-│ Header (12 bytes)                    │
+│ Header (32 bytes)                    │
 │   magic:         u32 = 0x47584F00    │  "GXO\0"
-│   version:       u8  = 1            │  GXO_VERSION
-│   _padding:      u8[1]               │
-│   num_matrices:  u16                 │  number of [[output]] sections
-│   total_pixels:  u32                 │  sum of W×H across all outputs
-├──────────────────────────────────────┤
-│ Matrix Descriptors (12 bytes each)   │
-│ × num_matrices                       │
-│   name_hash:     u32                 │  fnv1a_32(output.name)
-│   offset:        u32                 │  index in Soma Array
-│   width:         u16                 │
-│   height:        u16                 │
+│   zone_hash:     u32                 │  FNV-1a of zone name
+│   matrix_hash:   u32                 │  FNV-1a of matrix name
+│   output_count:  u32                 │  Number of mapped somas
+│   _padding:      u32[2]              │  Reserved; always zero
 ├──────────────────────────────────────┤
 │ Soma Array (u32 per pixel)           │
 │ total_pixels × 4 bytes               │
 │   soma_id:       u32                 │  index in flags[] / voltage[] GPU
-│                                      │  (INVALID if no candidate found)
 └──────────────────────────────────────┘
-```
 
 **Load path (in main.rs):**
 ```rust
@@ -435,6 +415,22 @@ graph TD
 ```
 
 **Critical dependency:** `.ghosts` generation is **Phase C** of Baking and depends on all `.gxo` files being complete. Only after all zones have their outputs, ghost connections can be computed with deterministic soma selection from source zone outputs.
+
+## 5. Topology Distillation (Edge Export)
+
+Для запуска на микроконтроллерах (ESP32-S3) монолитные десктопные артефакты `shard.state` и `shard.axons` проходят обязательную дистилляцию. У микроконтроллера всего 520 КБ SRAM, поэтому мы применяем **Dual-Memory Split** и **Winner-Takes-All (WTA) Repacking**.
+
+**Алгоритм WTA SoA Repacking:**
+1. **Чтение:** Загрузка 128 колонок `dendrite_targets`, `dendrite_weights` и `dendrite_timers`.
+2. **WTA Sort:** Для каждой сомы синапсы сортируются по `abs(weight)` по убыванию. Топ-32 сильнейших связей сохраняются, остальные 96 отбрасываются (WTA Distillation).
+3. **Repacking:** Оставшиеся 32 слота переупаковываются в новые плоские SoA-массивы (`32 * padded_n`). Пустые слоты ОБЯЗАТЕЛЬНО заполняются нулями (`target = 0` — аппаратный триггер Early Exit).
+4. **Dual-Memory Split:** Разделение данных на два бинарника:
+   * **`shard.sram` (Hot State):** `voltage`, `flags`, `threshold_offset`, `timers`, `dendrite_weights` (32 слота), `dendrite_timers` (32 слота), `axon_heads`. Мапится/загружается строго в SRAM.
+   * **`shard.flash` (Read-Only):** `dendrite_targets` (32 слота) и `soma_to_axon`. Мапится через MMU напрямую из Flash-памяти.
+
+> **КРИТИЧЕСКИЙ ИНВАРИАНТ MMU (64KB):**
+> Размер файла `shard.flash` **ОБЯЗАН** добиваться паддингом из нулей до границы в 65536 байт (64 KB). Функция `spi_flash_mmap` на ESP32 работает строго по страницам 64 KB. Любое смещение или невыровненный файл приведёт к аппаратному сдвигу адресов, и ядро физики (Core 1) начнёт читать мусор вместо топологии.
+> *Формула паддинга:* `pad_bytes = (65536 - (file_size % 65536)) % 65536`
 
 ---
 

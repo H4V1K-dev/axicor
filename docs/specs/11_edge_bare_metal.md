@@ -19,13 +19,36 @@
 
 520 КБ SRAM физически не вместят коннектом на несколько тысяч нейронов. Мы используем гибридную архитектуру памяти, опираясь на Memory-Mapped Flash (XIP - eXecute In Place).
 
-### 2.1. Flash-Mapped DNA (Read-Only)
+### 2.1. Dual-Memory Artifacts (.sram и .flash)
+
+ESP32-S3 имеет жесткий лимит быстрой памяти (520 KB SRAM) и большой объем медленной (16 MB SPI Flash). Десктопный монолитный файл `.state` аппаратно несовместим. SoA-массивы разделяются на два бинарных артефакта:
+
+**1. `shard.flash` (Read-Only Topology)**
+Заливается во Flash-память и мапится через `spi_flash_mmap` (D-Bus). Данные никогда не мутируют в горячем цикле.
+*Закон MMU:* Файл обязан иметь размер, кратный 64 KB (размер страницы MMU ESP32), иначе маппинг завершится ошибкой.
+Состав (поколонно):
+*   `soma_to_axon` [4 байта × N]
+*   `dendrite_targets` [4 байта × 32 × N] (урезано со 128 до 32 слотов)
+
+**2. `shard.sram` (Hot State)**
+Загружается в `DRAM` (внутренняя память чипа). Содержит только мутируемые данные.
+Состав (поколонно):
+*   `padded_n` [4 байта] + `total_axons` [4 байта] (Заголовок, 8 байт)
+*   `soma_voltage` [4 байта × N]
+*   `soma_flags` [1 байт × N]
+*   `threshold_offset` [4 байта × N]
+*   `refractory_timer` [1 байт × N]
+*   `dendrite_weights` [2 байта × 32 × N]
+*   `dendrite_timers` [1 байт × 32 × N]
+*   `axon_heads` [32 байта × A] (BurstHeads8, берется из .axons)
+
+### 2.2. Flash-Mapped DNA (Read-Only)
 Топология, которая не меняется в Day Phase, мапится напрямую из Flash-памяти (по интерфейсу QSPI) через `mmap` / `PROGMEM`:
 - `dendrite_targets` (PackedTarget, X|Y|Z|Type)
 - `soma_to_axon` (маршрутизация)
 *Эти данные кэшируются аппаратно D-Cache микроконтроллера при чтении.*
 
-### 2.2. Hot State SRAM (Read/Write)
+### 2.3. Hot State SRAM (Read/Write)
 В быстрой 520 КБ SRAM хранятся только мутирующие в реальном времени массивы:
 - `voltage`, `flags`, `refractory_timer`, `threshold_offset` (Hot Soma)
 - `axon_heads` (Сдвиговый регистр `BurstHeads8` - 32 байта)
