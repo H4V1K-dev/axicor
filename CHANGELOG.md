@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.693.105] - 2026-03-18 00:13:17
+
+**Dynamic MTU Implementation and Networking Logic Consolidation**
+
+### Added
+- Move all Inter-Node routing logic, including InterNodeRouter, flush_outgoing_batch_pool, and spawn_ghost_listener, into genesis-node/src/network/router.rs
+- Implement dynamic MTU calculation in flush_outgoing_batch_pool using formula max_events_per_packet = (peer_mtu - 16) / 8
+- Completely rollback genesis-node/src/network/inter_node.rs to handle only InterNodeChannel and GPU Pinned-buffers
+- Remove InterNodeRouter, SpikeBatchHeaderV2, SpikeEventV2, and all networking/router logic from inter_node.rs
+- Update genesis-node/src/boot.rs and genesis-node/src/node/mod.rs to import InterNodeRouter from router module
+- Add description of mtu field in RCU-routing mechanism to docs/specs/06_distributed.md
+- Document dynamic MAX_EVENTS_PER_PACKET calculation formula in 06_distributed.md
+- Rewrite transport layer section to "LwIP UDP Profile" in docs/specs/11_edge_bare_metal.md
+- Specify hard MTU = 1400 for ESP32 and outline L7-fragmentation strategy in 11_edge_bare_metal.md
+- Update Zero-Index Trap section in docs/Python-SDK/Client_SDK.md with Zero-Cost unpacking/packing formulas and warnings
+- Refactor docs/specs/07_gpu_runtime.md to clarify Headerless SoA layout, 32-byte alignment for BurstHeads8, and Little-Endian invariant
+- Define SpikeBatchHeaderV2 with align(16) and SpikeEventV2 with align(8) in 06_distributed.md
+- Establish law that Data Plane ignores Network Byte Order; all structures are transmitted and cast in Little-Endian
+- Update AxonHandoverEvent structure in 06_distributed.md to include origin_zone_hash and strict 20-byte size
+
 ## [0.680.105] - 2026-03-17 22:49:48
 
 **Dynamic MTU Implementation and Networking Logic Consolidation**

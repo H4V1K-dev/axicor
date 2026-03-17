@@ -13,6 +13,9 @@
 #include "esp_event.h"
 #include "driver/i2c.h"
 #include "driver/ledc.h"
+#include "driver/spi_master.h"
+#include "lwip/sockets.h"
+#include "lwip/netdb.h"
 #include "genesis_core.hpp"
 
 VariantParameters VARIANT_LUT[2];
@@ -47,10 +50,25 @@ void init_brain(uint32_t num_neurons) {
     sram.threshold_offset = (int32_t*)SAFE_CALLOC(num_neurons, sizeof(int32_t));
     sram.refractory_timer = (uint8_t*)SAFE_CALLOC(num_neurons, sizeof(uint8_t));
     sram.dendrite_weights = (int16_t*)SAFE_CALLOC(num_neurons * MAX_DENDRITE_SLOTS, sizeof(int16_t));
-    sram.axon_heads = (BurstHeads8*)SAFE_CALLOC(num_neurons, sizeof(BurstHeads8));
+    sram.dendrite_timers = (uint8_t*)SAFE_CALLOC(num_neurons * MAX_DENDRITE_SLOTS, sizeof(uint8_t)); // [DOD FIX]
+    
+    // Выравнивание строго по 32 байтам для векторных инструкций Xtensa
+    sram.axon_heads = (BurstHeads8*)heap_caps_aligned_calloc(
+        32, 
+        num_neurons, 
+        sizeof(BurstHeads8), 
+        MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL
+    );
+    if (!sram.axon_heads) { printf("FATAL OOM: axon_heads\n"); abort(); }
 
     flash.dendrite_targets = (uint32_t*)SAFE_CALLOC(num_neurons * MAX_DENDRITE_SLOTS, sizeof(uint32_t));
     flash.soma_to_axon = (uint32_t*)SAFE_CALLOC(num_neurons, sizeof(uint32_t));
+
+    // Выделяем буфер на 10 строк дисплея (240 пикселей * 10 строк * 2 байта RGB565)
+    // Строго в DMA-памяти!
+    size_t dma_buf_size = 240 * 10 * 2;
+    tui_dma_buffer = (uint8_t*)heap_caps_malloc(dma_buf_size, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+    if (!tui_dma_buffer) { printf("FATAL: Cannot allocate DMA buffer for TUI\n"); abort(); }
 
     for(uint32_t i = 0; i < num_neurons; i++) {
         sram.axon_heads[i].h0 = AXON_SENTINEL;
@@ -243,6 +261,13 @@ void day_phase_task(void *pvParameter) {
 
             for (int slot = 0; slot < MAX_DENDRITE_SLOTS; slot++) {
                 uint32_t col_idx = slot * sram.padded_n + tid;
+
+                // [DOD FIX] Проверка синаптической рефрактерности (O(1) Branchless-friendly)
+                if (sram.dendrite_timers[col_idx] > 0) {
+                    sram.dendrite_timers[col_idx] -= 1;
+                    continue; // Синапс спит, пропускаем тяжелую математику
+                }
+
                 uint32_t target_packed = flash.dendrite_targets[col_idx];
                 if (target_packed == 0) break;
 
@@ -262,6 +287,12 @@ void day_phase_task(void *pvParameter) {
                 min_dist = check_head_dist(h.h6, seg_idx, prop, min_dist);
                 min_dist = check_head_dist(h.h7, seg_idx, prop, min_dist);
                 bool is_active = (min_dist != 0xFFFFFFFF);
+
+                // [DOD FIX] Устанавливаем таймер, если было касание
+                if (is_active) {
+                    sram.dendrite_timers[col_idx] = p.synapse_refractory_period;
+                }
+
                 int16_t w = sram.dendrite_weights[col_idx];
                 int32_t w_sign = (w >= 0) ? 1 : -1;
                 int32_t abs_w = w >= 0 ? w : -w;
@@ -330,6 +361,14 @@ void day_phase_task(void *pvParameter) {
 #define MOTOR_LEFT_PIN 18
 #define MOTOR_RIGHT_PIN 19
 
+#define TUI_SPI_HOST    SPI2_HOST
+#define TUI_PIN_MOSI    23
+#define TUI_PIN_SCLK    18
+#define TUI_PIN_CS      5
+
+spi_device_handle_t tui_spi;
+uint8_t* tui_dma_buffer = nullptr;
+
 void init_hardware() {
     printf("⚙️ [Hardware] Initializing I2C & PWM...\n");
     // 1. I2C Master Init
@@ -369,36 +408,52 @@ void init_hardware() {
     for (int i = 0; i < 2; i++) {
         ledc_channel_config(&ledc_ch[i]);
     }
+
+    // 3. SPI Master Init for TUI (with DMA)
+    spi_bus_config_t buscfg = {
+        .mosi_io_num = TUI_PIN_MOSI,
+        .miso_io_num = -1,
+        .sclk_io_num = TUI_PIN_SCLK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 240 * 10 * 2
+    };
+    spi_device_interface_config_t devcfg = {
+        .clock_speed_hz = 40 * 1000 * 1000, // 40 MHz
+        .mode = 0,
+        .spics_io_num = TUI_PIN_CS,
+        .queue_size = 1,
+        .flags = SPI_DEVICE_NO_DUMMY,
+    };
+    ESP_ERROR_CHECK(spi_bus_initialize(TUI_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO));
+    ESP_ERROR_CHECK(spi_bus_add_device(TUI_SPI_HOST, &devcfg, &tui_spi));
 }
 
-// [DOD] Выполняется в контексте задачи Wi-Fi. Никаких аллокаций.
-void on_esp_now_recv(const esp_now_recv_info_t *esp_now_info, const uint8_t *data, int data_len) {
-    if (data_len < 8) return; // Мусор
-
-    // 1. Control Plane (Dopamine Injection)
-    uint32_t magic = *(const uint32_t*)data;
-    if (magic == CTRL_MAGIC_DOPA) {
-        const ControlPacket* ctrl = (const ControlPacket*)data;
-        global_dopamine.store(ctrl->dopamine, std::memory_order_relaxed);
-        return;
-    }
-
-    // 2. Data Plane (Spike Events)
-    int count = data_len / sizeof(SpikeEvent);
-    for (int i = 0; i < count; i++) {
-        SpikeEvent* ev = (SpikeEvent*)(data + i * sizeof(SpikeEvent));
-        // Мгновенный атомарный вброс в кольцевой буфер
-        if (!rx_queue.push(*ev)) {
-            // Buffer full - легализованная амнезия (Biological Drop)
-        }
-    }
+// [DOD FIX] Integer-only I2C read (accel_x)
+int16_t i2c_read_accel_x() {
+    uint8_t data[2] = {0};
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (MPU6050_ADDR << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, 0x3B, true); // ACCEL_XOUT_H
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (MPU6050_ADDR << 1) | I2C_MASTER_READ, true);
+    i2c_master_read(cmd, data, 2, I2C_MASTER_LAST_NACK);
+    i2c_master_stop(cmd);
+    i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(10));
+    i2c_cmd_link_delete(cmd);
+    return (int16_t)((data[0] << 8) | data[1]);
 }
+
+#define MY_ZONE_HASH 0xDEADBEEF // Заменить на реальный хэш или задать через макрос
+#define SYNC_BATCH_TICKS 20     // Размер батча HFT
 
 // =========================================================
 // CORE 0: Pro Phase (Sensors I2C / PWM Motors / Network)
 // =========================================================
 void pro_core_task(void *pvParameter) {
-    printf("📡 [Core 0] Initializing ESP-NOW Swarm Protocol...\n");
+    printf("📡 [Core 0] Initializing LwIP UDP HFT Stack...\n");
+    // ... [Omitted nvs/wifi/socket init for brevity, but it's there in the file]
 
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -417,79 +472,132 @@ void pro_core_task(void *pvParameter) {
     } else {
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         ESP_ERROR_CHECK(esp_wifi_start());
-        ESP_ERROR_CHECK(esp_now_init());
-        ESP_ERROR_CHECK(esp_now_register_recv_cb(on_esp_now_recv));
-        printf("✅ [Core 0] ESP-NOW initialized.\n");
+        printf("✅ [Core 0] Wi-Fi initialized.\n");
     }
+
+    // 0. Настройка UDP сокета
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    struct sockaddr_in serv_addr;
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serv_addr.sin_port = htons(5000);
+    bind(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
 
     init_hardware();
     printf("🤖 [Core 0] Hardware I/O Loop Started.\n");
 
-    while(1) {
-        // 1. I2C Gyroscope Read (Zero-Blocking for Core 1)
-        uint8_t data[2] = {0};
-        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, (MPU6050_ADDR << 1) | I2C_MASTER_WRITE, true);
-        i2c_master_write_byte(cmd, 0x3B, true); // ACCEL_XOUT_H
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, (MPU6050_ADDR << 1) | I2C_MASTER_READ, true);
-        i2c_master_read(cmd, data, 2, I2C_MASTER_LAST_NACK);
-        i2c_master_stop(cmd);
-        i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(10));
-        i2c_cmd_link_delete(cmd);
+    static uint32_t last_ui_tick = 0;
+    static int64_t last_ui_time = esp_timer_get_time();
+    static spi_transaction_t trans;
+    static bool trans_in_flight = false;
 
-        int16_t accel_x = (int16_t)((data[0] << 8) | data[1]);
-        float angle = (float)accel_x / 16384.0f; // Нормализация от -1.0 до 1.0 (зависит от настроек акселерометра)
-        if (angle < -1.0f) angle = -1.0f;
-        if (angle > 1.0f) angle = 1.0f;
+    while (1) {
+        // 1. NON-BLOCKING СЕТЬ (Fast-Path UDP)
+        uint8_t rx_buffer[1472]; // Max MTU Ethernet
+        struct sockaddr_in source_addr;
+        socklen_t socklen = sizeof(source_addr);
+        int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer), MSG_DONTWAIT, (struct sockaddr *)&source_addr, &socklen);
+        
+        if (len >= (int)sizeof(SpikeBatchHeaderV2)) {
+            SpikeBatchHeaderV2* header = (SpikeBatchHeaderV2*)rx_buffer;
+            
+            if (header->dst_zone_hash == MY_ZONE_HASH) {
+                uint32_t current_tick_sync = global_tick.load(std::memory_order_relaxed);
+                uint32_t current_epoch = current_tick_sync / SYNC_BATCH_TICKS;
 
-        // 2. Population Coding (Сенсорный энкодер: float -> spikes)
-        int center_id = (int)((angle + 1.0f) * 4.5f);
-        if (center_id < 0) center_id = 0;
+                if (header->epoch > current_epoch) {
+                    // Self-Healing: Сеть ушла вперед. Сбрасываем старый мусор.
+                    rx_queue.clear();
+                    global_tick.store(header->epoch * SYNC_BATCH_TICKS, std::memory_order_release);
+                    current_epoch = header->epoch;
+                }
+
+                if (header->epoch == current_epoch) {
+                    int events_len = len - sizeof(SpikeBatchHeaderV2);
+                    SpikeEvent* incoming = (SpikeEvent*)(rx_buffer + sizeof(SpikeBatchHeaderV2));
+                    int count = events_len / sizeof(SpikeEvent);
+
+                    for (int i = 0; i < count; i++) {
+                        if (incoming[i].ghost_id == CTRL_MAGIC_DOPA) {
+                            ControlPacket* ctrl = (ControlPacket*)&incoming[i];
+                            global_dopamine.store(ctrl->dopamine, std::memory_order_relaxed);
+                        } else {
+                            rx_queue.push(incoming[i]);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. INTEGER I2C SENSOR & POPULATION ENCODER
+        // Опрашиваем гироскоп (accel_x: -16384 .. +16384)
+        int16_t accel_x = i2c_read_accel_x(); 
+        
+        // Переводим в диапазон 0..32768 (Integer Physics)
+        int32_t normalized_accel = (int32_t)accel_x + 16384; 
+        if (normalized_accel < 0) normalized_accel = 0;
+        if (normalized_accel > 32768) normalized_accel = 32768;
+        
+        // [DOD FIX] Мапим на 10 рецепторных нейронов (0..9) БЕЗ f32
+        // (normalized_accel * 10) / 32768  ==  (normalized_accel * 10) >> 15
+        uint32_t center_id = (normalized_accel * 10) >> 15;
         if (center_id > 9) center_id = 9;
 
-        SpikeEvent ev;
-        ev.ghost_id = center_id; 
-        ev.tick_offset = 0;
+        SpikeEvent ev = {center_id, 0};
         rx_queue.push(ev);
 
         // 3. PWM Motor Out (Декодер: rate -> Duty Cycle)
         uint32_t p_left = motors.left.exchange(0, std::memory_order_relaxed);
         uint32_t p_right = motors.right.exchange(0, std::memory_order_relaxed);
-
-        // Конвертируем спайки (за 50мс) в Duty Cycle (13-bit PWM = 0..8191)
-        // Для стандартного серво: 1ms..2ms (5%..10% от 20мс) -> 400..800 duty
-        // Множитель '8' означает, что ~50 спайков дадут 100% мощности (800)
         uint32_t duty_left = 400 + (p_left * 8);
         if (duty_left > 800) duty_left = 800;
         uint32_t duty_right = 400 + (p_right * 8);
         if (duty_right > 800) duty_right = 800;
-
         ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty_left);
         ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
         ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty_right);
         ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
 
-        // [DOD FIX] Telemetry Egress (Zero-Copy Broadcast)
-        static uint32_t last_tick = 0;
-        uint32_t current_tick = global_tick.load(std::memory_order_relaxed);
-        float tps = (float)(current_tick - last_tick) * 20.0f; // pro_core_task работает на 20 Hz
-        last_tick = current_tick;
+        // 4. LOCK-FREE TUI & DMA (Раз в 500мс)
+        int64_t now = esp_timer_get_time();
+        if (now - last_ui_time > 500000) {
+            uint32_t dt_us = (uint32_t)(now - last_ui_time);
+            uint32_t current_tick_ui = global_tick.load(std::memory_order_relaxed);
+            
+            // [DOD FIX] 64-bit Integer Math. НИКАКИХ FLOAT!
+            uint32_t tps_ui = (uint32_t)(((uint64_t)(current_tick_ui - last_ui_tick) * 1000000ULL) / dt_us);
+            
+            last_ui_tick = current_tick_ui;
+            last_ui_time = now;
 
-        DashboardFrame frame;
-        frame.episode = current_tick / 100;
-        // Оценка баланса: 1.0 = идеальное равновесие (0 градусов), 0.0 = падение
-        frame.score = 1.0f - std::abs(angle); 
-        frame.tps = tps;
-        frame.is_done = 0.0f;
+            // Проверяем статус прошлого кадра
+            if (trans_in_flight) {
+                spi_transaction_t* ret_trans;
+                if (spi_device_get_trans_result(tui_spi, &ret_trans, 0) == ESP_OK) {
+                    trans_in_flight = false;
+                }
+            }
 
-        // Broadcast MAC для ESP-NOW
-        uint8_t broadcast_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-        esp_now_send(broadcast_mac, (const uint8_t*)&frame, sizeof(DashboardFrame));
+            if (!trans_in_flight) {
+                // Рендерим текст в tui_dma_buffer... (Заглушка)
+                // tui_render_stats(tui_dma_buffer, tps_ui, dopamine, m_left, m_right);
 
-        // Работаем на 20 Гц (50 мс)
-        vTaskDelay(pdMS_TO_TICKS(50));
+                memset(&trans, 0, sizeof(spi_transaction_t));
+                trans.length = 240 * 10 * 2 * 8; // В битах
+                trans.tx_buffer = tui_dma_buffer;
+                
+                // Запуск аппаратного DMA без блокировки ядра
+                if (spi_device_queue_trans(tui_spi, &trans, 0) == ESP_OK) {
+                    trans_in_flight = true;
+                }
+            }
+        }
+
+        // Если сетевых пакетов не было, отдаем 1 тик (1 мс) ОС, чтобы не вешать Watchdog
+        // В HFT-режиме это предотвращает голодание других задач FreeRTOS
+        if (len <= 0) {
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
     }
 }
 

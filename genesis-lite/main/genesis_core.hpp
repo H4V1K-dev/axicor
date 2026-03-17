@@ -56,16 +56,25 @@ struct SramState {
     uint8_t* refractory_timer;
 
     int16_t* dendrite_weights;
+    uint8_t* dendrite_timers; // [DOD FIX] Таймеры синапсов (Columnar)
     BurstHeads8* axon_heads;
 };
 
-// [DOD] Сетевой пакет (8 байт)
+// [DOD FIX] Заголовок L7 протокола (Spike Batch V2)
+struct alignas(16) SpikeBatchHeaderV2 {
+    uint32_t src_zone_hash;
+    uint32_t dst_zone_hash;
+    uint32_t epoch;
+    uint32_t is_last;
+};
+
+// [DOD] Сетевой пакет (Строго 8 байт)
 struct alignas(8) SpikeEvent {
     uint32_t ghost_id;
     uint32_t tick_offset;
 };
 
-// [DOD FIX] Control Plane для ESP-NOW
+// [DOD FIX] Control Plane (Строго 8 байт, алиасинг SpikeEvent)
 #define CTRL_MAGIC_DOPA 0x41504F44 // "DOPA" в Little-Endian
 
 struct alignas(8) ControlPacket {
@@ -90,6 +99,11 @@ struct alignas(32) LockFreeSpikeQueue {
     alignas(32) std::atomic<uint32_t> head{0};
     alignas(32) std::atomic<uint32_t> tail{0};
     SpikeEvent buffer[SPIKE_QUEUE_SIZE];
+
+    void clear() {
+        // [DOD FIX] Lock-free сброс: подтягиваем tail к head (Biological Amnesia)
+        tail.store(head.load(std::memory_order_relaxed), std::memory_order_release);
+    }
 
     bool push(const SpikeEvent& ev) {
         uint32_t curr_head = head.load(std::memory_order_relaxed);
