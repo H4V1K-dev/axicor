@@ -24,7 +24,7 @@ from genesis.control import GenesisControl
 from genesis.decoders import PwmDecoder
 from genesis.encoders import PopulationEncoder
 from genesis.memory import GenesisMemory
-from genesis.tuner import GenesisAutoTuner
+from genesis.tuner import GenesisAutoTuner, Phase
 
 
 class CartPole3ActionWrapper(gym.Wrapper):
@@ -177,6 +177,10 @@ class CartPoleRunConfig:
     adaptive_leak: AdaptiveLeakConfig = field(default_factory=AdaptiveLeakConfig)
     use_3_actions: bool = False  # Left(0), Wait(1), Right(2) instead of Left(0), Right(1)
     max_episode_steps: int = 5000  # CartPole episode length limit (default 500 in Gymnasium)
+    # Epsilon-greedy в EXPLORATION: высокая случайность на старте, затухание к инференсу
+    exploration_epsilon_start: float = 0.8
+    exploration_epsilon_end: float = 0.05
+    exploration_decay_episodes: int = 2000
 
 
 @dataclass
@@ -770,7 +774,17 @@ def run_cartpole_experiment(config: CartPoleRunConfig) -> dict[str, Any]:
                             }
                         )
                     balance = left_sum - right_sum
-                    if config.use_3_actions:
+                    # Epsilon-greedy в EXPLORATION: высокая случайность на старте → затухание к инференсу
+                    use_random = False
+                    if tuner and tuner.phase == Phase.EXPLORATION and config.exploration_decay_episodes > 0:
+                        eps = config.exploration_epsilon_end + (
+                            config.exploration_epsilon_start - config.exploration_epsilon_end
+                        ) * max(0.0, 1.0 - episodes / config.exploration_decay_episodes)
+                        use_random = rng.random() < eps
+                    if use_random:
+                        n_actions = 3 if config.use_3_actions else 2
+                        action = int(rng.integers(0, n_actions))
+                    elif config.use_3_actions:
                         if abs(balance) < WAIT_BALANCE_THRESHOLD:
                             action = 1
                         elif balance > 0:
@@ -815,6 +829,11 @@ def run_cartpole_experiment(config: CartPoleRunConfig) -> dict[str, Any]:
                 shock_batches = SHOCK_BASE + (score >> SHOCK_SCORE_BITSHIFT)
                 kinetic_penalty = int(abs(state[1]) * SHOCK_VEL_MULT)
                 total_shock = min(SHOCK_MAX_BATCHES, shock_batches + kinetic_penalty)
+                # Смягчаем punishment при забывании (DISTILLATION + падающий SMA),
+                # чтобы не усугублять порочный круг: забывание → reward↓ → LTD → забывание↑
+                punishment_modifier_used = tuner.get_punishment_modifier() if tuner else 1.0
+                if tuner:
+                    total_shock = max(1, int(total_shock * punishment_modifier_used))
                 encoder.encode_into(norm_state.astype(np.float16), client.payload_views[0], 0)
                 for _ in range(total_shock):
                     client.step(DOPAMINE_PUNISHMENT)
@@ -861,13 +880,27 @@ def run_cartpole_experiment(config: CartPoleRunConfig) -> dict[str, Any]:
 
                 sma = tuner.last_sma if tuner else 0.0
                 thresh_distill = config.threshold_score * 0.7 if tuner else 0
+                tuner_state = tuner.get_state_for_logging() if tuner else {}
+                exploration_epsilon = (
+                    config.exploration_epsilon_end
+                    + (config.exploration_epsilon_start - config.exploration_epsilon_end)
+                    * max(0.0, 1.0 - episodes / max(1, config.exploration_decay_episodes))
+                ) if (tuner and tuner.phase == Phase.EXPLORATION and config.exploration_decay_episodes > 0) else 0.0
                 episode_record = {
                     "episode_index": episodes,
                     "score": score,
                     "phase": phase,
+                    "sma": sma,
+                    "punishment_modifier": punishment_modifier_used,
                     "dopamine_sum": dopamine_sum,
                     "dopamine_min": dopamine_min,
                     "dopamine_max": dopamine_max,
+                    # Tuner/structural params (для анализа потери навыков)
+                    "prune_threshold": tuner_state.get("prune_threshold"),
+                    "night_interval": tuner_state.get("night_interval"),
+                    "rollback_threshold": tuner_state.get("rollback_threshold"),
+                    "distillation_enter_threshold": tuner_state.get("distillation_enter_threshold"),
+                    "exploration_epsilon": exploration_epsilon,
                     # Structural (Night Phase)
                     "structure_active_synapses": summary_sample.active_synapses,
                     "structure_avg_weight": summary_sample.avg_weight,
@@ -908,11 +941,16 @@ def run_cartpole_experiment(config: CartPoleRunConfig) -> dict[str, Any]:
                 if config.log_episodes:
                     m_counts = episode_record["mode_counts"]
                     mode_str = f"S:{m_counts['stable']} R:{m_counts['responsive']} E:{m_counts['excited']} Rec:{m_counts['recovery']}"
+                    prune_str = f"prune:{episode_record['prune_threshold']}" if episode_record.get("prune_threshold") is not None else ""
+                    night_str = f"night:{episode_record['night_interval']}" if episode_record.get("night_interval") is not None else ""
+                    mod_str = f" shock×{punishment_modifier_used:.2f}" if punishment_modifier_used < 1.0 else ""
+                    tuner_str = f" | {prune_str} {night_str}{mod_str}" if prune_str or night_str or mod_str else ""
                     print(
-                        f"Ep {episodes:04d} | Score: {score:3d} | Phase: {phase:<12} | "
+                        f"Ep {episodes:04d} | Score: {score:3d} | Phase: {phase:<12} | SMA: {sma:.0f} | "
                         f"Spike: {episode_record['spike_rate']:.3f} | Burst: {episode_record['mean_burst_count']:.2f} | "
                         f"OutBal: {episode_record['output_balance_mean']:.1f} | Leak: {episode_record['effective_leak_mean']:.1f} | "
-                        f"Modes: {mode_str}"
+                        f"Syn: {episode_record['structure_active_synapses']} | "
+                        f"Modes: {mode_str}{tuner_str}"
                     )
 
                 episodes += 1
@@ -953,6 +991,13 @@ def run_cartpole_experiment(config: CartPoleRunConfig) -> dict[str, Any]:
                 "mode_share_summary": {
                     mode: float(np.mean([ep["mode_counts"][mode] for ep in per_episode]))
                     for mode in ["stable", "responsive", "excited", "recovery"]
+                } if per_episode else {},
+                # Tuner/structural analysis (потеря навыков)
+                "tuner_summary": {
+                    "phases_seen": sorted({ep["phase"] for ep in per_episode if ep.get("phase")}),
+                    "prune_thresholds_seen": sorted({ep["prune_threshold"] for ep in per_episode if ep.get("prune_threshold") is not None}),
+                    "night_intervals_seen": sorted({ep["night_interval"] for ep in per_episode if ep.get("night_interval") is not None}),
+                    "punishment_softened_episodes": sum(1 for ep in per_episode if ep.get("punishment_modifier", 1.0) < 1.0),
                 } if per_episode else {},
                 "per_episode": per_episode,
                 "baked_structure_stats": baked_state_stats,
@@ -1022,6 +1067,24 @@ def parse_args() -> argparse.Namespace:
         default=5000,
         help="Max steps per episode (default: 5000). CartPole-v1 default is 500.",
     )
+    parser.add_argument(
+        "--exploration-epsilon-start",
+        type=float,
+        default=0.8,
+        help="Epsilon-greedy: random action prob at start of EXPLORATION (default: 0.8).",
+    )
+    parser.add_argument(
+        "--exploration-epsilon-end",
+        type=float,
+        default=0.05,
+        help="Epsilon-greedy: random action prob after decay (default: 0.05).",
+    )
+    parser.add_argument(
+        "--exploration-decay-episodes",
+        type=int,
+        default=2000,
+        help="Episodes over which epsilon decays from start to end (default: 2000).",
+    )
     return parser.parse_args()
 
 
@@ -1058,6 +1121,9 @@ def main() -> None:
                 ),
                 use_3_actions=args.use_3_actions,
                 max_episode_steps=args.max_episode_steps,
+                exploration_epsilon_start=args.exploration_epsilon_start,
+                exploration_epsilon_end=args.exploration_epsilon_end,
+                exploration_decay_episodes=args.exploration_decay_episodes,
             )
         )
 
