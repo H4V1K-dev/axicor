@@ -1,5 +1,7 @@
 # LTC-Inspired Adaptive Leak Roadmap
 
+> **Справочник по параметрам и конфигурации:** [Adaptive_Leak.md](Adaptive_Leak.md)
+
 ## Цель
 
 Внедрить в Genesis только одну заимствованную из Liquid Time-constant Networks идею:
@@ -476,7 +478,7 @@ effective_leak = clamp(base_leak_rate + leak_mod, leak_min, leak_max)
 
 ---
 
-## Milestone 5. Benchmark and Validation on CartPole
+## Milestone 5. Benchmark and Validation on CartPole [DONE]
 
 ### Цель
 
@@ -517,6 +519,51 @@ effective_leak = clamp(base_leak_rate + leak_mod, leak_min, leak_max)
 - хотя бы один режим adaptive leak показывает измеримую пользу
 - нет критического ухудшения стабильности
 - overhead hot loop остается приемлемым
+
+### Repo status
+
+- реализован воспроизводимый benchmark harness в `examples/cartpole_exp/benchmark.py`
+- benchmark запускает 5 сценариев из этого roadmap и сохраняет raw JSON + summary JSON/CSV
+- сценарии изолируются отдельными запусками `genesis-node`, чтобы веса не протекали между A/B прогонами
+- `examples/cartpole_exp/agent.py` теперь сериализует метрики эпизодов и runtime snapshots
+- `examples/cartpole_exp/build_brain.py` принимает фиксированный `master_seed` для повторяемой топологии
+
+### Benchmark evidence path
+
+- артефакты каждого прогона сохраняются в `artifacts/cartpole_benchmark/`
+- итоговый verdict для Milestone 5 формируется в `artifacts/cartpole_benchmark/benchmark_summary.json`
+- табличный summary для сравнения сценариев формируется в `artifacts/cartpole_benchmark/benchmark_summary.csv`
+
+### Важно
+
+`[DONE]` для репозитория здесь означает, что инфраструктура benchmark/validation реализована.
+Фактическая продуктовая оценка adaptive leak по CartPole должна приниматься по свежим артефактам,
+сгенерированным на целевой машине Windows + CUDA через `examples/cartpole_exp/benchmark.py`.
+
+### M5 Debug: CartPole Output Layer Saturated Regime (2026-03)
+
+**Проблема:** `mean_episode_length` и raw `motor_out` readout идентичны для baseline и adaptive leak сценариев.
+
+**Проверенные гипотезы (runtime logs):**
+
+- H1 CONFIRMED: manifest на диске и node boot читают корректно; GPU получает правильные `VariantParameters`.
+- H2 REJECTED: патч manifest применяется к нужному файлу.
+- H3 REJECTED: `into_gpu()` и layout корректны.
+- H4 CONFIRMED: hot-reload срабатывает и загружает параметры.
+- H5 CONFIRMED: первый raw readout (`payload_hash`) идентичен во всех сценариях.
+
+**Корневая причина:** Output-нейроны (variant 2, `motor_out`) находятся в **насыщенном режиме**:
+
+- 126 output-нейронов, каждый с 128 входами по весу 8000.
+- Базовый leak = 223; при dopamine=10 и gain=96: `leak_mod = (10*96)>>7 ≈ 7` → effective_leak ≈ 230.
+- Относительное изменение leak ≈ 3%.
+- Входной драйв (128×8000) сильно превосходит leak; изменение leak не влияет на спайки.
+
+**Рекомендации для дальнейшей оценки:**
+
+- Увеличить `dopamine_leak_gain` для variant 2 (Motor_Pyramidal) до 500–1000 для более заметного эффекта.
+- Или использовать discrete mode (mode=2) с широким leak_range.
+- Или изменить топологию: уменьшить in-degree для output-нейронов.
 
 ---
 

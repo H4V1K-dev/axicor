@@ -86,3 +86,4 @@ surgeon.incubate_gaba(baseline_weight=-30000)
 ## 4. Roadmaps и планы развития
 
 - **[LTC-Inspired Adaptive Leak](LTC_Adaptive_Leak_Roadmap.md)** - план внедрения controlled adaptive leak. Milestone 0 фиксирует scope, invariants и запрещенные решения.
+- **[Adaptive Leak — справочник](Adaptive_Leak.md)** - параметры, режимы, формулы и примеры конфигурации.
