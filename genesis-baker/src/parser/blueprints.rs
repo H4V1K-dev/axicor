@@ -48,7 +48,9 @@ pub fn parse_blueprints(toml_content: &str) -> (GenesisConstantMemory, Vec<Neuro
             adaptive_leak_gain: nt.adaptive_leak_gain,
             adaptive_mode: nt.adaptive_mode,
             _leak_pad: [0; 3],
-            _pad: [0; 6],
+            d1_affinity: nt.d1_affinity,
+            d2_affinity: nt.d2_affinity,
+            _pad: [0; 4],
         };
     }
 

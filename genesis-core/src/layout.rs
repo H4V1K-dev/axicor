@@ -39,7 +39,9 @@ pub struct VariantParameters {
     pub _leak_pad: [u8; 3],        // 55..58
 
     // === Блок 6: Pad (Смещения 58..64) ===
-    pub _pad: [u8; 6],
+    pub d1_affinity: u8,
+    pub d2_affinity: u8,
+    pub _pad: [u8; 4],
 }
 
 const _: () = assert!(std::mem::size_of::<VariantParameters>() == 64, "L1 Cache line size violation!");

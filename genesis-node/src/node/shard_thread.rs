@@ -588,8 +588,8 @@ pub fn spawn_shard_thread(
             let _dendrites_count = padded_n * genesis_core::constants::MAX_DENDRITE_SLOTS;
             let (_, state_size) = genesis_compute::memory::calculate_state_blob_size(padded_n);
 
-            // [DOD] ЕДИНСТВЕННАЯ аллокация на весь жизненный цикл потока
-            let mut workspace = ThreadWorkspace::new(hash, padded_n, desc.num_virtual_axons as usize);
+            // [DOD FIX] Выравниваем размер payload'а с ожиданиями Baker Daemon
+            let mut workspace = ThreadWorkspace::new(hash, padded_n, desc.engine.vram.total_ghosts as usize);
             let axons_size = desc.engine.vram.total_axons as usize * std::mem::size_of::<genesis_core::layout::BurstHeads8>();
             workspace.checkpoint_state_buffer = vec![0u8; state_size];
             workspace.checkpoint_axons_buffer = vec![0u8; axons_size];

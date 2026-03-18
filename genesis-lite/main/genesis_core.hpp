@@ -36,7 +36,9 @@ struct alignas(64) VariantParameters {
   uint8_t adaptive_mode;                    // 54..55
   uint8_t _leak_pad[3];                     // 55..58
 
-  uint8_t _pad[6];                          // 58..64
+  uint8_t d1_affinity;                      // 58..59
+  uint8_t d2_affinity;                      // 59..60
+  uint8_t _pad[4];                          // 60..64
 };
 
 // Read-Only топология (Мапится из Flash-памяти)

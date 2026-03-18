@@ -112,6 +112,8 @@ void init_brain() { // [DOD FIX] Без аргументов!
     VARIANT_LUT[0].signal_propagation_length = 3;
     VARIANT_LUT[0].gsop_potentiation = 60;
     VARIANT_LUT[0].gsop_depression = 30;
+    VARIANT_LUT[0].d1_affinity = 128;
+    VARIANT_LUT[0].d2_affinity = 128;
     for(int i=0; i<15; i++) VARIANT_LUT[0].inertia_curve[i] = 128 - (i * 8);
 
     printf("🧠 Genesis-Lite: %" PRIu32 " neurons. Memory Split: SRAM / Flash.\n", num_neurons);
@@ -409,8 +411,12 @@ void day_phase_task(void *pvParameter) {
                 if (rank > 14) rank = 14;
                 int32_t inertia = p.inertia_curve[rank];
 
-                int32_t raw_pot = p.gsop_potentiation;
-                int32_t raw_dep = p.gsop_depression;
+                int16_t dopamine = global_dopamine.load(std::memory_order_relaxed);
+                int32_t pot_mod = ((int32_t)dopamine * (int32_t)p.d1_affinity) >> 7;
+                int32_t dep_mod = ((int32_t)dopamine * (int32_t)p.d2_affinity) >> 7;
+
+                int32_t raw_pot = (int32_t)p.gsop_potentiation + pot_mod;
+                int32_t raw_dep = (int32_t)p.gsop_depression - dep_mod;
                 int32_t final_pot = raw_pot & ~(raw_pot >> 31);
                 int32_t final_dep = raw_dep & ~(raw_dep >> 31);
 

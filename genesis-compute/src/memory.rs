@@ -151,16 +151,24 @@ impl VramState {
     /// Только аксоны хранятся отдельно: загружает `axon_heads` напрямую.
     pub fn upload_axon_heads(&self, axon_heads_blob: &[u8]) {
         let expected = (self.total_axons as usize) * std::mem::size_of::<genesis_core::layout::BurstHeads8>();
-        assert!(
-            axon_heads_blob.len() >= expected,
-            "FATAL: axon_heads blob size mismatch: got {} expected at least {}",
-            axon_heads_blob.len(), expected
-        );
+        let actual = axon_heads_blob.len();
+        
+        // [DOD FIX] Allow smaller blobs for pre-allocated Dynamic Capacity Routing.
+        // We only upload what we have on disk; the rest remains initialized (Sentinel).
+        if actual > expected {
+            panic!(
+                "FATAL: axon_heads blob too large: got {} expected max {} (Check your ghost_capacity in manifest.toml vs baked artifacts)",
+                actual, expected
+            );
+        }
+        
+        if actual == 0 { return; }
+
         let err = unsafe {
             ffi::cu_upload_axons_blob(
                 &self.ptrs,
                 axon_heads_blob.as_ptr() as *const c_void,
-                expected,
+                actual,
             )
         };
         assert_eq!(err, 0, "FATAL: cu_upload_axons_blob failed (cudaError={})", err);

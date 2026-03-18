@@ -328,6 +328,8 @@ fn serialize_artifacts(
                 adaptive_leak_max: v.adaptive_leak_max,
                 adaptive_leak_gain: v.adaptive_leak_gain,
                 adaptive_mode: v.adaptive_mode,
+                d1_affinity: v.d1_affinity,
+                d2_affinity: v.d2_affinity,
             }
         }).collect(),
     };

@@ -103,6 +103,12 @@ pub struct NeuronType {
     #[serde(default = "default_gsop_dep")]
     pub gsop_depression: u16,
 
+    #[serde(default = "default_affinity")]
+    pub d1_affinity: u8,
+
+    #[serde(default = "default_affinity")]
+    pub d2_affinity: u8,
+
     // --- Sprouting Score Weights (f32, sum ≈ 1.0) ---
     #[serde(default = "default_sprouting_dist")]
     pub sprouting_weight_distance: f32,
@@ -135,6 +141,7 @@ fn default_type_affinity() -> f32 { 0.5 }
 fn default_initial_weight() -> u16 { 74 }
 fn default_gsop_pot() -> u16 { 60 }
 fn default_gsop_dep() -> u16 { 30 }
+fn default_affinity() -> u8 { 128 }
 fn default_sprouting_dist() -> f32 { 0.4 }
 fn default_sprouting_power() -> f32 { 0.4 }
 fn default_sprouting_exp() -> f32 { 0.1 }

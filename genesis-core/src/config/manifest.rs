@@ -27,6 +27,8 @@ pub struct ManifestVariant {
     pub adaptive_leak_max: i32,
     pub adaptive_leak_gain: u16,
     pub adaptive_mode: u8,
+    pub d1_affinity: u8,
+    pub d2_affinity: u8,
 }
 
 impl ManifestVariant {
@@ -51,7 +53,9 @@ impl ManifestVariant {
             adaptive_leak_gain: self.adaptive_leak_gain,
             adaptive_mode: self.adaptive_mode,
             _leak_pad: [0; 3],
-            _pad: [0; 6],
+            d1_affinity: self.d1_affinity,
+            d2_affinity: self.d2_affinity,
+            _pad: [0; 4],
         }
     }
 }

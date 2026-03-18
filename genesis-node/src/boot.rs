@@ -61,25 +61,15 @@ pub fn boot_shard_from_disk(baked_dir: &Path, manifest: &ZoneManifest) -> Result
         axons_blob.len(), axons_path
     );
 
-    // 1. Сначала сканируем baked_dir на наличие входящих связей
-    let mut total_ghosts = 0;
+    // [DOD FIX] Hardware pre-allocation for Dynamic Capacity Routing.
+    let total_ghosts = manifest.memory.ghost_capacity as u32;
+    let file_axons = (axons_blob.len() / 32) as u32;
 
-    for connection in &manifest.connections {
-        let to_hash = genesis_core::hash::fnv1a_32(connection.to.as_bytes());
-        if to_hash == manifest.zone_hash {
-            let ghost_file_name = format!("{}_{}.ghosts", connection.from, connection.to);
-            let ghost_path = baked_dir.join(ghost_file_name);
-            
-            if ghost_path.exists() {
-                let (src_somas, _) = load_ghosts(&ghost_path);
-                total_ghosts += src_somas.len() as u32;
-                println!("[Boot] Prepared {} ghost axons from {}", src_somas.len(), connection.from);
-            }
-        }
-    }
-
-    // 2. Деривация размеров
-    let total_axons = (manifest.memory.padded_n as u32) + total_ghosts + (manifest.memory.virtual_axons as u32);
+    // 2. Деривация размеров (берем максимум между конфигом и реальностью на диске)
+    let calc_axons = (manifest.memory.padded_n as u32) + (manifest.memory.virtual_axons as u32) + total_ghosts;
+    let total_axons = std::cmp::max(calc_axons, file_axons);
+    let total_axons = (total_axons + 31) & !31; // Warp Alignment
+    
     let padded_n = manifest.memory.padded_n as u32;
 
     // Верификация целостности (защита от битых файлов)

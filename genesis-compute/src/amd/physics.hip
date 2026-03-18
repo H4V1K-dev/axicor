@@ -68,7 +68,9 @@ struct alignas(64) VariantParameters {
   uint8_t adaptive_mode;                    // 54..55
   uint8_t _leak_pad[3];                     // 55..58
 
-  uint8_t _pad[6];                          // 58..64
+  uint8_t d1_affinity;                      // 58..59
+  uint8_t d2_affinity;                      // 59..60
+  uint8_t _pad[4];                          // 60..64
 };
 
 // Глобальная константная память. Rust будет заливать сюда конфиг перед стартом.
@@ -310,15 +312,17 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
     int32_t abs_w = (int32_t)w;
     if (abs_w < 0) abs_w = -abs_w;
 
-    uint32_t rank = abs_w >> 11;
+    int32_t rank = abs_w >> 11;
     if (rank > 15) rank = 15;
     int32_t inertia = p.inertia_curve[rank];
 
-    int32_t pot_mod = 0;
-    int32_t dep_mod = 0;
+    // Dopamine modulation (D1 boosts LTP, D2 suppresses LTD on reward)
+    // Integer physics: (int16 * uint8) >> 7
+    int32_t pot_mod = ((int32_t)dopamine * (int32_t)p.d1_affinity) >> 7;
+    int32_t dep_mod = ((int32_t)dopamine * (int32_t)p.d2_affinity) >> 7;
 
-    int32_t raw_pot = p.gsop_potentiation + pot_mod;
-    int32_t raw_dep = p.gsop_depression - dep_mod;
+    int32_t raw_pot = (int32_t)p.gsop_potentiation + pot_mod;
+    int32_t raw_dep = (int32_t)p.gsop_depression - dep_mod;
 
     int32_t final_dep = raw_dep & ~(raw_dep >> 31);
 

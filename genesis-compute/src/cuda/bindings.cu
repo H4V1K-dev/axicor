@@ -66,7 +66,9 @@ struct alignas(64) VariantParameters {
   uint8_t _leak_pad[3];                     // 55..58
 
   // === Блок 6: Pad (Смещения 58..64) ===
-  uint8_t _pad[6];                           // 58..64
+  uint8_t d1_affinity;                       // 58..59
+  uint8_t d2_affinity;                       // 59..60
+  uint8_t _pad[4];                           // 60..64
 };
 }
 
@@ -555,6 +557,16 @@ extern "C" {
 // ─── Аллокация
 // ──────────────────────────────────────────────────────────────── Два
 // cudaMalloc: State (непрерывный блок) + Axons (отдельный). Если хоть одна
+__global__ void init_sentinels_kernel(BurstHeads8* heads, uint32_t total) {
+    uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < total) {
+        heads[i].h0 = 0x80000000; heads[i].h1 = 0x80000000;
+        heads[i].h2 = 0x80000000; heads[i].h3 = 0x80000000;
+        heads[i].h4 = 0x80000000; heads[i].h5 = 0x80000000;
+        heads[i].h6 = 0x80000000; heads[i].h7 = 0x80000000;
+    }
+}
+
 // аллокация падает — откатываем и возвращаем ненулевой код.
 int32_t cu_allocate_shard(uint32_t padded_n, uint32_t total_axons,
                           ShardVramPtrs *out_vram) {
@@ -610,8 +622,10 @@ int32_t cu_allocate_shard(uint32_t padded_n, uint32_t total_axons,
     return (int32_t)err;
   }
 
-  // Инициализируем аксоны нулём (живые). Baker перезапишет нужные значения.
-  cudaMemset(out_vram->axon_heads, 0, (size_t)total_axons * sizeof(BurstHeads8));
+  // [DOD FIX] Strict 32-bit Sentinel Initialization
+  uint32_t threads = 256;
+  uint32_t blocks = (total_axons + threads - 1) / threads;
+  init_sentinels_kernel<<<blocks, threads>>>(out_vram->axon_heads, total_axons);
 
   return 0;
 }

@@ -8,6 +8,120 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.744.109] - 2026-03-18 04:10:31
+
+**[ESP32] Deploy Zero-Copy Flash MMAP and WTA distillation pipeline**
+
+### Added
+- Deploy genesis-lite/tools/distill_esp32.py to replace scripts/distill_esp32.py for WTA distillation
+- Implement Flash memory mapping via esp_partition_mmap for brain_topo partition with 1MB limit
+- Auto-detect neuron count from C-ABI header with magic "TOPO" (0x4F504F54) validation
+- Shift flash.dendrite_targets and flash.soma_to_axon pointers by 64 byt     es to skip header
+- Allocate TUI DMA buffer globally in DMA-capable memory for SPI display
+- Initialize SPI device handle tui_spi for display communication
+- Reduce SensoryCortex zone to 16x16x16 voxels and layer density to 0.2 for ~819 neurons
+- Update .gitignore to ignore genesis-lite/sdkconfig, genesis-lite/sdkconfig.old, and firmware dumps
+- Remove genesis-lite/sdkconfig and replace with genesis-lite/sdkconfig.defaults
+- Add partitions.csv for brain_topo RAW partition definition
+- Add genesis-lite/docs/WALKTHROUGH_ESP32.md with step-by-step hardware flashing instructions
+- Update CHANGELOG.md to Alpha 0.0.1 - Experimental release
+
+### Fixed
+- Change init_brain() to accept no arguments, neuron count auto-detected from Flash
+- Update sort_and_prune_kernel signature to include int16_t global_prune_threshold
+- Ensure axon_heads allocation uses heap_caps_aligned_calloc with 32-byte alignment
+
+
+## [0.734.108] - 2026-03-18 04:10:31
+
+**[ESP32] Deploy Zero-Copy Flash MMAP and WTA distillation pipeline**
+
+### Added
+- Deploy genesis-lite/tools/distill_esp32.py to replace scripts/distill_esp32.py for WTA distillation
+- Implement Flash memory mapping via esp_partition_mmap for brain_topo partition with 1MB limit
+- Auto-detect neuron count from C-ABI header with magic "TOPO" (0x4F504F54) validation
+- Shift flash.dendrite_targets and flash.soma_to_axon pointers by 64 byt     es to skip header
+- Allocate TUI DMA buffer globally in DMA-capable memory for SPI display
+- Initialize SPI device handle tui_spi for display communication
+- Reduce SensoryCortex zone to 16x16x16 voxels and layer density to 0.2 for ~819 neurons
+- Update .gitignore to ignore genesis-lite/sdkconfig, genesis-lite/sdkconfig.old, and firmware dumps
+- Remove genesis-lite/sdkconfig and replace with genesis-lite/sdkconfig.defaults
+- Add partitions.csv for brain_topo RAW partition definition
+- Add genesis-lite/docs/WALKTHROUGH_ESP32.md with step-by-step hardware flashing instructions
+- Update CHANGELOG.md to Alpha 0.0.1 - Experimental release
+
+### Fixed
+- Change init_brain() to accept no arguments, neuron count auto-detected from Flash
+- Update sort_and_prune_kernel signature to include int16_t global_prune_threshold
+- Ensure axon_heads allocation uses heap_caps_aligned_calloc with 32-byte alignment
+
+## [0.722.107] - 2026-03-18 00:49:55
+
+**Dynamic MTU Implementation and Networking Logic Consolidation**
+
+### Added
+- Move all Inter-Node routing logic, including InterNodeRouter, flush_outgoing_batch_pool, and spawn_ghost_listener, into genesis-node/src/network/router.rs
+- Completely rollback genesis-node/src/network/inter_node.rs to handle only InterNodeChannel and GPU Pinned-buffers
+- Remove InterNodeRouter, SpikeBatchHeaderV2, SpikeEventV2, and all networking/router logic from inter_node.rs
+- Update genesis-node/src/boot.rs and genesis-node/src/node/mod.rs to import InterNodeRouter from router module
+- Define SpikeBatchHeaderV2 with align(16) and SpikeEventV2 with align(8) in docs/specs/06_distributed.md
+- Establish law that Data Plane ignores Network Byte Order; all structures are transmitted and cast in Little-Endian
+- Update AxonHandoverEvent structure in 06_distributed.md to include origin_zone_hash and strict 20-byte size
+- Add description of mtu field in RCU-routing mechanism to docs/specs/06_distributed.md
+- Implement dynamic MTU calculation in flush_outgoing_batch_pool using formula max_events_per_packet = (peer_mtu - 16) / 8
+- Rewrite transport layer section to "LwIP UDP Profile" in docs/specs/11_edge_bare_metal.md
+- Specify hard MTU = 1400 for ESP32 and outline L7-fragmentation strategy in 11_edge_bare_metal.md
+- Add dendrite_timers array to SramState for columnar synaptic refractory periods
+- Implement LockFreeSpikeQueue::clear() for biological amnesia and network self-healing
+- Allocate axon_heads with 32-byte alignment for Xtensa vector instructions using heap_caps_aligned_calloc
+- Allocate TUI DMA buffer in DMA-capable memory for SPI display transfers
+- Update Zero-Index Trap section in docs/Python-SDK/Client_SDK.md with Zero-Cost unpacking/packing formulas and warnings
+- Refactor docs/specs/07_gpu_runtime.md to clarify Headerless SoA layout, 32-byte alignment for BurstHeads8, and Little-Endian invariant
+- Document dynamic MAX_EVENTS_PER_PACKET calculation formula in 06_distributed.md
+
+## [0.706.107] - 2026-03-18 00:13:17
+
+**Dynamic MTU Implementation and Networking Logic Consolidation**
+
+### Added
+- Move all Inter-Node routing logic, including InterNodeRouter, flush_outgoing_batch_pool, and spawn_ghost_listener, into genesis-node/src/network/router.rs
+- Implement dynamic MTU calculation in flush_outgoing_batch_pool using formula max_events_per_packet = (peer_mtu - 16) / 8
+- Completely rollback genesis-node/src/network/inter_node.rs to handle only InterNodeChannel and GPU Pinned-buffers
+- Remove InterNodeRouter, SpikeBatchHeaderV2, SpikeEventV2, and all networking/router logic from inter_node.rs
+- Update genesis-node/src/boot.rs and genesis-node/src/node/mod.rs to import InterNodeRouter from router module
+- Add description of mtu field in RCU-routing mechanism to docs/specs/06_distributed.md
+- Document dynamic MAX_EVENTS_PER_PACKET calculation formula in 06_distributed.md
+- Rewrite transport layer section to "LwIP UDP Profile" in docs/specs/11_edge_bare_metal.md
+- Specify hard MTU = 1400 for ESP32 and outline L7-fragmentation strategy in 11_edge_bare_metal.md
+- Update Zero-Index Trap section in docs/Python-SDK/Client_SDK.md with Zero-Cost unpacking/packing formulas and warnings
+- Refactor docs/specs/07_gpu_runtime.md to clarify Headerless SoA layout, 32-byte alignment for BurstHeads8, and Little-Endian invariant
+- Define SpikeBatchHeaderV2 with align(16) and SpikeEventV2 with align(8) in 06_distributed.md
+- Establish law that Data Plane ignores Network Byte Order; all structures are transmitted and cast in Little-Endian
+- Update AxonHandoverEvent structure in 06_distributed.md to include origin_zone_hash and strict 20-byte size
+
+## [0.693.107] - 2026-03-18
+
+**Fixed VRAM Pre-allocation and IPC Desynchronization**
+
+### Fixed
+- **VRAM Pre-allocation:** Removed dynamic `.ghosts` file scanning in `boot_shard_from_disk`. Now pre-allocates VRAM based on `ghost_capacity` from manifest, preventing OOB writes and GPU Segfaults during night phase sprouting.
+- **IPC Synchronization:** Fixed `ThreadWorkspace` initialization in `spawn_shard_thread`. Now uses `total_ghosts` (manifest capacity) instead of `num_virtual_axons` for `ghost_origins` buffer, aligning TCP payload with `Baker Daemon` expectations and preventing hangs.
+- **Warp Alignment:** Added explicit 32-axon warp alignment for `total_axons` in `boot.rs`.
+
+### Technical Debt (Noted)
+- `save_hot_checkpoint` performs synchronous file I/O in the compute thread's hot loop. For large models (1M+ neurons), this will cause significant jitter. Future refactoring should move this to a background I/O thread.
+
+## [0.693.106] - 2026-03-18
+
+**Restored Dopamine Modulation (R-STDP Support)**
+
+### Fixed
+- Restored `d1_affinity` and `d2_affinity` to `VariantParameters` by replacing part of the 6-byte padding (preserving 64-byte L1 alignment).
+- Updated `ManifestVariant` and `into_gpu` in `manifest.rs` to support these parameters in TOML.
+- Restored branchless Dopamine modulation math in CUDA and HIP kernels: `raw_pot = gsop_potentiation + ((dopamine * d1_affinity) >> 7)` and `raw_dep = gsop_depression - ((dopamine * d2_affinity) >> 7)`.
+- Synchronized FFI bindings in `bindings.cu` and `bindings.hip`.
+- Restored Dopamine modulation and initialized default affinities in `genesis-lite` (ESP32) `main.cpp`.
+
 ## [0.693.105] - 2026-03-18 00:13:17
 
 **Dynamic MTU Implementation and Networking Logic Consolidation**
