@@ -8,6 +8,76 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.781.111] - 2026-03-18 09:49:06
+
+**Implement DOD fixes and layer isolation for CartPole brain architecture**
+
+### Added
+- Add manifest loading and caching in GenesisControl.__init__ for fast parameter access
+- Synchronize BATCH_SIZE with actual simulation sync_batch_ticks from manifest in agent.py
+- Update manifest cache in GenesisControl._update_manifest after mutation
+- Replace temporary array creation in hot loop with pre-allocated temp_buffer in run_cartpole()
+- Implement in-place normalization using np.clip, np.subtract, np.divide with out= parameters
+- Eliminate garbage arrays in continuous error gradient calculation
+- Restructure SensoryCortex from single Nuclear layer to three distinct layers: L4_Sensory, L23_Middle, L5_Motor
+- Set layer-specific densities and population fractions for excitation/inhibition balance
+- Configure input growth_steps=400 for bottom-up sprouting into L4_Sensory
+- Add output uv_rect filtering and MTU=1400 limit for motor_out targeting Motor_Pyramidal type
+- Adjust EXPLORE_DOPAMINE_PULSE to 0 and EXPLORE_DOPAMINE_REWARD to 3 for near-zero economy
+- Set EXPLORE_DOPAMINE_PUNISHMENT to 0 and DISTILL_DOPAMINE_PUNISHMENT to 0, removing death signal
+- Modify shock parameters: set EXPLORE_SHOCK_SCORE_BITSHIFT to 0, add descriptive comments for kinetic/emotional amplifier
+- Increase DISTILL_DOPAMINE_REWARD to 12 and set DISTILL_DOPAMINE_PULSE to -2
+- Add signal_speed_m_s=0.5 and segment_length_voxels=2 to sim_params for strict integer segment calculation
+- Set SensoryCortex height_vox to 30 for better layer isolation along Z-axis
+- Override motor_type parameters: initial_synapse_weight=10000, dendrite_radius_um=200.0 for local capture in upper layer
+
+## [0.776.111] - 2026-03-18 08:44:15
+
+**[System] Update example READMEs with correct script paths**
+
+### Added
+- Fix script paths in ant_exp/README.md, cartpole_exp/README.md, and humanoid_exp/README.md to point to correct `*_exp` directories
+- Refactor benchmark_encoders.py into a unified benchmark_encoder function supporting PwmEncoder and PopulationEncoder
+- Enforce strict 1-millisecond budget check per batch for both encoders
+- Replace GC stats tracking with simpler gc.get_count() for object allocation detection
+- Add main() function to run both encoder benchmarks and report overall success
+- Add dry_run_stats() method to BrainBuilder for O(1) C-ABI memory cost estimation
+- Mirror genesis-baker neuron placement logic for raw neuron count calculation
+- Apply Warp Alignment (32 threads) to neuron and axon counts
+- Calculate VRAM bytes using the 910-Byte Invariant: (padded_n * 910) + (total_axons * 32)
+- Calculate SHM bytes for Night Phase IPC v4: 64 + (padded_n * 769) + 280_000
+- Print detailed memory budget per zone and totals before TOML generation
+- In PwmEncoder.encode_into, replace comparison with np.less using out parameter to _bool_buffer
+- In PopulationEncoder.__init__, preallocate centers as 1D linspace and all required buffers
+- In PopulationEncoder.encode_into, implement Zero-Allocation math pipeline using reshape views
+- Use np.subtract, np.abs, and np.less with out parameters for in-place vectorized distance calculation
+- Maintain Single-Tick Pulse behavior by writing only to the zeroth batch tick
+
+## [0.772.110] - 2026-03-18 07:47:36
+
+**[Python SDK] Implement MTU-aware matrix fragmentation and UV projection**
+
+### Added
+- Implement MTU-aware matrix fragmentation in genesis-client/genesis/builder.py with _fragment_matrix method
+- Add UV projection math for chunked mode with uv_rect coordinates [u_offset, v_offset, u_width, v_height]
+- Enforce strict C-ABI payload sizing including Time Domain with batch_ticks parameter
+- Support 2D Grid Slicing (Chunked Mode) and Pie Mode for matrices fitting single packet
+- Add dry_run_stats method for VRAM budget calculation using 910-byte invariant per neuron
+- Enforce 4-bit type limit per zone with validation for maximum 16 unique neuron types
+- Add Dale's Law explanation with is_inhibitory flag determining axon sign in docs/Python-SDK/Brain_Builder.md
+- Document Shift-Left Validation with interactive auto-fix and integer physics validation for v_seg
+- Add Connectome Resource Estimation section with VRAM, Shared Memory, and practical scale test formulas
+- Update Zero-Index Trap explanation with Early Exit mechanism in docs/Python-SDK/Client_SDK.md
+- Clarify packed target C-ABI format with 8-bit Segment Offset and 24-bit Axon ID + 1
+- Update build_gxo_mapping in genesis-baker/src/bake/output_map.rs to accept uv_rect parameter
+- Implement inverse UV projection with boundary checking to exclude somas outside physical chunk
+- Modify build_local_topology_internal in genesis-baker/src/bake/topology.rs with UV Projection Math
+- Replace pixel center calculation with mapped_u and mapped_v using matrix.uv_rect coordinates
+- Add CHANGELOG entries for versions 0.760.110 and 0.756.110 with ESP32 deployment notes
+- Document EXCLUDED_FOLDERS and EXCLUDED_FILES configuration in gen_commit.py artifact collection
+- Note ESP32 Zero-Copy Flash MMAP implementation with esp_partition_mmap for brain_topo partition
+
+
 ## [0.760.110] - 2026-03-18 05:30:29
 
 **[Tooling] Enhance artifact collection with exclusions**

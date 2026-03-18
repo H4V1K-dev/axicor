@@ -38,9 +38,14 @@ def test_distillation():
         # struct.pack_into("<IBBHIIII", mm, 0, 0x47454E53, 2, 0, 0, PADDED_N, 128, weights_off, targets_off)
         # 4 + 1+1+2 + 4 + 4 + 4 + 4 = 24 bytes. The remaining 40 bytes will be 0.
         
-        struct.pack_into("<IBBHIIII", mm, 0, 
-                         0x47454E53, 2, 0, 0, 
-                         PADDED_N, 128, weights_off, targets_off)
+        # [DOD FIX] Strict C-ABI v2 (64 bytes)
+        # <IBBHIIIIQIIIIIIII
+        struct.pack_into("<IBBHIIIIQIIIIIIII", mm, 0,
+                         0x47454E53, 2, 0, 0,
+                         PADDED_N, 128, weights_off, targets_off,
+                         0, # epoch
+                         PADDED_N, # total_axons (для теста равно padded_n)
+                         0, 0, ZONE_HASH, 0, 0, 0, 0)
         mm.close()
 
     # 2. Подключаем Data-Oriented SDK
