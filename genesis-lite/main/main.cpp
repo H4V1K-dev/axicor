@@ -14,8 +14,9 @@
 #include "driver/i2c.h"
 #include "driver/ledc.h"
 #include "driver/spi_master.h"
-#include "lwip/sockets.h"
 #include "lwip/netdb.h"
+#include "esp_partition.h"
+#include "spi_flash_mmap.h"
 #include "genesis_core.hpp"
 
 VariantParameters VARIANT_LUT[2];
@@ -23,6 +24,9 @@ SramState sram;
 FlashTopology flash;
 std::atomic<int16_t> global_dopamine{0}; 
 std::atomic<uint32_t> global_tick{0};
+
+spi_device_handle_t tui_spi;
+uint8_t* tui_dma_buffer = nullptr; // [DOD FIX] Объявляем глобально!
 
 #define SAFE_CALLOC(n, size) ({ \
     void* ptr = calloc((n), (size)); \
@@ -41,34 +45,54 @@ MotorOut motors;
 // [DOD] Глобальный Ring Buffer между ядрами
 LockFreeSpikeQueue rx_queue;
 
-void init_brain(uint32_t num_neurons) {
+void init_brain() { // [DOD FIX] Без аргументов!
+    // 1. Мапим Flash первым делом
+    const esp_partition_t* part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, "brain_topo");
+    if (!part) { printf("FATAL: Partition 'brain_topo' not found! Did you flash it?\n"); abort(); }
+
+    spi_flash_mmap_handle_t mmap_handle;
+    const void* map_ptr;
+    // [DOD FIX] Мапим только 1МБ вместо 8МБ, чтобы не исчерпать vaddr range на ESP32
+    uint32_t map_size = (part->size > 1024*1024) ? 1024*1024 : part->size;
+    esp_err_t err = esp_partition_mmap(part, 0, map_size, ESP_PARTITION_MMAP_DATA, &map_ptr, &mmap_handle);
+    if (err != ESP_OK) { printf("FATAL: spi_flash_mmap failed with code %d\n", err); abort(); }
+
+    // 2. Читаем C-ABI Заголовок
+    uint32_t* header = (uint32_t*)map_ptr;
+    if (header[0] != 0x4F504F54) { // Magic "TOPO"
+        printf("FATAL: Invalid Magic 0x%08X in Flash. Did you run distill_esp32.py?\n", (unsigned int)header[0]); abort();
+    }
+    uint32_t num_neurons = header[1];
+    printf("🧠 Flash Header OK! Auto-detected Neurons: %lu\n", (unsigned long)num_neurons);
+
     sram.padded_n = num_neurons;
     sram.total_axons = num_neurons;
 
+    // 3. Выделяем SRAM под реальный размер графа
     sram.voltage = (int32_t*)SAFE_CALLOC(num_neurons, sizeof(int32_t));
     sram.flags = (uint8_t*)SAFE_CALLOC(num_neurons, sizeof(uint8_t));
     sram.threshold_offset = (int32_t*)SAFE_CALLOC(num_neurons, sizeof(int32_t));
     sram.refractory_timer = (uint8_t*)SAFE_CALLOC(num_neurons, sizeof(uint8_t));
     sram.dendrite_weights = (int16_t*)SAFE_CALLOC(num_neurons * MAX_DENDRITE_SLOTS, sizeof(int16_t));
-    sram.dendrite_timers = (uint8_t*)SAFE_CALLOC(num_neurons * MAX_DENDRITE_SLOTS, sizeof(uint8_t)); // [DOD FIX]
+    sram.dendrite_timers = (uint8_t*)SAFE_CALLOC(num_neurons * MAX_DENDRITE_SLOTS, sizeof(uint8_t));
     
     // Выравнивание строго по 32 байтам для векторных инструкций Xtensa
     sram.axon_heads = (BurstHeads8*)heap_caps_aligned_calloc(
-        32, 
-        num_neurons, 
-        sizeof(BurstHeads8), 
-        MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL
+        32, num_neurons, sizeof(BurstHeads8), MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL
     );
     if (!sram.axon_heads) { printf("FATAL OOM: axon_heads\n"); abort(); }
 
-    flash.dendrite_targets = (uint32_t*)SAFE_CALLOC(num_neurons * MAX_DENDRITE_SLOTS, sizeof(uint32_t));
-    flash.soma_to_axon = (uint32_t*)SAFE_CALLOC(num_neurons, sizeof(uint32_t));
+    // 4. Сдвигаем указатели Flash на 64 байта (пропускаем заголовок)
+    flash.dendrite_targets = (uint32_t*)((uint8_t*)map_ptr + 64);
+    uint32_t targets_size_bytes = num_neurons * MAX_DENDRITE_SLOTS * sizeof(uint32_t);
+    flash.soma_to_axon = (uint32_t*)((uint8_t*)map_ptr + 64 + targets_size_bytes);
+    
+    printf("✅ MMAP Topology loaded from Flash: %d bytes mapped\n", (int)part->size);
 
-    // Выделяем буфер на 10 строк дисплея (240 пикселей * 10 строк * 2 байта RGB565)
-    // Строго в DMA-памяти!
+    // 5. TUI DMA буфер
     size_t dma_buf_size = 240 * 10 * 2;
     tui_dma_buffer = (uint8_t*)heap_caps_malloc(dma_buf_size, MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
-    if (!tui_dma_buffer) { printf("FATAL: Cannot allocate DMA buffer for TUI\n"); abort(); }
+    if (!tui_dma_buffer) { printf("FATAL OOM: TUI DMA\n"); abort(); }
 
     for(uint32_t i = 0; i < num_neurons; i++) {
         sram.axon_heads[i].h0 = AXON_SENTINEL;
@@ -88,45 +112,111 @@ void init_brain(uint32_t num_neurons) {
     VARIANT_LUT[0].signal_propagation_length = 3;
     VARIANT_LUT[0].gsop_potentiation = 60;
     VARIANT_LUT[0].gsop_depression = 30;
-    VARIANT_LUT[0].ltm_slot_count = 16;
-    VARIANT_LUT[0].slot_decay_ltm = 128; 
-    VARIANT_LUT[0].slot_decay_wm = 64;   
-    VARIANT_LUT[0].d1_affinity = 128;
-    VARIANT_LUT[0].d2_affinity = 128;
-    VARIANT_LUT[0].prune_threshold = 15; // [DOD FIX] Default pruning threshold
     for(int i=0; i<15; i++) VARIANT_LUT[0].inertia_curve[i] = 128 - (i * 8);
 
     printf("🧠 Genesis-Lite: %" PRIu32 " neurons. Memory Split: SRAM / Flash.\n", num_neurons);
 }
 
-inline uint32_t check_head_dist(uint32_t head, uint32_t seg_idx, uint32_t prop_len, uint32_t current_min) {
-    uint32_t d = head - seg_idx;
-    return (d <= prop_len && d < current_min) ? d : current_min;
+
+// [DOD] Minimal 5x7 Font (ASCII 32-90)
+// Инициализация через массив, совместимый с C++ (без десигнаторов)
+uint8_t font5x7[91][5] = {0};
+
+void init_font() {
+    auto set_char = [](char c, uint8_t b0, uint8_t b1, uint8_t b2, uint8_t b3, uint8_t b4) {
+        font5x7[(int)c][0] = b0; font5x7[(int)c][1] = b1; font5x7[(int)c][2] = b2;
+        font5x7[(int)c][3] = b3; font5x7[(int)c][4] = b4;
+    };
+    set_char(' ', 0x00, 0x00, 0x00, 0x00, 0x00);
+    set_char(':', 0x00, 0x00, 0x24, 0x00, 0x00);
+    set_char('-', 0x08, 0x08, 0x08, 0x08, 0x08);
+    set_char('0', 0x3E, 0x51, 0x49, 0x45, 0x3E);
+    set_char('1', 0x00, 0x42, 0x7F, 0x40, 0x00);
+    set_char('2', 0x42, 0x61, 0x51, 0x49, 0x46);
+    set_char('3', 0x21, 0x41, 0x45, 0x4B, 0x31);
+    set_char('4', 0x18, 0x14, 0x12, 0x7F, 0x10);
+    set_char('5', 0x27, 0x45, 0x45, 0x45, 0x39);
+    set_char('6', 0x3C, 0x4A, 0x49, 0x49, 0x30);
+    set_char('7', 0x01, 0x71, 0x09, 0x05, 0x03);
+    set_char('8', 0x36, 0x49, 0x49, 0x49, 0x36);
+    set_char('9', 0x06, 0x49, 0x49, 0x29, 0x1E);
+    set_char('A', 0x7E, 0x11, 0x11, 0x11, 0x7E);
+    set_char('D', 0x7F, 0x41, 0x41, 0x22, 0x1C);
+    set_char('L', 0x7F, 0x40, 0x40, 0x40, 0x40);
+    set_char('P', 0x7F, 0x09, 0x09, 0x09, 0x06);
+    set_char('R', 0x7F, 0x09, 0x19, 0x29, 0x46);
+    set_char('S', 0x46, 0x49, 0x49, 0x49, 0x31);
+    set_char('T', 0x01, 0x01, 0x7F, 0x01, 0x01);
 }
 
-// =========================================================
-// CORE 1: Day Phase (HFT Compute)
-// =========================================================
-// [DOD FIX] Night Phase: Сортировка и прунинг синапсов (burst_count сбрасывается в начале батча)
-void sort_and_prune_kernel(SramState& sram, FlashTopology& flash) {
-    for (uint32_t tid = 0; tid < sram.padded_n; tid++) {
-        uint8_t flag = sram.flags[tid];
-        // Прунинг синапсов (если реализован динамический вес)
-        uint8_t variant_id = (flag >> 4) & 0x0F;
-        int16_t threshold = VARIANT_LUT[variant_id].prune_threshold;
-...
+void draw_char(uint8_t* buf, int cursor_x, char c) {
+    if (cursor_x < 0 || cursor_x > 234) return;
+    if (c < 32 || c > 90) c = ' ';
+    for (int cx = 0; cx < 5; cx++) {
+        uint8_t line = font5x7[(int)c][cx];
+        for (int cy = 0; cy < 7; cy++) {
+            int px_idx = (cy * 240 + cursor_x + cx) * 2;
+            if (line & 0x01) {
+                buf[px_idx] = 0x07;     // Green High
+                buf[px_idx + 1] = 0xE0; // Green Low
+            } else {
+                buf[px_idx] = 0x00;
+                buf[px_idx + 1] = 0x00;
+            }
+            line >>= 1;
+        }
+    }
+}
 
-        for (int slot = 0; slot < MAX_DENDRITE_SLOTS; slot++) {
+void draw_number(uint8_t* buf, int& x, int32_t val) {
+    if (val < 0) {
+        draw_char(buf, x, '-'); x += 6;
+        val = -val;
+    }
+    char digits[10];
+    int len = 0;
+    if (val == 0) digits[len++] = '0';
+    while (val > 0 && len < 10) {
+        digits[len++] = '0' + (val % 10);
+        val /= 10;
+    }
+    for (int i = len - 1; i >= 0; i--) {
+        draw_char(buf, x, digits[i]);
+        x += 6;
+    }
+}
+
+void tui_render_stats_int(uint8_t* buffer, uint32_t tps, int32_t dopamine, uint32_t m_l, uint32_t m_r) {
+    memset(buffer, 0, 240 * 10 * 2);
+    int x = 4;
+    draw_char(buffer, x, 'T'); x += 6; draw_char(buffer, x, 'P'); x += 6; draw_char(buffer, x, 'S'); x += 6; draw_char(buffer, x, ':'); x += 6;
+    draw_number(buffer, x, tps); x += 12;
+    draw_char(buffer, x, 'D'); x += 6; draw_char(buffer, x, ':'); x += 6;
+    draw_number(buffer, x, dopamine); x += 12;
+    draw_char(buffer, x, 'L'); x += 6; draw_char(buffer, x, ':'); x += 6;
+    draw_number(buffer, x, m_l); x += 12;
+    draw_char(buffer, x, 'R'); x += 6; draw_char(buffer, x, ':'); x += 6;
+    draw_number(buffer, x, m_r);
+}
+
+// [DOD FIX] Night Phase: Сортировка и прунинг синапсов (Core 1)
+void sort_and_prune_kernel(SramState& sram, FlashTopology& flash, int16_t global_prune_threshold) {
+    int16_t threshold = global_prune_threshold;
+    
+    // [DOD FIX] Оптимизация под Columnar Layout (SRAM Locality)
+    for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {
+        for (uint32_t tid = 0; tid < sram.padded_n; tid++) {
             uint32_t col_idx = slot * sram.padded_n + tid;
+            uint32_t target = flash.dendrite_targets[col_idx];
+            if (target == 0) continue;
+
             int16_t w = sram.dendrite_weights[col_idx];
-            if (flash.dendrite_targets[col_idx] != 0 && std::abs(w) < threshold) {
+            // [DOD FIX] Обнуляем только SRAM. Flash-память остается неизменной.
+            // Связь структурно жива, но электрически мертва (Amnesia).
+            if (std::abs((int)w) < threshold) {
                 sram.dendrite_weights[col_idx] = 0;
-                flash.dendrite_targets[col_idx] = 0;
             }
         }
-        
-        // В Lite версии мы не делаем честную сортировку (Insertion Sort) в каждой Ночи, 
-        // так как MAX_DENDRITE_SLOTS всего 32 и это ESP32. Но прунинг обязателен.
     }
 }
 
@@ -146,7 +236,7 @@ void day_phase_task(void *pvParameter) {
 
         // [DOD FIX] Night Phase (каждые 100 тиков) — прунинг и сортировка
         if (tick % 100 == 0) {
-            sort_and_prune_kernel(sram, flash);
+            sort_and_prune_kernel(sram, flash, 15); // Global Prune Threshold = 15
         }
 
         // 0. Apply Spike Batch (Zero-Cost Injection)
@@ -183,36 +273,48 @@ void day_phase_task(void *pvParameter) {
         for(uint32_t tid = 0; tid < sram.padded_n; tid++) {
             uint8_t flags = sram.flags[tid];
             uint8_t variant_id = (flags >> 4) & 0x0F;
-            VariantParameters p = VARIANT_LUT[variant_id]; 
             
+            // [DOD FIX] Zero-Copy Read из L1 Cache (Никаких глубоких копий!)
+            const VariantParameters& p = VARIANT_LUT[variant_id];
+
             if (sram.refractory_timer[tid] > 0) {
                 sram.refractory_timer[tid] -= 1;
-                sram.flags[tid] &= ~0x01; 
+                sram.flags[tid] &= ~0x01;
                 continue;
             }
 
             int32_t current_voltage = sram.voltage[tid];
             int32_t i_in = 0;
 
-            for (int slot = 0; slot < MAX_DENDRITE_SLOTS; slot++) {
+            // [DOD FIX] Выгружаем константу в регистр ДО входа в горячий цикл
+            uint32_t prop = p.signal_propagation_length;
+
+            for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {
                 uint32_t col_idx = slot * sram.padded_n + tid;
                 uint32_t target_packed = flash.dendrite_targets[col_idx];
-                if (target_packed == 0) break; 
+
+                if (target_packed == 0) break; // Аппаратный Early Exit
 
                 uint32_t seg_idx = target_packed >> 24;
                 uint32_t axon_id = (target_packed & 0x00FFFFFF) - 1;
+                // [DOD FIX] True Zero-Copy Reference. Нет копирования 32 байт!
+                const BurstHeads8& h = sram.axon_heads[axon_id];
 
-                BurstHeads8 h = sram.axon_heads[axon_id];
-                uint32_t prop = p.signal_propagation_length;
+                // [DOD FIX] Branchless 8-head Hit Detection (SIMD-like OR)
+                uint32_t is_active = 
+                    ((h.h0 - seg_idx) <= prop) |
+                    ((h.h1 - seg_idx) <= prop) |
+                    ((h.h2 - seg_idx) <= prop) |
+                    ((h.h3 - seg_idx) <= prop) |
+                    ((h.h4 - seg_idx) <= prop) |
+                    ((h.h5 - seg_idx) <= prop) |
+                    ((h.h6 - seg_idx) <= prop) |
+                    ((h.h7 - seg_idx) <= prop);
 
-                // [DOD FIX] Branchless 8-head bitwise OR (Hit Detection)
-                bool hit = ((h.h0 - seg_idx) < prop) | ((h.h1 - seg_idx) < prop) |
-                           ((h.h2 - seg_idx) < prop) | ((h.h3 - seg_idx) < prop) |
-                           ((h.h4 - seg_idx) < prop) | ((h.h5 - seg_idx) < prop) |
-                           ((h.h6 - seg_idx) < prop) | ((h.h7 - seg_idx) < prop);
-                if (hit) {
-                    i_in += sram.dendrite_weights[col_idx];
-                }
+                int16_t w = sram.dendrite_weights[col_idx];
+                
+                // [DOD FIX] Branchless 1-cycle ALU masking
+                i_in += (w & -(int32_t)is_active);
             }
 
             current_voltage += i_in;
@@ -256,7 +358,8 @@ void day_phase_task(void *pvParameter) {
             if ((flags & 0x01) == 0) continue; 
 
             uint8_t variant_id = (flags >> 4) & 0x0F;
-            VariantParameters p = VARIANT_LUT[variant_id]; 
+            // [DOD FIX] Zero-Copy
+            const VariantParameters& p = VARIANT_LUT[variant_id];
             int32_t dopamine = global_dopamine.load(std::memory_order_relaxed);
 
             for (int slot = 0; slot < MAX_DENDRITE_SLOTS; slot++) {
@@ -271,29 +374,34 @@ void day_phase_task(void *pvParameter) {
                 uint32_t target_packed = flash.dendrite_targets[col_idx];
                 if (target_packed == 0) break;
 
+                // [DOD FIX] Поднимаем чтение веса. Предиктор переходов легко проглотит этот branch.
+                int16_t w = sram.dendrite_weights[col_idx];
+                if (w == 0) continue; 
+
                 uint32_t seg_idx = target_packed >> 24;
                 uint32_t axon_id = (target_packed & 0x00FFFFFF) - 1;
-                BurstHeads8 h = sram.axon_heads[axon_id];
+                
+                // [DOD FIX] True Zero-Copy для GSOP
+                const BurstHeads8& h = sram.axon_heads[axon_id];
                 uint32_t prop = p.signal_propagation_length;
 
-                // [DOD FIX] Опрос всего сдвигового регистра (8-Way Min Dist)
-                uint32_t min_dist = 0xFFFFFFFF;
-                min_dist = check_head_dist(h.h0, seg_idx, prop, min_dist);
-                min_dist = check_head_dist(h.h1, seg_idx, prop, min_dist);
-                min_dist = check_head_dist(h.h2, seg_idx, prop, min_dist);
-                min_dist = check_head_dist(h.h3, seg_idx, prop, min_dist);
-                min_dist = check_head_dist(h.h4, seg_idx, prop, min_dist);
-                min_dist = check_head_dist(h.h5, seg_idx, prop, min_dist);
-                min_dist = check_head_dist(h.h6, seg_idx, prop, min_dist);
-                min_dist = check_head_dist(h.h7, seg_idx, prop, min_dist);
-                bool is_active = (min_dist != 0xFFFFFFFF);
+                // [DOD FIX] Branchless 8-head Hit Detection
+                // Побитовое ИЛИ (|) запрещает компилятору создавать ветвления (jmp/br).
+                // Все 8 сравнений выполняются линейно.
+                uint32_t is_active = 
+                    ((h.h0 - seg_idx) <= prop) |
+                    ((h.h1 - seg_idx) <= prop) |
+                    ((h.h2 - seg_idx) <= prop) |
+                    ((h.h3 - seg_idx) <= prop) |
+                    ((h.h4 - seg_idx) <= prop) |
+                    ((h.h5 - seg_idx) <= prop) |
+                    ((h.h6 - seg_idx) <= prop) |
+                    ((h.h7 - seg_idx) <= prop);
 
-                // [DOD FIX] Устанавливаем таймер, если было касание
                 if (is_active) {
                     sram.dendrite_timers[col_idx] = p.synapse_refractory_period;
                 }
 
-                int16_t w = sram.dendrite_weights[col_idx];
                 int32_t w_sign = (w >= 0) ? 1 : -1;
                 int32_t abs_w = w >= 0 ? w : -w;
 
@@ -301,28 +409,27 @@ void day_phase_task(void *pvParameter) {
                 if (rank > 14) rank = 14;
                 int32_t inertia = p.inertia_curve[rank];
 
-                int32_t pot_mod = (dopamine * p.d1_affinity) >> 7;
-                int32_t dep_mod = (dopamine * p.d2_affinity) >> 7;
-
-                int32_t raw_pot = p.gsop_potentiation + pot_mod;
-                int32_t raw_dep = p.gsop_depression - dep_mod;
+                int32_t raw_pot = p.gsop_potentiation;
+                int32_t raw_dep = p.gsop_depression;
                 int32_t final_pot = raw_pot & ~(raw_pot >> 31);
                 int32_t final_dep = raw_dep & ~(raw_dep >> 31);
-
-                int32_t delta_pot = (final_pot * inertia) >> 7;
-                int32_t delta_dep = (final_dep * inertia) >> 7;
 
                 uint8_t burst_count = (flags >> 1) & 0x07;
                 int32_t burst_mult = (burst_count > 0) ? burst_count : 1;
 
-                uint32_t cooling_shift = is_active ? (min_dist >> 4) : 0;
-                int32_t delta = is_active ? ((delta_pot * burst_mult) >> cooling_shift) : -(delta_dep * burst_mult);
+                // [DOD FIX] Умножение до сдвига строго как в CUDA. Нет cooling_shift.
+                int32_t delta_pot = (final_pot * inertia * burst_mult) >> 7;
+                int32_t delta_dep = (final_dep * inertia * burst_mult) >> 7;
 
-                int32_t decay = (slot >= p.ltm_slot_count) ? p.slot_decay_wm : p.slot_decay_ltm;
-                delta = (delta * decay) >> 7;
+                int32_t delta = is_active ? delta_pot : -delta_dep;
+
+                // Fixed Slot Decay = 1.0x (128)
+                delta = (delta * 128) >> 7;
 
                 int32_t new_abs = abs_w + delta;
-                if (new_abs < 1) new_abs = 1;
+                
+                // Branchless clamp to 0..32767
+                new_abs = new_abs & ~(new_abs >> 31);
                 if (new_abs > 32767) new_abs = 32767;
 
                 sram.dendrite_weights[col_idx] = (int16_t)(new_abs * w_sign);
@@ -345,10 +452,6 @@ void day_phase_task(void *pvParameter) {
         if (tick % 100 == 0) {
             printf("⚡ Tick %" PRIu32 " | Hot loop time: %" PRId64 " us\n", tick, (int64_t)(end_time - start_time));
         }
-
-        if (tick % 10 == 0) {
-            vTaskDelay(pdMS_TO_TICKS(1)); 
-        }
     }
 }
 
@@ -365,9 +468,6 @@ void day_phase_task(void *pvParameter) {
 #define TUI_PIN_MOSI    23
 #define TUI_PIN_SCLK    18
 #define TUI_PIN_CS      5
-
-spi_device_handle_t tui_spi;
-uint8_t* tui_dma_buffer = nullptr;
 
 void init_hardware() {
     printf("⚙️ [Hardware] Initializing I2C & PWM...\n");
@@ -409,22 +509,20 @@ void init_hardware() {
         ledc_channel_config(&ledc_ch[i]);
     }
 
-    // 3. SPI Master Init for TUI (with DMA)
-    spi_bus_config_t buscfg = {
-        .mosi_io_num = TUI_PIN_MOSI,
-        .miso_io_num = -1,
-        .sclk_io_num = TUI_PIN_SCLK,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 240 * 10 * 2
-    };
-    spi_device_interface_config_t devcfg = {
-        .clock_speed_hz = 40 * 1000 * 1000, // 40 MHz
-        .mode = 0,
-        .spics_io_num = TUI_PIN_CS,
-        .queue_size = 1,
-        .flags = SPI_DEVICE_NO_DUMMY,
-    };
+    // [DOD FIX] Zero-Init гарантирует отсутствие проблем с порядком полей в C++
+    spi_bus_config_t buscfg = {};
+    buscfg.mosi_io_num = TUI_PIN_MOSI;
+    buscfg.miso_io_num = -1;
+    buscfg.sclk_io_num = TUI_PIN_SCLK;
+    buscfg.quadwp_io_num = -1;
+    buscfg.quadhd_io_num = -1;
+    buscfg.max_transfer_sz = 240 * 10 * 2;
+
+    spi_device_interface_config_t devcfg = {};
+    devcfg.clock_speed_hz = 20 * 1000 * 1000;
+    devcfg.mode = 0;
+    devcfg.spics_io_num = TUI_PIN_CS;
+    devcfg.queue_size = 7;
     ESP_ERROR_CHECK(spi_bus_initialize(TUI_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO));
     ESP_ERROR_CHECK(spi_bus_add_device(TUI_SPI_HOST, &devcfg, &tui_spi));
 }
@@ -579,8 +677,14 @@ void pro_core_task(void *pvParameter) {
             }
 
             if (!trans_in_flight) {
-                // Рендерим текст в tui_dma_buffer... (Заглушка)
-                // tui_render_stats(tui_dma_buffer, tps_ui, dopamine, m_left, m_right);
+                // [DOD FIX] Lock-Free Render stats into DMA buffer
+                tui_render_stats_int(
+                    tui_dma_buffer, 
+                    tps_ui, 
+                    global_dopamine.load(std::memory_order_relaxed),
+                    motors.left.load(std::memory_order_relaxed),
+                    motors.right.load(std::memory_order_relaxed)
+                );
 
                 memset(&trans, 0, sizeof(spi_transaction_t));
                 trans.length = 240 * 10 * 2 * 8; // В битах
@@ -595,15 +699,22 @@ void pro_core_task(void *pvParameter) {
 
         // Если сетевых пакетов не было, отдаем 1 тик (1 мс) ОС, чтобы не вешать Watchdog
         // В HFT-режиме это предотвращает голодание других задач FreeRTOS
+        // [DOD FIX] Гарантированный возврат кванта планировщику (IDLE0 WDT)
+        // При CONFIG_FREERTOS_HZ=1000 это ровно 1 мс.
         if (len <= 0) {
-            vTaskDelay(pdMS_TO_TICKS(1));
+            vTaskDelay(1); // Хардкод 1 тика вместо макроса
         }
-    }
-}
+        }
+        }
+
 
 extern "C" void app_main(void) {
+    // [DOD FIX] Даем UART консоли 2 секунды на подключение, чтобы ловить паники!
+    vTaskDelay(pdMS_TO_TICKS(2000));
     printf("🚀 Booting Genesis-Lite on FreeRTOS (Dual-Core)...\n");
-    init_brain(256);
+    
+    init_brain(); // Вызов без хардкода!
+    init_font();  // [DOD FIX] Инициализация шрифта
 
     // Поднимаем PRO Core (Сеть) на нулевом ядре
     xTaskCreatePinnedToCore(
@@ -615,4 +726,5 @@ extern "C" void app_main(void) {
         day_phase_task, "DayPhase", 8192, NULL, configMAX_PRIORITIES - 1, NULL, 1 
     );
 }
+
 

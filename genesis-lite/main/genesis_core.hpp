@@ -123,5 +123,5 @@ struct alignas(32) LockFreeSpikeQueue {
     }
 };
 
-// [DOD FIX] Night Phase: Сортировка и прунинг синапсов + Сброс аккумулятора burst_count
-void sort_and_prune_kernel(SramState& sram, FlashTopology& flash);
+// [DOD FIX] Night Phase: Сортировка и прунинг синапсов (Core 1)
+void sort_and_prune_kernel(SramState& sram, FlashTopology& flash, int16_t global_prune_threshold);

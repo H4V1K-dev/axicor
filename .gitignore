@@ -28,19 +28,25 @@ baked/
 .DS_Store
 Thumbs.db
 
-# Логи и дампы
-sdkconfig.old
-sdkconfig
-*.log.tmp
+# ESP-IDF
+genesis-lite/sdkconfig
+genesis-lite/sdkconfig.old
+# sdkconfig.defaults - НЕ ИГНОРИРУЕМ (нужен для общей конфигурации)
+
+# Дампы и временные файлы прошивки
+*shard.flash
+*shard.sram
+*.bin
+*.elf
+*.map
 *.dump
+# Логи
 *.log
+*.log.tmp
 *.pid
 *.bak
 *.new
 *.tmp
-*.bin
-*.elf
-*.map
 
 # Папки
 genesis-lite/build/

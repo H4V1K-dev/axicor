@@ -28,10 +28,11 @@ def build_cartpole_brain():
     
     # Компактный резервуар: 16x16x16 вокселей (400x400x400 мкм)
     # Максимальное время полета сигнала от края до края = 16 тиков.
-    cortex = builder.add_zone("SensoryCortex", width_vox=24, depth_vox=24, height_vox=16)
-    
+    cortex = builder.add_zone("SensoryCortex", width_vox=16, depth_vox=16, height_vox=16)
+
     try:
         exc_type = builder.gnm_lib("VISp4/141").set_plasticity(pot=0, dep=2)
+
         inh_type = builder.gnm_lib("VISp4/114").set_plasticity(pot=0, dep=2)
         
         # [DOD FIX] Изолированный тип для моторного слоя
@@ -50,8 +51,8 @@ def build_cartpole_brain():
         sys.exit(1)
     
     # Единый ядерный слой (Basal Ganglia / Cerebellum style)
-    # Плотность 0.4 даст нам около 1600 нейронов (идеально для CartPole)
-    cortex.add_layer("Nuclear", height_pct=1.0, density=0.4)\
+    # Плотность 0.2 даст нам около 819 нейронов (идеально для CartPole)
+    cortex.add_layer("Nuclear", height_pct=1.0, density=0.2)\
           .add_population(exc_type, fraction=0.5)\
           .add_population(inh_type, fraction=0.2)\
           .add_population(motor_type, fraction=0.3)
