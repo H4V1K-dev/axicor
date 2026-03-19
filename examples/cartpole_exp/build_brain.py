@@ -30,7 +30,7 @@ def build_cartpole_brain():
     builder.sim_params["segment_length_voxels"] = 2
     
     # Компактный резервуар: 16x16x30 вокселей (растягиваем по Z для лучшей изоляции слоев)
-    cortex = builder.add_zone("SensoryCortex", width_vox=16, depth_vox=16, height_vox=30)
+    cortex = builder.add_zone("SensoryCortex", width_vox=30, depth_vox=30, height_vox=30)
 
     try:
         # pot=0 (рост только от дофамина), dep=2 (постоянное выжигание мусора)
@@ -51,25 +51,25 @@ def build_cartpole_brain():
     # СЛОИ (Архитектура AntV4 Middle Layer + Isolation)
     # ============================================================
     # 1. Слой входов (Нижняя треть: 0-10 вокселей)
-    cortex.add_layer("L4_Sensory", height_pct=0.33, density=0.2)\
-          .add_population(exc_type, fraction=0.9)\
-          .add_population(inh_type, fraction=0.1)
+    cortex.add_layer("L4_Sensory", height_pct=0.33, density=0.45)\
+          .add_population(exc_type, fraction=0.7) \
+            .add_population(inh_type, fraction=0.3)
 
     # 2. Слой процессинга (Средняя треть: 10-20 вокселей) - Стиль AntV4
-    cortex.add_layer("L23_Middle", height_pct=0.34, density=0.25)\
-          .add_population(exc_type, fraction=0.7)\
-          .add_population(inh_type, fraction=0.3)
+    cortex.add_layer("L23_Middle", height_pct=0.34, density=0.45)\
+          .add_population(exc_type, fraction=0.6) \
+            .add_population(inh_type, fraction=0.4)
 
     # 3. Слой выходов (Верхняя треть: 20-30 вокселей) - Winner-Takes-All
-    cortex.add_layer("L5_Motor", height_pct=0.33, density=0.2)\
-          .add_population(motor_type, fraction=0.4)\
-          .add_population(inh_type, fraction=0.6)
+    cortex.add_layer("L5_Motor", height_pct=0.33, density=0.45)\
+          .add_population(motor_type, fraction=0.2)\
+          .add_population(inh_type, fraction=0.8)
           
     # ============================================================
     # I/O МАТРИЦЫ (SDK v2 Features)
     # ============================================================
     # Вход: прорастает снизу вверх, застревает в L4 (growth_steps=400)
-    cortex.add_input("cartpole_sensors", width=8, height=8, entry_z="bottom", growth_steps=400)
+    cortex.add_input("cartpole_sensors", width=8, height=8, entry_z="top", growth_steps=150)
     
     # Выход: мапится строго на верхнюю треть зоны (uv_rect), забирает сигнал только с Motor_Pyramidal
     # Мы используем новый функционал uv_rect для аппаратной фильтрации соматических выходов

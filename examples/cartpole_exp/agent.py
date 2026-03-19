@@ -40,19 +40,19 @@ ENCODER_SIGMA = 0.2           # Сигма энкодера (разброс пр
 # Целевой показатель (SMA за окно) для перехода к Дистилляции
 EXPLORATION_TARGET_SCORE = 400
 
-EXPLORE_NIGHT_INTERVAL = 50_000       # Периодичность сна
-EXPLORE_PRUNE_THRESHOLD = 1           # «фильтр выживания» для синапсов
+EXPLORE_NIGHT_INTERVAL = 10_000       # Периодичность сна
+EXPLORE_PRUNE_THRESHOLD = 5           # «фильтр выживания» для синапсов
 EXPLORE_MAX_SPROUTS = 128             # Максимальное количество новых связей
 # Баланс R-STDP (Near-Zero Economy)
 EXPLORE_DOPAMINE_PULSE = 0          # Околонулевая эрозия
 EXPLORE_DOPAMINE_REWARD = 3          # Микро-награда
-EXPLORE_DOPAMINE_PUNISHMENT = 0     # Death Signal
+EXPLORE_DOPAMINE_PUNISHMENT = -5     # Death Signal
 # Гиперпараметры Физики (GLIF & Receptors)
-EXPLORE_D1_AFFINITY = 172             # Аффинность D1
-EXPLORE_D2_AFFINITY = 252             # Аффинность D2
+EXPLORE_D1_AFFINITY = 150             # Аффинность D1
+EXPLORE_D2_AFFINITY = 220             # Аффинность D2
 EXPLORE_LEAK_RATE = 850               # Коэффициент утечки
-EXPLORE_HOMEOS_PENALTY = 5560         # Штраф за homeostasis
-EXPLORE_HOMEOS_DECAY = 49             # Декремент homeostasis
+EXPLORE_HOMEOS_PENALTY = 2500         # Штраф за homeostasis
+EXPLORE_HOMEOS_DECAY = 100             # Декремент homeostasis
 # Тюнинг Градиента (Error Gradient)
 EXPLORE_ERROR_ANGLE_WEIGHT = 0.8      # Вес ошибки угла
 EXPLORE_ERROR_VEL_WEIGHT = 0.2        # Вес ошибки скорости
@@ -70,29 +70,29 @@ EXPLORE_SHOCK_MAX_BATCHES = 5         # Предохранитель: макс. 
 # Целевой показатель (SMA за окно) для перехода к Кристаллизации
 DISTILLATION_TARGET_SCORE = 600
 
-DISTILL_NIGHT_INTERVAL = 5_000
-DISTILL_PRUNE_THRESHOLD = 10
-DISTILL_MAX_SPROUTS = 64
-# Баланс R-STDP
-DISTILL_DOPAMINE_PULSE = -2
-DISTILL_DOPAMINE_REWARD = 12
-DISTILL_DOPAMINE_PUNISHMENT = 0
-# Гиперпараметры Физики
-DISTILL_D1_AFFINITY = 85
-DISTILL_D2_AFFINITY = 128
-DISTILL_LEAK_RATE = 425
-DISTILL_HOMEOS_PENALTY = 2780
-DISTILL_HOMEOS_DECAY = 24
-# Тюнинг Градиента
-DISTILL_ERROR_ANGLE_WEIGHT = 0.8
-DISTILL_ERROR_VEL_WEIGHT = 0.2
-DISTILL_ANGLE_LIMIT = 0.2094
-DISTILL_VELOCITY_LIMIT = 2.0
-# Тюнинг Болевого Шока
-DISTILL_SHOCK_BASE = 0
-DISTILL_SHOCK_SCORE_BITSHIFT = 5
-DISTILL_SHOCK_VEL_MULT = 2
-DISTILL_SHOCK_MAX_BATCHES = 10
+DISTILLATION_NIGHT_INTERVAL = 20_000       # Периодичность сна
+DISTILLATION_PRUNE_THRESHOLD = 0           # «фильтр выживания» для синапсов
+DISTILLATION_MAX_SPROUTS = 32             # Максимальное количество новых связей
+# Баланс R-STDP (Near-Zero Economy)
+DISTILLATION_DOPAMINE_PULSE = 0          # Околонулевая эрозия
+DISTILLATION_DOPAMINE_REWARD = 4          # Микро-награда
+DISTILLATION_DOPAMINE_PUNISHMENT = -5     # Death Signal
+# Гиперпараметры Физики (GLIF & Receptors)
+DISTILLATION_D1_AFFINITY = 150             # Аффинность D1
+DISTILLATION_D2_AFFINITY = 220             # Аффинность D2
+DISTILLATION_LEAK_RATE = 8500               # Коэффициент утечки
+DISTILLATION_HOMEOS_PENALTY = 2500         # Штраф за homeostasis
+DISTILLATION_HOMEOS_DECAY = 100             # Декремент homeostasis
+# Тюнинг Градиента (Error Gradient)
+DISTILLATION_ERROR_ANGLE_WEIGHT = 0.8      # Вес ошибки угла
+DISTILLATION_ERROR_VEL_WEIGHT = 0.2        # Вес ошибки скорости
+DISTILLATION_ANGLE_LIMIT = 0.2094          # 12 градусов
+DISTILLATION_VELOCITY_LIMIT = 2.0          # Максимальная скорость
+# Тюнинг Болевого Шока (Kinetic & Emotional Amplifier)
+DISTILLATION_SHOCK_BASE = 0                # Базовое кол-во батчей боли (минимум при любом падении)
+DISTILLATION_SHOCK_SCORE_BITSHIFT = 0      # Штраф за "обидное" падение: чем выше счет, тем дольше боль (score >> 5) Но стоит ли наказывать тех выдержал почти до конца?
+DISTILLATION_SHOCK_VEL_MULT = 1            # Кинетический штраф: сильнее наказывает за падение на высокой скорости
+DISTILLATION_SHOCK_MAX_BATCHES = 3         # Предохранитель: макс. кол-во батчей боли, чтобы не выжечь мозг в ноль
 
 #============================================================
 #               Этап CRYSTALLIZED
@@ -100,29 +100,29 @@ DISTILL_SHOCK_MAX_BATCHES = 10
 # Целевой показатель (SMA за окно) для перехода к Кристаллизации
 CRYSTALLIZATION_TARGET_SCORE = 800
 
-CRYSTALLIZED_NIGHT_INTERVAL = 0
-CRYSTALLIZED_PRUNE_THRESHOLD = 0
-CRYSTALLIZED_MAX_SPROUTS = 0
-# Баланс R-STDP
-CRYSTALLIZED_DOPAMINE_PULSE = 0
-CRYSTALLIZED_DOPAMINE_REWARD = 0
-CRYSTALLIZED_DOPAMINE_PUNISHMENT = 0
-# Гиперпараметры Физики
-CRYSTALLIZED_D1_AFFINITY = 0
-CRYSTALLIZED_D2_AFFINITY = 0
-CRYSTALLIZED_LEAK_RATE = 0
-CRYSTALLIZED_HOMEOS_PENALTY = 0
-CRYSTALLIZED_HOMEOS_DECAY = 0
-# Тюнинг Градиента
-CRYSTALLIZED_ERROR_ANGLE_WEIGHT = 0 
-CRYSTALLIZED_ERROR_VEL_WEIGHT = 0
-CRYSTALLIZED_ANGLE_LIMIT = 0
-CRYSTALLIZED_VELOCITY_LIMIT = 0
-# Тюнинг Болевого Шока
-CRYSTALLIZED_SHOCK_BASE = 0
-CRYSTALLIZED_SHOCK_SCORE_BITSHIFT = 5
-CRYSTALLIZED_SHOCK_VEL_MULT = 5
-CRYSTALLIZED_SHOCK_MAX_BATCHES = 2
+CRYSTALLIZATION_NIGHT_INTERVAL = 500_000       # Периодичность сна
+CRYSTALLIZATION_PRUNE_THRESHOLD = 500           # «фильтр выживания» для синапсов
+CRYSTALLIZATION_MAX_SPROUTS = 128             # Максимальное количество новых связей
+# Баланс R-STDP (Near-Zero Economy)
+CRYSTALLIZATION_DOPAMINE_PULSE = 0          # Околонулевая эрозия
+CRYSTALLIZATION_DOPAMINE_REWARD = 3          # Микро-награда
+CRYSTALLIZATION_DOPAMINE_PUNISHMENT = 0     # Death Signal
+# Гиперпараметры Физики (GLIF & Receptors)
+CRYSTALLIZATION_D1_AFFINITY = 172             # Аффинность D1
+CRYSTALLIZATION_D2_AFFINITY = 252             # Аффинность D2
+CRYSTALLIZATION_LEAK_RATE = 850               # Коэффициент утечки
+CRYSTALLIZATION_HOMEOS_PENALTY = 5560         # Штраф за homeostasis
+CRYSTALLIZATION_HOMEOS_DECAY = 49             # Декремент homeostasis
+# Тюнинг Градиента (Error Gradient)
+CRYSTALLIZATION_ERROR_ANGLE_WEIGHT = 0.8      # Вес ошибки угла
+CRYSTALLIZATION_ERROR_VEL_WEIGHT = 0.2        # Вес ошибки скорости
+CRYSTALLIZATION_ANGLE_LIMIT = 0.2094          # 12 градусов
+CRYSTALLIZATION_VELOCITY_LIMIT = 2.0          # Максимальная скорость
+# Тюнинг Болевого Шока (Kinetic & Emotional Amplifier)
+CRYSTALLIZATION_SHOCK_BASE = 0                # Базовое кол-во батчей боли (минимум при любом падении)
+CRYSTALLIZATION_SHOCK_SCORE_BITSHIFT = 0      # Штраф за "обидное" падение: чем выше счет, тем дольше боль (score >> 5) Но стоит ли наказывать тех выдержал почти до конца?
+CRYSTALLIZATION_SHOCK_VEL_MULT = 5            # Кинетический штраф: сильнее наказывает за падение на высокой скорости
+CRYSTALLIZATION_SHOCK_MAX_BATCHES = 5         # Предохранитель: макс. кол-во батчей боли, чтобы не выжечь мозг в ноль
 
 #============================================================
 #               END OF CONFIGURATION
@@ -206,47 +206,47 @@ def run_cartpole():
 
         # Distillation
         distill_target_score=DISTILLATION_TARGET_SCORE,
-        distill_prune=DISTILL_PRUNE_THRESHOLD,
-        distill_night=DISTILL_NIGHT_INTERVAL,
-        distill_sprouts=DISTILL_MAX_SPROUTS,
-        distill_dopamine_pulse=DISTILL_DOPAMINE_PULSE,
-        distill_dopamine_reward=DISTILL_DOPAMINE_REWARD,
-        distill_dopamine_punish=DISTILL_DOPAMINE_PUNISHMENT,
-        distill_leak=DISTILL_LEAK_RATE,
-        distill_homeos_penalty=DISTILL_HOMEOS_PENALTY,
-        distill_homeos_decay=DISTILL_HOMEOS_DECAY,
-        distill_d1=DISTILL_D1_AFFINITY,
-        distill_d2=DISTILL_D2_AFFINITY,
-        distill_err_angle=DISTILL_ERROR_ANGLE_WEIGHT,
-        distill_err_vel=DISTILL_ERROR_VEL_WEIGHT,
-        distill_angle_limit=DISTILL_ANGLE_LIMIT,
-        distill_vel_limit=DISTILL_VELOCITY_LIMIT,
-        distill_shock_base=DISTILL_SHOCK_BASE,
-        distill_shock_bitshift=DISTILL_SHOCK_SCORE_BITSHIFT,
-        distill_shock_vel_mult=DISTILL_SHOCK_VEL_MULT,
-        distill_shock_max_batches=DISTILL_SHOCK_MAX_BATCHES,
+        distill_prune=DISTILLATION_PRUNE_THRESHOLD,
+        distill_night=DISTILLATION_NIGHT_INTERVAL,
+        distill_sprouts=DISTILLATION_MAX_SPROUTS,
+        distill_dopamine_pulse=DISTILLATION_DOPAMINE_PULSE,
+        distill_dopamine_reward=DISTILLATION_DOPAMINE_REWARD,
+        distill_dopamine_punish=DISTILLATION_DOPAMINE_PUNISHMENT,
+        distill_leak=DISTILLATION_LEAK_RATE,
+        distill_homeos_penalty=DISTILLATION_HOMEOS_PENALTY,
+        distill_homeos_decay=DISTILLATION_HOMEOS_DECAY,
+        distill_d1=DISTILLATION_D1_AFFINITY,
+        distill_d2=DISTILLATION_D2_AFFINITY,
+        distill_err_angle=DISTILLATION_ERROR_ANGLE_WEIGHT,
+        distill_err_vel=DISTILLATION_ERROR_VEL_WEIGHT,
+        distill_angle_limit=DISTILLATION_ANGLE_LIMIT,
+        distill_vel_limit=DISTILLATION_VELOCITY_LIMIT,
+        distill_shock_base=DISTILLATION_SHOCK_BASE,
+        distill_shock_bitshift=DISTILLATION_SHOCK_SCORE_BITSHIFT,
+        distill_shock_vel_mult=DISTILLATION_SHOCK_VEL_MULT,
+        distill_shock_max_batches=DISTILLATION_SHOCK_MAX_BATCHES,
         
         # Crystallized
         crystallized_target_score=CRYSTALLIZATION_TARGET_SCORE,
-        crystallized_prune=CRYSTALLIZED_PRUNE_THRESHOLD,
-        crystallized_night=CRYSTALLIZED_NIGHT_INTERVAL,
-        crystallized_sprouts=CRYSTALLIZED_MAX_SPROUTS,
-        crystallized_dopamine_pulse=CRYSTALLIZED_DOPAMINE_PULSE,
-        crystallized_dopamine_reward=CRYSTALLIZED_DOPAMINE_REWARD,
-        crystallized_dopamine_punish=CRYSTALLIZED_DOPAMINE_PUNISHMENT,
-        crystallized_leak=CRYSTALLIZED_LEAK_RATE,
-        crystallized_homeos_penalty=CRYSTALLIZED_HOMEOS_PENALTY,
-        crystallized_homeos_decay=CRYSTALLIZED_HOMEOS_DECAY,
-        crystallized_d1=CRYSTALLIZED_D1_AFFINITY,
-        crystallized_d2=CRYSTALLIZED_D2_AFFINITY,
-        crystallized_err_angle=CRYSTALLIZED_ERROR_ANGLE_WEIGHT,
-        crystallized_err_vel=CRYSTALLIZED_ERROR_VEL_WEIGHT,
-        crystallized_angle_limit=CRYSTALLIZED_ANGLE_LIMIT,
-        crystallized_vel_limit=CRYSTALLIZED_VELOCITY_LIMIT,
-        crystallized_shock_base=CRYSTALLIZED_SHOCK_BASE,
-        crystallized_shock_bitshift=CRYSTALLIZED_SHOCK_SCORE_BITSHIFT,
-        crystallized_shock_vel_mult=CRYSTALLIZED_SHOCK_VEL_MULT,
-        crystallized_shock_max_batches=CRYSTALLIZED_SHOCK_MAX_BATCHES
+        crystallized_prune=CRYSTALLIZATION_PRUNE_THRESHOLD,
+        crystallized_night=CRYSTALLIZATION_NIGHT_INTERVAL,
+        crystallized_sprouts=CRYSTALLIZATION_MAX_SPROUTS,
+        crystallized_dopamine_pulse=CRYSTALLIZATION_DOPAMINE_PULSE,
+        crystallized_dopamine_reward=CRYSTALLIZATION_DOPAMINE_REWARD,
+        crystallized_dopamine_punish=CRYSTALLIZATION_DOPAMINE_PUNISHMENT,
+        crystallized_leak=CRYSTALLIZATION_LEAK_RATE,
+        crystallized_homeos_penalty=CRYSTALLIZATION_HOMEOS_PENALTY,
+        crystallized_homeos_decay=CRYSTALLIZATION_HOMEOS_DECAY,
+        crystallized_d1=CRYSTALLIZATION_D1_AFFINITY,
+        crystallized_d2=CRYSTALLIZATION_D2_AFFINITY,
+        crystallized_err_angle=CRYSTALLIZATION_ERROR_ANGLE_WEIGHT,
+        crystallized_err_vel=CRYSTALLIZATION_ERROR_VEL_WEIGHT,
+        crystallized_angle_limit=CRYSTALLIZATION_ANGLE_LIMIT,
+        crystallized_vel_limit=CRYSTALLIZATION_VELOCITY_LIMIT,
+        crystallized_shock_base=CRYSTALLIZATION_SHOCK_BASE,
+        crystallized_shock_bitshift=CRYSTALLIZATION_SHOCK_SCORE_BITSHIFT,
+        crystallized_shock_vel_mult=CRYSTALLIZATION_SHOCK_VEL_MULT,
+        crystallized_shock_max_batches=CRYSTALLIZATION_SHOCK_MAX_BATCHES
     )
     
     # [DOD FIX] Принудительная установка интервалов
