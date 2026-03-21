@@ -8,6 +8,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.844.120] - 2026-03-21 15:41:21
+
+**[Documentation] Update README with badges, clarify architecture, and ref**
+
+### Added
+- Add status, language, last commit, and license badges to README header
+- Replace em dash with en dash for consistency in Russian text
+- Remove CartPole benchmark table and performance metrics section
+- Update quick start instructions to reference ant_exp example instead of ant
+- Clarify component table by adding genesis-client Python SDK as a core component
+- Update project status to reflect ongoing pre-alpha development and MVP stabilization
+- Add timeout parameter to GenesisMultiClient.__init__ for configurable UDP response wait
+- Replace blocking socket with settimeout to enable Biological Amnesia on packet loss
+- Implement try/except block in sync_and_swap to catch socket.timeout and TimeoutError
+- Print warning and return empty memoryview slice on timeout, simulating spike drop
+- Add PopulationDecoder class in genesis/decoders.py for center-of-mass decoding
+- Define constructor with variables_count, neurons_per_var, and batch_size parameters
+- Implement decode_from method with Amnesia Defense returning neutral state (0.5) on empty input
+- Utilize zero-copy casting via np.frombuffer and internal np.float16 buffers for efficiency
+- Create test_checkpointing.py with 94 lines for state serialization/deserialization tests
+- Create test_client_timeout.py with 37 lines to validate Biological Amnesia behavior
+- Create test_population_decoder.py with 66 lines to verify PopulationDecoder functionality
+- Expand genesis/memory.py with additional structures or utilities for memory management
+
+
 ## [0.839.119] - 2026-03-21 15:02:26
 
 **[Architecture] Implement IoMatrixDesigner for MTU-aware input/output fra**

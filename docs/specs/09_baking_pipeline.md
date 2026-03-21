@@ -239,6 +239,9 @@ if let Ok(parsed) = genesis_runtime::output::GxoFile::load(path) {
 └──────────────────────────────────────┘
 ```
 
+**Аппаратное выравнивание (The 64-Byte Alignment Rule):**
+Глобальное выравнивание до числа, кратного 64, математически гарантирует, что длины всех внутренних SoA-массивов (4N, 2N, 1N байт) будут кратны 64 байтам. Это обеспечивает идеальное начало каждого следующего массива с новой L2 кэш-линии без использования грязных padding bytes внутри блоба. Это критично для Coalesced Access на AMD Wavefront (64 потока) и исключения cache thrashing на L2.
+
 Загрузка в рантайм: Эксклюзивно для Baker Daemon (Night Phase) через `memmap2::MmapMut`. GPU этот файл не видит и не читает.
 
 ---
@@ -278,7 +281,7 @@ fn init_runtime(config_dir: Path):
         // 3b. Load Input Mapping
         gxi = GxiFile::load("baked/{zone}/shard.gxi") if exists
         alloc Input_Bitmask on GPU:
-            size = sync_batch_ticks × ⌈gxi.total_pixels / 32⌉ × 4 bytes
+            size = sync_batch_ticks × ⌈gxi.total_pixels / 64⌉ × 8 bytes  // Aligned to 64-bit words for Coalesced Access
 
         // 3c. Load Output Mapping
         gxo = GxoFile::load("baked/{zone}/shard.gxo") if exists

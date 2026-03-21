@@ -10,41 +10,40 @@ pub type VoxelCoord = u32;
 use bytemuck::{Pod, Zeroable};
 
 /// Packed 3D position and neuron type for CPU/Night Phase.
-/// Bit layout: [Type(4b) | Z(6b) | Y(11b) | X(11b)]
+/// Bit layout: [Type(4b) | Z(8b) | Y(10b) | X(10b)]
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug, PartialEq, Eq, Hash)]
 pub struct PackedPosition(pub u32);
 
 impl PackedPosition {
     /// Упаковывает сырые индексы вокселей и тип в один u32 регистр.
-    /// Layout: X (11 bit) | Y (11 bit) | Z (6 bit) | Type (4 bit)
+    /// Layout: X (10 bit) | Y (10 bit) | Z (8 bit) | Type (4 bit)
     #[inline(always)]
     pub fn pack_raw(x_idx: u32, y_idx: u32, z_idx: u32, type_idx: u8) -> Self {
-        let x_q = x_idx & 0x7FF; 
-        let y_q = y_idx & 0x7FF;
-        let z_q = z_idx & 0x3F;  
-        let t_q = (type_idx as u32) & 0xF;   
-        
-        Self(x_q | (y_q << 11) | (z_q << 22) | (t_q << 28))
+        let x_q = x_idx & 0x3FF;
+        let y_q = y_idx & 0x3FF;
+        let z_q = z_idx & 0xFF;
+        let t_q = (type_idx as u32) & 0xF;
+
+        Self(x_q | (y_q << 10) | (z_q << 20) | (t_q << 28))
     }
 
     #[inline(always)]
     pub const fn new(x: u32, y: u32, z: u32, type_id: u8) -> Self {
-        let x_q = x & 0x7FF; 
-        let y_q = y & 0x7FF;
-        let z_q = z & 0x3F;  
-        let t_q = (type_id as u32) & 0xF;   
-        
-        Self(x_q | (y_q << 11) | (z_q << 22) | (t_q << 28))
+        let x_q = x & 0x3FF;
+        let y_q = y & 0x3FF;
+        let z_q = z & 0xFF;
+        let t_q = (type_id as u32) & 0xF;
+
+        Self(x_q | (y_q << 10) | (z_q << 20) | (t_q << 28))
     }
 
     // Методы для GPU-вычислений (если потребуются на CPU)
     #[inline(always)] pub const fn type_id(&self) -> u8 { (self.0 >> 28) as u8 }
-    #[inline(always)] pub const fn x(&self) -> u16 { (self.0 & 0x7FF) as u16 }
-    #[inline(always)] pub const fn y(&self) -> u16 { ((self.0 >> 11) & 0x7FF) as u16 }
-    #[inline(always)] pub const fn z(&self) -> u8 { ((self.0 >> 22) & 0x3F) as u8 }
+    #[inline(always)] pub const fn x(&self) -> u16 { (self.0 & 0x3FF) as u16 }
+    #[inline(always)] pub const fn y(&self) -> u16 { ((self.0 >> 10) & 0x3FF) as u16 }
+    #[inline(always)] pub const fn z(&self) -> u8 { ((self.0 >> 20) & 0xFF) as u8 }
 }
-
 // --- GPU Runtime Flags ---
 
 pub const FLAG_IS_SPIKING: u8 = 0b0000_0001; // Bit 0
@@ -81,11 +80,11 @@ mod tests {
 
     #[test]
     fn test_packed_position_boundaries() {
-        // Max values for 11/11/6/4 layout
-        let p = PackedPosition::new(2047, 2047, 63, 15);
-        assert_eq!(p.x(), 2047);
-        assert_eq!(p.y(), 2047);
-        assert_eq!(p.z(), 63);
+        // Max values for 10/10/8/4 layout
+        let p = PackedPosition::new(1023, 1023, 255, 15);
+        assert_eq!(p.x(), 1023);
+        assert_eq!(p.y(), 1023);
+        assert_eq!(p.z(), 255);
         assert_eq!(p.type_id(), 15);
         assert_eq!(p.0, 0xFFFFFFFF); // All bits set
 
@@ -98,9 +97,9 @@ mod tests {
         assert_eq!(p0.0, 0);
 
         // Mixed values
-        let pm = PackedPosition::new(123, 1456, 48, 9);
+        let pm = PackedPosition::new(123, 1000, 48, 9);
         assert_eq!(pm.x(), 123);
-        assert_eq!(pm.y(), 1456);
+        assert_eq!(pm.y(), 1000);
         assert_eq!(pm.z(), 48);
         assert_eq!(pm.type_id(), 9);
     }

@@ -125,10 +125,12 @@ impl InterNodeRouter {
         src_zone_hash: u32,
         target_zone_hash: u32,
         events: &[crate::network::SpikeEvent],
-        epoch: u32, 
+        epoch: u32,
     ) {
         let Some((target_addr, peer_mtu)) = self.routing_table.get_address(target_zone_hash) else { return; };
-        let max_events_per_packet: usize = (peer_mtu as usize - 16) / 8;
+
+        let safe_mtu = std::cmp::max(peer_mtu as usize, 1400); // 1400 is the minimum safe MTU for ESP32
+        let max_events_per_packet: usize = (safe_mtu - 16) / 8;
 
         // Отправка пустого Heartbeat, если спайков нет
         if events.is_empty() {

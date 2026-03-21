@@ -449,7 +449,7 @@ impl NodeRuntime {
             // [DOD] 7. Wait for Ingress data (Strict BSP network sync)
             self.services.bsp_barrier.wait_for_data_sync();
 
-            self.services.bsp_barrier.sync_and_swap();
+            self.services.bsp_barrier.sync_and_swap((batch_counter & 0xFFFFFFFF) as u32);
 
             // [DOD FIX] 8. Dynamic Capacity Routing: Hot-Patching VRAM
             // Барьер пройден, GPU стоит. Идеальное время переписать 8 байт по шине PCIe.

@@ -14,9 +14,12 @@
 
 Движок не парсит данные при старте. Бинарные файлы `.state` и `.axons` — это чистые дампы памяти (Headerless), готовые к `cudaMemcpyAsync` или `spi_flash_mmap` (ESP32).
 
+**Аппаратное выравнивание (The 64-Byte Alignment Rule):**
+Глобальное выравнивание `padded_n` до числа, кратного 64, математически гарантирует, что длины всех внутренних SoA-массивов (4N, 2N, 1N байт) будут кратны 64 байтам. Это обеспечивает идеальное начало каждого следующего массива с новой L2 кэш-линии без использования грязных padding bytes внутри блоба. Это критично для Coalesced Access на AMD Wavefront (64 потока) и исключения cache thrashing на L2.
+
 **Раскладка ShardVramPtrs (строгий побайтовый порядок в .state блобе):**
 
-Размеры массивов зависят от `N` (`padded_n`, выровненного по 32).
+Размеры массивов зависят от `N` (`padded_n`, выровненного по 64).
 *   `soma_voltage`       [N] × `i32`   (4N bytes)
 *   `soma_flags`         [N] × `u8`    (1N bytes)
 *   `threshold_offset`   [N] × `i32`   (4N bytes)
@@ -32,12 +35,12 @@
 Вынесены в отдельный файл, так как количество аксонов `A` (`total_axons` = Local + Ghost + Virtual) не равно `N`.
 *   `axon_heads`         [A] × `BurstHeads8` (32A bytes)
 
-**Инвариант 32-байтного Выравнивания Аксонов:** 
-Структура `BurstHeads8` обязана быть выровнена по 32 байтам. На Xtensa LX7 (ESP32) чтение невыровненных 32-байтных блоков через векторные инструкции вызовет аппаратное исключение.
+**Инвариант 64-байтного Выравнивания Аксонов:** 
+Структура `BurstHeads8` обязана быть выровнена по 64 байтам. На Xtensa LX7 (ESP32) чтение невыровненных 32-байтных блоков через векторные инструкции вызовет аппаратное исключение. 64-байтовое выравнивание гарантирует идеальную работу L2 кэша и AMD Wavefront.
 
 ```cpp
-// 32-byte alignment гарантирует загрузку 8 голов за 1 транзакцию L1 кэша.
-struct alignas(32) BurstHeads8 {
+// 64-byte alignment гарантирует загрузку 8 голов за 1 транзакцию L1 кэша и отсутствие cache thrashing в L2.
+struct alignas(64) BurstHeads8 {
     uint32_t h0; uint32_t h1; uint32_t h2; uint32_t h3;
     uint32_t h4; uint32_t h5; uint32_t h6; uint32_t h7;
 };
@@ -111,8 +114,6 @@ struct GenesisConstantMemory {
 | **Linux** | POSIX `shm_open()` → `/dev/shm/*.state.shm` | Unix Domain Sockets (**UDS**); Fast-Path UDP для Data Plane |
 | **Windows** | File-backed mmap в `%TEMP%` → файлы `*.state.bin.mmap` | TCP/IP на портах `19000 + (hash % 1000)` для Control & Data Plane |
 | **Darwin (macOS)** | POSIX `shm_open()` (аналог Linux) | UDS + TCP fallback для Legacy Systems |
-
-**Выбор платформы:** Compile-time через `cfg!(target_os)`. Runtime auto-detection переносится на stage bootstrap (инициализация Node в Distributed Cluster).
 
 #### 1.6.2. Page-Aligned Memory Guarantee (4096 bytes)
 
@@ -256,7 +257,7 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
 | `0x04` | `version` | `u8` | Текущая версия = **2** |
 | `0x05` | `state` | `u8` | State Machine (0=Idle, 1=NightStart, 2=Sprouting, 3=NightDone, 4=Error) |
 | `0x06` | `_pad` | `u16` | Выравнивание |
-| `0x08` | `padded_n` | `u32` | Количество нейронов (кратно 32) |
+| `0x08` | `padded_n` | `u32` | Количество нейронов (кратно 64) |
 | `0x0C` | `dendrite_slots` | `u32` | Всегда 128 |
 | `0x10` | `weights_offset` | `u32` | Смещение до i16 массива весов (кратно 64) |
 | `0x14` | `targets_offset` | `u32` | Смещение до u32 массива целей (кратно 64) |
@@ -329,7 +330,7 @@ pub fn validate_shard_memory_contract(header: &ShardStateHeader) -> Result<()> {
 | **1** | **GPU** | **Sort & Prune** | Segmented Radix Sort: 128 слотов по `abs(weight)` (descending). Слоты с `abs(w) < threshold` обнуляются. Шина PCIe не забивается мусором. |
 | **2** | **PCIe** | **Download** (VRAM → RAM) | `cudaMemcpyAsync` только изменённых массивов (веса + targets). Статическая геометрия уже известна хосту. |
 | **3** | **CPU** | **Sprouting & Nudging** | Тяжёлая фаза. Cone Tracing для пустых слотов (Spatial Hash), рост отростков, создание Ghost Axons для межшардовых путей. Длительность зависит от железа и turnover rate. |
-| **4** | **CPU** | **Baking** | Дефрагментация топологии → новый `.axons`. Подготовка SoA-массивов с выравниванием по 32 (Warp Alignment). |
+| **4** | **CPU** | **Baking** | Дефрагментация топологии → новый `.axons`. Подготовка SoA-массивов с выравниванием по 64 (L2 Cache Line & AMD Wavefront). |
 | **5** | **PCIe** | **Upload** (RAM → VRAM) | `cudaMemcpyAsync` свежих данных. Шард мгновенно возвращается в строй и продолжает проекцию эпох через AEP. |
 
 **Длительность фазы Maintenance - плавающая.** Зависит от количества нейронов, turnover rate и мощности CPU. Быстрый CPU = быстрый метаболизм, короткий сон. Это легализовано через [Structural Determinism](./01_foundations.md) (§2.3).
@@ -392,21 +393,17 @@ Shared Memory (AoS, per warp):
 **a) f32 → u32 Quantization:**
 - Float-координаты квантуются через `step_and_pack()` → `PackedPosition` (4 bytes/segment).
 
-#### 2.2.4. Step 4: Baking & Defragmentation (CPU)
-
-**a) f32 → u32 Quantization:**
-- Float-координаты квантуются через `step_and_pack()` → `PackedPosition` (4 bytes/segment).
-
 **b) DenseIndex Generation:**
 - GPU работает с dense indices (0..N-1), не с PackedPosition.
-- CPU строит маппинг: `PackedPosition → dense_id` для всех `target_packed` в массиве дендритов.
+- CPU строить маппинг: `PackedPosition → dense_id` для всех `target_packed` в массиве дендритов.
 - В массив `targets[]` вписываются DenseIndex + segment offset.
 
 **c) Columnar Layout Defrag:**
 - Новые связи вписываются в транспонированную матрицу `Column[Slot_K]`, не в конец массива.
 
 **d) Warp Alignment:**
-- `padded_n = align_to_warp(neuron_count)` → padding до кратного 32.
+- `padded_n = align_to_warp(neuron_count)`. Глобальное выравнивание `padded_n` до числа, кратного **64** (L2 Cache Line & AMD Wavefront).
+- **Инвариант:** Это математически гарантирует, что длины всех внутренних SoA-массивов (4N, 2N, 1N байт) будут кратны 64 байтам. Это обеспечивает идеальное начало каждого следующего массива с новой L2 кэш-линии без использования padding bytes внутри блоба.
 - Итоговые `.state` и `.axons` блобы байт-в-байт совпадают с VRAM layout → Step 5: `cudaMemcpyAsync`.
 
 ### 2.3. External I/O Server (UDP для входов/выходов)
@@ -474,7 +471,7 @@ impl WaitStrategy {
 
 **Инварианты:**
 
-1. **Выбор на стартапе:** WaitStrategy фиксируется при инициализации runtime в `OnceLock<WaitStrategy>`. Нулевой cost для горячего цикла.
+1. **Выбор на стартапе:** WaitStrategy фиксируется при инициализации runtime in `OnceLock<WaitStrategy>`. Нулевой cost для горячего цикла.
 2. **Безопасность:** BSP-барьер - единственное место, где CPU физически ждёт события. Нет Mutex, нет CAS-loop.
 3. **Портативность:** Ядро физики (GSOP, спайки, диффузия) идентично во всех профилях. Меняется только OS-level scheduling поведение.
 
@@ -504,7 +501,7 @@ impl WaitStrategy {
 
 | Дата | Версия | Описание |
 |---|---|---|
-| 2026-03-17 | 2.2 | Полная переработка раскладки VRAM и VariantParameters. Введен BurstHeads8 (32-byte alignment). Уточнена битовая семантика soma_flags. Исправлен inertia_curve (u8[16]). |
+| 2026-03-17 | 2.2 | Полная переработка раскладки VRAM и VariantParameters. Введен BurstHeads8 (64-byte alignment). Уточнена битовая семантика soma_flags. Исправлен inertia_curve (u8[16]). |
 | 2026-02-28 | 2.1 | Синхронизирована VramState с реальным memory.rs (добавлены I/O Matrix поля, readout буферы). Обновлена таблица Day Phase с 6 kernels и ссылками на источники. Добавлен раздел External I/O Server для UDP мультиплексирования. |
 | TBD | 2.0 | Первая версия |
 
@@ -528,7 +525,7 @@ assert!(
 
 При команде `reset_zone(zone_id)`:
 
-1. **Если зона спит (Night Phase):** Сброс **блокирующий** - CPU дожидается завершения Maintenance pipeline (до Step 5 Upload включительно). Прерывание в середине оставит VRAM с дырявыми матрицами дендритов.
+1. **Если зона спит (Night Phase):** Сброс **блокирующий** - CPU дожидается завершения Maintenance pipeline (до Step 5 Upload включительно). Прерывание в середине оставит VRAM with дырявыми матрицами дендритов.
 2. **Ring Buffer инвалидация (O(1)):** Обнуляются только `counts` обоих Ping-Pong буферов. Сами `ghost_id` не важны - GPU читает ровно `counts[tick]` записей. Предотвращает фантомные сигналы из прошлой жизни.
 
 ```rust

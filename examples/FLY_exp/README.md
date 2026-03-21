@@ -1,3 +1,5 @@
+<h1 style="color: red;"> НЕ ЗАВЕРШЕНО </h1>
+
 # 🤖 Genesis HFT: FLY_exp Example
 
 ## 🚀 Как запустить (Zero-Magic Pipeline)

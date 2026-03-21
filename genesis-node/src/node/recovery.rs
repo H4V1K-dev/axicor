@@ -13,7 +13,7 @@ impl NodeRuntime {
             zone_hash,
             new_ipv4,
             new_port,
-            mtu: 0, // [DOD FIX]
+            mtu: genesis_core::constants::MAX_UDP_PAYLOAD as u16, // [DOD FIX]
             cluster_secret: self.cluster_secret, // [DOD FIX]
         };
         let packet = bytemuck::bytes_of(&update);

@@ -72,19 +72,32 @@ impl BspBarrier {
     }
 
     /// Вызывается ядром Node в конце батча: меняет буферы местами и инкрементирует эпоху.
-    pub fn sync_and_swap(&self) {
-        // Сбрасываем барьер для следующей эпохи
-        self.current_epoch.fetch_add(1, Ordering::SeqCst);
-        self.completed_peers.store(0, Ordering::Release);
-        
-        let was_b = self.writing_to_b.fetch_xor(true, Ordering::SeqCst);
-        if was_b {
-            self.schedule_a.clear();
-        } else {
-            self.schedule_b.clear();
+    pub fn sync_and_swap(&self, expected_epoch: u32) {
+        // [DOD FIX] Lock-Free AEP Barrier: Strict CAS to prevent UDP listener vs GPU race conditions
+        let next_epoch = expected_epoch + 1;
+        match self.current_epoch.compare_exchange(
+            expected_epoch, 
+            next_epoch, 
+            Ordering::SeqCst, 
+            Ordering::Relaxed
+        ) {
+            Ok(_) => {
+                self.completed_peers.store(0, Ordering::Release);
+
+                let was_b = self.writing_to_b.fetch_xor(true, Ordering::SeqCst);
+                if was_b {
+                    self.schedule_a.clear();
+                } else {
+                    self.schedule_b.clear();
+                }
+            },
+            Err(actual) => {
+                // Пакет "из будущего" уже обновил эпоху (Self-Healing). 
+                // Не трогаем буферы, чтобы не стереть новые спайки.
+                eprintln!("⚠️ [AEP Barrier] CAS failed! Expected: {}, Actual: {}. Network is leading.", expected_epoch, actual);
+            }
         }
     }
-
     /// Возвращает ссылку на буфер, в который сейчас должна писать сеть (Tokio).
     pub fn get_write_schedule(&self) -> &SpikeSchedule {
         if self.writing_to_b.load(Ordering::Acquire) {

@@ -79,7 +79,6 @@ fn main() -> Result<()> {
             &zone.baked_dir,
             &zone.name,
             zone_idx as u16,
-            200_000, // DEFAULT_GHOST_CAPACITY (§3.1)
         )?;
 
         let (shard_soa, compiled_shard, v_seg, num_virtual, gxis, gxos) = build_local_topology(&workspace);
@@ -157,7 +156,7 @@ pub struct BakeWorkspace {
     pub brain_config: genesis_core::config::brain::BrainConfig,
 }
 
-fn parse_and_validate(brain_config: &genesis_core::config::brain::BrainConfig, sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, shard_cfg_path: &Path, out_dir: &Path, zone_name: &str, zone_idx: u16, ghost_capacity: usize) -> Result<BakeWorkspace> {
+fn parse_and_validate(brain_config: &genesis_core::config::brain::BrainConfig, sim_path: &Path, bp_path: &Path, an_path: &Path, io_path: &Path, shard_cfg_path: &Path, out_dir: &Path, zone_name: &str, zone_idx: u16) -> Result<BakeWorkspace> {
     println!("[baker] Parsing configs...");
     let sim = parser::simulation::parse(
         &std::fs::read_to_string(sim_path)
@@ -197,6 +196,8 @@ fn parse_and_validate(brain_config: &genesis_core::config::brain::BrainConfig, s
 
     let shard_cfg = genesis_core::config::InstanceConfig::load(shard_cfg_path)
         .map_err(anyhow::Error::msg)?;
+        
+    let ghost_capacity = shard_cfg.settings.ghost_capacity as usize;
 
     Ok(BakeWorkspace {
         sim,

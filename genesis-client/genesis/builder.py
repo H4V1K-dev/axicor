@@ -264,7 +264,8 @@ class BrainBuilder:
             padded_n = math.ceil(raw_neurons / 32) * 32
 
             virtual_axons = sum(inp["width"] * inp["height"] for inp in zone.inputs)
-            ghost_capacity = 200_000  # DEFAULT_GHOST_CAPACITY из Baker
+            incoming_pixels = sum(c.get("width", 0) * c.get("height", 0) for c in self.connections if c["to"] == zone.name)
+            ghost_capacity = int(incoming_pixels * 2.0)
 
             raw_axons = padded_n + virtual_axons + ghost_capacity
             total_axons = math.ceil(raw_axons / 32) * 32
@@ -398,6 +399,9 @@ class BrainBuilder:
             with open(zone_dir / "blueprints.toml", "w", encoding="utf-8") as f:
                 toml.dump(blueprints_data, f)
                 
+            incoming_pixels = sum(c.get("width", 0) * c.get("height", 0) for c in self.connections if c["to"] == zone.name)
+            ghost_capacity = int(incoming_pixels * 2.0)
+
             shard_data = {
                 "zone_id": zone.name,
                 "world_offset": {"x": 0, "y": 0, "z": 0},
@@ -406,7 +410,8 @@ class BrainBuilder:
                 "settings": {
                     "save_checkpoints_interval_ticks": self.sim_params.get("save_checkpoints_interval_ticks", 1_000_000),
                     "night_interval_ticks": self.sim_params.get("night_interval_ticks", 0),
-                    "prune_threshold": self.sim_params.get("prune_threshold", 10)
+                    "prune_threshold": self.sim_params.get("prune_threshold", 10),
+                    "ghost_capacity": ghost_capacity
                 }
             }
             with open(zone_dir / "shard.toml", "w", encoding="utf-8") as f:

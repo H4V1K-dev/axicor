@@ -363,7 +363,7 @@ fn execute_night_phase(
                 dispatch_acks(acks, rt_handle, routing_table); 
                 
                 // [DOD FIX] Чтение GC-очисток из SHM и маршрутизация смерти
-                dispatch_prunes(client, &workspace.ghost_origins, padded_n, rt_handle, routing_table);
+                dispatch_prunes(shard, client, &workspace.ghost_origins, padded_n, rt_handle, routing_table);
 
                 telemetry.push_log(format!("🌅 [Shard {:08X}] Night Phase complete. Waking up.", hash), crate::tui::state::LogLevel::Night);
             }
@@ -486,6 +486,7 @@ fn dispatch_acks(
 }
 
 fn dispatch_prunes(
+    shard: &genesis_compute::ShardEngine,
     client: &crate::ipc::BakerClient,
     ghost_origins: &[u32],
     padded_n: usize,
@@ -505,7 +506,16 @@ fn dispatch_prunes(
     for prune in prunes_slice {
         let ghost_id = prune.dst_ghost_id as usize;
         let idx = ghost_id.saturating_sub(padded_n);
-        
+
+        let empty_burst = genesis_core::layout::BurstHeads8::empty(genesis_core::constants::AXON_SENTINEL);
+        unsafe {
+            genesis_compute::ffi::gpu_memcpy_host_to_device(
+                shard.vram.ptrs.axon_heads.add(ghost_id) as *mut _,
+                &empty_burst as *const _ as *const _,
+                32,
+            );
+        }
+
         if idx < ghost_origins.len() {
             let target_hash = ghost_origins[idx];
             if target_hash != 0 {
@@ -520,7 +530,6 @@ fn dispatch_prunes(
         }
     }
 }
-
 // Инициализация VRAM буферов
 fn init_io_buffers(
     num_virtual_axons: u32,

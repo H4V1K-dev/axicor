@@ -68,14 +68,13 @@ def build_cartpole_brain():
     # ============================================================
     # I/O МАТРИЦЫ (SDK v2 Features)
     # ============================================================
-    # Вход: прорастает снизу вверх, застревает в L4 (growth_steps=400)
-    cortex.add_input("cartpole_sensors", width=8, height=8, entry_z="top", growth_steps=150)
+    # Вход: прорастает снизу вверх, застревает в L4
+    cortex.add_input("cartpole_sensors", width=8, height=8, entry_z="top")
     
     # Выход: мапится строго на верхнюю треть зоны (uv_rect), забирает сигнал только с Motor_Pyramidal
     # Мы используем новый функционал uv_rect для аппаратной фильтрации соматических выходов
     cortex.add_output("motor_out", width=16, height=8, 
-                      target_type="Motor_Pyramidal",
-                      mtu=1400) # Имитируем лимит ESP32 для чистоты примера
+                      target_type="Motor_Pyramidal")
     
     # 1. Генерируем TOML-ДНК (Автоматически вызовет dry_run_stats)
     builder.build()

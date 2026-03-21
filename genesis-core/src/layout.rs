@@ -73,9 +73,9 @@ impl BurstHeads8 {
 const _: () = assert!(std::mem::size_of::<BurstHeads8>() == 32);
 const _: () = assert!(std::mem::align_of::<BurstHeads8>() == 32);
 
-/// Алгоритм выравнивания N по варпам (32 потока).
+/// Алгоритм выравнивания N по 64 байтам (L2 Cache Line & AMD Wavefront).
 pub fn align_to_warp(n: usize) -> usize {
-    (n + 31) & !31
+    (n + 63) & !63
 }
 
 /// Заголовок файла состояния (.state)
