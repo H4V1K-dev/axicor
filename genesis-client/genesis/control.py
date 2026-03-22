@@ -82,3 +82,13 @@ class GenesisControl:
                 v["gsop_potentiation"] = 0
                 v["gsop_depression"] = 0
         self._update_manifest(mutate)
+
+    def set_inertia_curve(self, variant_id: int, new_curve: list[int]):
+        """Zero-Downtime патч кривой инерции (16 рангов) для контроля кристаллизации графа."""
+        if len(new_curve) != 16:
+            raise ValueError("Inertia curve must contain exactly 16 values.")
+        def mutate(d):
+            for v in d.get("variants", []):
+                if v["id"] == variant_id:
+                    v["inertia_curve"] = new_curve
+        self._update_manifest(mutate)

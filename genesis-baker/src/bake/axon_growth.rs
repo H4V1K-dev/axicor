@@ -484,11 +484,9 @@ pub fn grow_single_axon(
     );
 
     let length_segments = segments.len() as u32;
-    let (final_x, final_y, final_z) = if let Some(last) = segments.last() {
-        let z = (last >> 22) & 0x3F;
-        let y = (last >> 11) & 0x7FF;
-        let x = last & 0x7FF;
-        (x, y, z)
+    let (final_x, final_y, final_z) = if let Some(&last) = segments.last() {
+        let pos = genesis_core::types::PackedPosition(last);
+        (pos.x() as u32, pos.y() as u32, pos.z() as u32)
     } else {
         (soma_x, soma_y, soma_z)
     };
@@ -603,8 +601,9 @@ pub fn inject_ghost_axons(
         }
 
         let length_segments = segments.len() as u32;
-        let (final_x, final_y, final_z) = if let Some(last) = segments.last() {
-            ((last & 0x3FF), ((last >> 10) & 0x3FF), ((last >> 20) & 0xFF))
+        let (final_x, final_y, final_z) = if let Some(&last) = segments.last() {
+            let pos = genesis_core::types::PackedPosition(last);
+            (pos.x() as u32, pos.y() as u32, pos.z() as u32)
         } else {
             (packet.entry_x, packet.entry_y, packet.entry_z)
         };
@@ -679,12 +678,11 @@ mod tests {
         let positions: Vec<PackedPosition> = vec![];
         use genesis_core::layout::{VariantParameters};
         use genesis_core::config::blueprints::{GenesisConstantMemory};
-        let empty_const_mem = GenesisConstantMemory {
+        let _empty_const_mem = GenesisConstantMemory {
             variants: [VariantParameters {
                 threshold: 0, rest_potential: 0, leak_rate: 0, homeostasis_penalty: 0,
                 gsop_potentiation: 0, gsop_depression: 0, homeostasis_decay: 0,
                 signal_propagation_length: 0,
-                slot_decay_ltm: 0, slot_decay_wm: 0,
                 refractory_period: 0, synapse_refractory_period: 0,
                 ..VariantParameters::default()
             }; 16],
@@ -810,8 +808,9 @@ pub fn inject_handover_events(
         );
 
         let length_segments = segments.len() as u32;
-        let (final_x, final_y, final_z) = if let Some(last) = segments.last() {
-            ((last & 0x3FF), ((last >> 10) & 0x3FF), ((last >> 20) & 0xFF))
+        let (final_x, final_y, final_z) = if let Some(&last) = segments.last() {
+            let pos = genesis_core::types::PackedPosition(last);
+            (pos.x() as u32, pos.y() as u32, pos.z() as u32)
         } else {
             (entry_x, entry_y, entry_z)
         };

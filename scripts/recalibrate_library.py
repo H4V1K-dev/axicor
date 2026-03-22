@@ -37,8 +37,10 @@ def process_file(filepath):
     # Formula 2: Depression (Entropy Erosion)
     gsop_depression = int(gsop_potentiation * 1.2)
 
-    # Formula 3: Inertia Curve
-    min_inertia = max(1, math.ceil(128.0 / gsop_potentiation))
+    # Formula 3: Inertia Curve with Dead Zone Guard
+    # delta_pot не имеет права обнуляться из-за сдвига >> 7
+    min_inertia = math.ceil(128.0 / gsop_potentiation)
+    
     decay_norm = clamp(homeostasis_decay / 50.0, 0.0, 1.0)
     steepness = 0.5 + (1.5 * decay_norm)
 
@@ -46,7 +48,7 @@ def process_file(filepath):
     for i in range(16):
         progress = (15 - i) / 15.0
         val = min_inertia + (128 - min_inertia) * (progress ** steepness)
-        inertia_curve.append(int(round(val)))
+        inertia_curve.append(max(min_inertia, int(round(val))))
 
     prune_threshold = 100
     initial_synapse_weight = 1500 if is_inhibitory else 1000

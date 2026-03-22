@@ -5,6 +5,8 @@ pub mod cone_tracing;
 pub mod axon_growth;
 pub mod output_map;
 pub mod sprouting;
+#[cfg(test)] mod test_axon_growth;
+#[cfg(test)] mod test_sprouting;
 pub mod input_map;
 pub mod ghost_map;
 pub mod atlas_map;

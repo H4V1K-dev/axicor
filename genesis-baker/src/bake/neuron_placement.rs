@@ -74,12 +74,10 @@ pub fn generate_placement_from_config(
         }
     }
 
-    // Warp Alignment padding (Invariant 2)
-    let remainder = positions.len() % genesis_core::constants::GPU_WARP_SIZE;
-    if remainder != 0 {
-        for _ in 0..(genesis_core::constants::GPU_WARP_SIZE - remainder) {
-            positions.push(PackedPosition::pack_raw(0, 0, 0, 0));
-        }
+    // Warp Alignment padding (Invariant 2 - 64B L2 Cache Line)
+    let padded_n = genesis_core::layout::align_to_warp(positions.len());
+    while positions.len() < padded_n {
+        positions.push(PackedPosition::pack_raw(0, 0, 0, 0));
     }
 
     // Z-sort

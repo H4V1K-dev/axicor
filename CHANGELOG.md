@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Alpha 0.0.1] - Experimental
 
+## [0.866.120] - 2026-03-21 21:30:14
+
+**Update GNM-Library synaptic parameters and recalibrate genesis-client mo**
+
+### Added
+- Update initial_synapse_weight from species-specific values to uniform 1500 across all cortical, cerebellar, hippocampal, striatal, thalamic, and Drosophila neuron types
+- Change gsop_potentiation from 100 to 20 and gsop_depression from variable values to uniform 24
+- Replace inertia_curve arrays with new exponential decay profiles across all 1818 neuron configuration files
+- Increase prune_threshold from species-specific values (5-25) to uniform 100
+- Simplify genesis/encoders.py by removing redundant normalization and clipping operations
+- Optimize genesis/decoders.py with more efficient tensor operations and reduced branching
+- Streamline genesis/tuner.py by consolidating hyperparameter adjustment logic and removing deprecated methods
+- Update genesis/retina/encoder.py with improved contrast sensitivity parameters
+- Reorganize agent.py training loop for better readability and performance
+- Update build_brain.py to use recalibrated library configurations
+- Remove obsolete scripts/reset_weights.py utility
+- Modify scripts/recalibrate_library.py to apply new synaptic parameter profiles
+- Remove legacy weight reset functionality
+
+
 ## [0.854.120] - 2026-03-21 17:38:04
 
 **[Specs] Update memory alignment and ghost capacity calculation**

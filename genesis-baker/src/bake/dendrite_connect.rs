@@ -123,9 +123,10 @@ mod tests {
     #[test]
     fn test_concurrent_somas_connect_to_same_axon() {
         // Prepare mock setup
-        let mut shard = ShardSoA::new(32, 32); // Creates padded_n = 32
+        let shard = ShardSoA::new(32, 32); // Creates padded_n = 64 (due to align_to_warp(32))
+        let mut shard = shard;
         
-        let mut positions = vec![PackedPosition::pack_raw(0, 0, 0, 0); 32];
+        let mut positions = vec![PackedPosition::pack_raw(0, 0, 0, 0); shard.padded_n];
         let type_idx = 1;
         // Two somas near each other in the same voxel block
         positions[0] = PackedPosition::pack_raw(10, 10, 10, type_idx); // Soma A

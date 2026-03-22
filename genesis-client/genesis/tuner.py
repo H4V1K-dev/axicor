@@ -30,44 +30,40 @@ class GenesisAutoTuner:
         self._apply_phase_settings(self.explore_params)
 
     def _extract_params(self, kwargs: dict, prefix: str) -> dict:
-        """Извлекает набор параметров для конкретной фазы с дефолтными значениями (None)."""
-        return {
-            "target": kwargs.get(f"{prefix}target_score", self.default_target),
-            "prune": kwargs.get(f"{prefix}prune", None),
-            "night": kwargs.get(f"{prefix}night", None),
-            "sprouts": kwargs.get(f"{prefix}sprouts", None),
-            
-            # Физика мембраны
-            "leak": kwargs.get(f"{prefix}leak", None),
-            "homeos_penalty": kwargs.get(f"{prefix}homeos_penalty", None),
-            "homeos_decay": kwargs.get(f"{prefix}homeos_decay", None),
-            
-            # Рецепторы
-            "d1": kwargs.get(f"{prefix}d1", None),
-            "d2": kwargs.get(f"{prefix}d2", None)
-        }
+        """Извлекает ВСЕ параметры с данным префиксом. Любой параметр по умолчанию None."""
+        params = {}
+        for key, value in kwargs.items():
+            if key.startswith(prefix):
+                param_name = key[len(prefix):]
+                params[param_name] = value
+        # target_score -> target (для обратной совместимости)
+        if "target_score" in params:
+            params["target"] = params.pop("target_score")
+        if "target" not in params:
+            params["target"] = self.default_target
+        return params
 
     def _apply_phase_settings(self, p: dict):
-        """Пробрасывает параметры в манифест и кэширует их для Hot Loop (Zero-Overhead)."""
-        if p["prune"] is not None:
+        """Пробрасывает параметры в манифест. Любой параметр может быть None — просто пропускается."""
+        if p.get("prune") is not None:
             self.control.set_prune_threshold(p["prune"])
-        if p["night"] is not None:
+        if p.get("night") is not None:
             self.control.set_night_interval(p["night"])
-        if p["sprouts"] is not None:
+        if p.get("sprouts") is not None:
             self.control.set_max_sprouts(p["sprouts"])
         
         # Рецепторы (variant 0/1)
-        if p["d1"] is not None and p["d2"] is not None:
+        if p.get("d1") is not None and p.get("d2") is not None:
             self.control.set_dopamine_receptors(0, p["d1"], p["d2"])
             self.control.set_dopamine_receptors(1, p["d1"], p["d2"])
         
         # Физика
-        if p["leak"] is not None and p["homeos_penalty"] is not None and p["homeos_decay"] is not None:
+        if p.get("leak") is not None and p.get("homeos_penalty") is not None and p.get("homeos_decay") is not None:
             self.control.set_membrane_physics(0, p["leak"], p["homeos_penalty"], p["homeos_decay"])
             self.control.set_membrane_physics(1, int(p["leak"] * 1.5), int(p["homeos_penalty"] * 0.8), p["homeos_decay"])
 
         # [DOD FIX] Плоское кэширование переменных для O(1) доступа в Hot Loop
-        if p["target"] is not None: self.target_score = p["target"]
+        if p.get("target") is not None: self.target_score = p["target"]
 
 
     def step(self, episode_score: float) -> Phase:

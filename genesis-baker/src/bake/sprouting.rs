@@ -63,11 +63,11 @@ fn nudge_axon(
     let packed_tip = tips[axon_id];
     if packed_tip == 0 { return; } // Мертвый или улетевший аксон
 
-    // [DOD FIX] 11-11-6-4 Layout
-    let tx = packed_tip & 0x7FF;            // 11 bits
-    let ty = (packed_tip >> 11) & 0x7FF;     // 11 bits
-    let tz = (packed_tip >> 22) & 0x3F;      // 6 bits
-    let type_mask = (packed_tip >> 28) & 0x0F;
+    let pos = genesis_core::types::PackedPosition(tips[axon_id]);
+    let tx = pos.x() as u32;
+    let ty = pos.y() as u32;
+    let tz = pos.z() as u32;
+    let type_mask = pos.type_id() as u8;
 
     let packed_dir = dirs[axon_id];
     let dx = (packed_dir & 0xFF) as i8;
@@ -106,7 +106,7 @@ fn nudge_axon(
         return;
     }
 
-    let next_tip = (packed_tip & 0xF0000000) | ((new_tz as u32) << 22) | ((new_ty as u32) << 11) | (new_tx as u32);
+    let next_tip = genesis_core::types::PackedPosition::pack_raw(new_tx as u32, new_ty as u32, new_tz as u32, type_mask).0;
     tips[axon_id] = next_tip;
 
     let len = lengths[axon_id] as usize;
