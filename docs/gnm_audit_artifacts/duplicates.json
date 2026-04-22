@@ -1,0 +1,213 @@
+[
+  {
+    "group_size": 4,
+    "num_classes": 4,
+    "classes": [
+      "Striatum/Mouse/gabaergic",
+      "Striatum/Mouse/interneuron",
+      "Thalamus/Mouse/gabaergic",
+      "Thalamus/Mouse/interneuron"
+    ],
+    "files": [
+      {
+        "path": "Striatum/Mouse/gabaergic/775.toml",
+        "name": "Snap-26683",
+        "class": "Striatum/Mouse/gabaergic"
+      },
+      {
+        "path": "Striatum/Mouse/interneuron/141.toml",
+        "name": "17302_00102-semi_r",
+        "class": "Striatum/Mouse/interneuron"
+      },
+      {
+        "path": "Thalamus/Mouse/gabaergic/9.toml",
+        "name": "jy180515_B_idA",
+        "class": "Thalamus/Mouse/gabaergic"
+      },
+      {
+        "path": "Thalamus/Mouse/interneuron/9.toml",
+        "name": "jy170927_B_idA",
+        "class": "Thalamus/Mouse/interneuron"
+      }
+    ],
+    "cross_class": true
+  },
+  {
+    "group_size": 3,
+    "num_classes": 3,
+    "classes": [
+      "Hippocampus/Mouse/gabaergic",
+      "Hippocampus/Mouse/interneuron",
+      "Hippocampus/Rat/interneuron"
+    ],
+    "files": [
+      {
+        "path": "Hippocampus/Mouse/gabaergic/9.toml",
+        "name": "ny3924",
+        "class": "Hippocampus/Mouse/gabaergic"
+      },
+      {
+        "path": "Hippocampus/Mouse/interneuron/9.toml",
+        "name": "P111017-01-AAC",
+        "class": "Hippocampus/Mouse/interneuron"
+      },
+      {
+        "path": "Hippocampus/Rat/interneuron/6.toml",
+        "name": "T44a",
+        "class": "Hippocampus/Rat/interneuron"
+      }
+    ],
+    "cross_class": true
+  },
+  {
+    "group_size": 3,
+    "num_classes": 1,
+    "classes": [
+      "Drosophila"
+    ],
+    "files": [
+      {
+        "path": "Drosophila/Drosophila_Exc_ACh.toml",
+        "name": "Drosophila_Exc_ACh",
+        "class": "Drosophila"
+      },
+      {
+        "path": "Drosophila/Drosophila_Exc_ACh_Desc.toml",
+        "name": "ACh_Desc",
+        "class": "Drosophila"
+      },
+      {
+        "path": "Drosophila/Drosophila_Exc_ACh_Motor.toml",
+        "name": "ACh_Motor",
+        "class": "Drosophila"
+      }
+    ],
+    "cross_class": false
+  },
+  {
+    "group_size": 2,
+    "num_classes": 2,
+    "classes": [
+      "Cerebellum/Mouse/gabaergic",
+      "Cerebellum/Rat/gabaergic"
+    ],
+    "files": [
+      {
+        "path": "Cerebellum/Mouse/gabaergic/476.toml",
+        "name": "4-15_33",
+        "class": "Cerebellum/Mouse/gabaergic"
+      },
+      {
+        "path": "Cerebellum/Rat/gabaergic/1.toml",
+        "name": "gaoCell1",
+        "class": "Cerebellum/Rat/gabaergic"
+      }
+    ],
+    "cross_class": true
+  },
+  {
+    "group_size": 2,
+    "num_classes": 2,
+    "classes": [
+      "Cerebellum/Mouse/purkinje",
+      "Cerebellum/Zebrafish/purkinje"
+    ],
+    "files": [
+      {
+        "path": "Cerebellum/Mouse/purkinje/141.toml",
+        "name": "10_F10-_D-3",
+        "class": "Cerebellum/Mouse/purkinje"
+      },
+      {
+        "path": "Cerebellum/Zebrafish/purkinje/141.toml",
+        "name": "A2_5dpf_Arch_left-cerebelllum_trace1_2_b",
+        "class": "Cerebellum/Zebrafish/purkinje"
+      }
+    ],
+    "cross_class": true
+  },
+  {
+    "group_size": 2,
+    "num_classes": 2,
+    "classes": [
+      "Hippocampus/Mouse/granule",
+      "Hippocampus/Rat/granule"
+    ],
+    "files": [
+      {
+        "path": "Hippocampus/Mouse/granule/476.toml",
+        "name": "3w_pi_AAV_Cre_GluN2AKO_CT100I716F_DG_2",
+        "class": "Hippocampus/Mouse/granule"
+      },
+      {
+        "path": "Hippocampus/Rat/granule/46.toml",
+        "name": "Saline04_Neuron2_DG_GC_237485_Slide4-Right_R2_C2_neuron2",
+        "class": "Hippocampus/Rat/granule"
+      }
+    ],
+    "cross_class": true
+  },
+  {
+    "group_size": 2,
+    "num_classes": 2,
+    "classes": [
+      "Hippocampus/Mouse/pyramidal",
+      "Hippocampus/Rat/pyramidal"
+    ],
+    "files": [
+      {
+        "path": "Hippocampus/Mouse/pyramidal/775.toml",
+        "name": "hippo-195-7",
+        "class": "Hippocampus/Mouse/pyramidal"
+      },
+      {
+        "path": "Hippocampus/Rat/pyramidal/141.toml",
+        "name": "A_RFP_0007_final2",
+        "class": "Hippocampus/Rat/pyramidal"
+      }
+    ],
+    "cross_class": true
+  },
+  {
+    "group_size": 2,
+    "num_classes": 2,
+    "classes": [
+      "Striatum/Mouse/medium_spiny",
+      "Striatum/Rat/medium_spiny"
+    ],
+    "files": [
+      {
+        "path": "Striatum/Mouse/medium_spiny/2472.toml",
+        "name": "232_10-1_30x_04A_xyz-5081-7597-377",
+        "class": "Striatum/Mouse/medium_spiny"
+      },
+      {
+        "path": "Striatum/Rat/medium_spiny/1.toml",
+        "name": "ventral_striatum_medium_spiny_neuron",
+        "class": "Striatum/Rat/medium_spiny"
+      }
+    ],
+    "cross_class": true
+  },
+  {
+    "group_size": 2,
+    "num_classes": 2,
+    "classes": [
+      "Thalamus/Mouse/relay",
+      "Thalamus/Rat/relay"
+    ],
+    "files": [
+      {
+        "path": "Thalamus/Mouse/relay/141.toml",
+        "name": "4-3-19_Enuc_2-4_Cell_4",
+        "class": "Thalamus/Mouse/relay"
+      },
+      {
+        "path": "Thalamus/Rat/relay/46.toml",
+        "name": "jy160704_A_idD",
+        "class": "Thalamus/Rat/relay"
+      }
+    ],
+    "cross_class": true
+  }
+]
