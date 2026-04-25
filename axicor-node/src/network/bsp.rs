@@ -59,7 +59,7 @@ impl BspBarrier {
         while self.completed_peers.load(Ordering::Acquire) < self.expected_peers {
             if start.elapsed() > std::time::Duration::from_millis(BSP_SYNC_TIMEOUT_MS) {
                 let _n = self.timeout_log_counter.fetch_add(1, Ordering::Relaxed);
-                if _n % 100 == 0 {
+                if _n.is_multiple_of(100) {
                     tracing::warn!("[BSP] Timeout! Forcing epoch advance ({} timeouts). Dropped data will be filtered out.", _n + 1);
                 }
                 break;

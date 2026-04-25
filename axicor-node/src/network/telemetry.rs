@@ -147,7 +147,7 @@ async fn websocket_stream(mut socket: WebSocket, server: Arc<TelemetryServer>) {
             let spikes_bytes = bytemuck::cast_slice(spikes_slice);
             frame.extend_from_slice(spikes_bytes);
 
-            if let Err(_) = socket.send(Message::Binary(frame)).await {
+            if socket.send(Message::Binary(frame)).await.is_err() {
                 break;
             }
             last_processed_tick = current_tick;

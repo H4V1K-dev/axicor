@@ -40,7 +40,7 @@ impl GxoFile {
                     offset: *(desc_base.add(4) as *const u32),
                     width: *(desc_base.add(8) as *const u16),
                     height: *(desc_base.add(10) as *const u16),
-                    stride: *(desc_base.add(12) as *const u8),
+                    stride: *desc_base.add(12),
                 });
             }
 

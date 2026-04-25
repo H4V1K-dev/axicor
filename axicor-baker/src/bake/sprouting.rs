@@ -69,7 +69,7 @@ fn nudge_axon(
     let tx = pos.x() as u32;
     let ty = pos.y() as u32;
     let tz = pos.z() as u32;
-    let type_mask = pos.type_id() as u8;
+    let type_mask = pos.type_id();
 
     let packed_dir = dirs[axon_id];
     let dx = (packed_dir & 0xFF) as i8;
@@ -120,7 +120,7 @@ fn nudge_axon(
                 vector_x: dx,
                 vector_y: dy,
                 vector_z: dz,
-                type_mask: type_mask as u8,
+                type_mask,
                 remaining_length: 256u16.saturating_sub(len),
                 entry_z: new_tz.clamp(0, 255) as u8,
                 _padding: 0,
@@ -148,6 +148,8 @@ fn nudge_axon(
     }
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[allow(clippy::too_many_arguments)]
 pub fn run_sprouting_pass(
     targets: &mut [u32],
     weights: &mut [i32],
@@ -205,6 +207,7 @@ pub fn run_sprouting_pass(
     let mut generated_acks = Vec::with_capacity(incoming_handovers_count);
 
     let mut next_free_ghost = ghost_start;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..incoming_handovers_count {
         let ev = &handovers[i];
 
@@ -505,7 +508,7 @@ pub fn inject_ghost_axons(
             packet.entry_y as f32,
             packet.entry_z as f32,
         );
-        let current_pos_um = current_pos * voxel_um as f32;
+        let current_pos_um = current_pos * voxel_um;
         let forward_dir = packet.entry_dir;
 
         let ghost_seed = master_seed
@@ -516,7 +519,7 @@ pub fn inject_ghost_axons(
 
         use crate::bake::cone_tracing::ConeParams;
         let params = ConeParams {
-            radius_um: max_search_radius_vox * voxel_um as f32,
+            radius_um: max_search_radius_vox * voxel_um,
             fov_cos,
             owner_type: packet.type_idx as u8,
             type_affinity: 0.5, // Ghost axons: neutral affinity

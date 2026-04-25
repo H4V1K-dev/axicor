@@ -101,15 +101,15 @@ class ZoneDesigner:
         self.builder = builder
         self.name = name
         
-        # 1. Auto-correction (Clamping) to fit hardware PackedPosition limits (11/11/6 bit)
-        self.vox_x = max(1, min(x, 2047))
-        self.vox_y = max(1, min(y, 2047))
-        self.vox_z = max(1, min(z, 63))
+        # 1. Auto-correction (Clamping) to fit hardware PackedPosition limits (10/10/8 bit)
+        self.vox_x = max(1, min(x, 1023))
+        self.vox_y = max(1, min(y, 1023))
+        self.vox_z = max(1, min(z, 255))
         
         if self.vox_x != x or self.vox_y != y or self.vox_z != z:
             warnings.warn(f"[Builder] [WARN] Zone '{self.name}' dimensions corrected from "
                           f"({x}, {y}, {z}) to ({self.vox_x}, {self.vox_y}, {self.vox_z}) "
-                          f"to fit 11/11/6-bit hardware constraints.")
+                          f"to fit 10/10/8-bit hardware constraints.")
             
         self.layers: List[LayerDesigner] = []
         self.blueprints_registry: Dict[str, dict] = {}
@@ -130,7 +130,9 @@ class ZoneDesigner:
         # 2. Fragmentation
         designer = IoMatrixDesigner(width, height, is_input=True)
         batch_ticks = self.builder.sim_params["sync_batch_ticks"]
-        chunks = designer.fragment(sync_batch_ticks=batch_ticks)
+        # [DOD FIX] Inputs are never fragmented (atomic bitmask requirement for GPU)
+        # Force a single chunk by setting MTU to infinity
+        chunks = [{"width": width, "height": height, "uv_rect": [0.0, 0.0, 1.0, 1.0]}]
 
         # 3. ID Generation Convention
         shard_suffix = self.name[-4:] if len(self.name) >= 4 else self.name
@@ -533,7 +535,6 @@ class BrainBuilder:
             cmd.extend(["--features", "amd"])
         elif not has_cuda:
             cmd.extend(["--features", "mock-gpu"])
-
         cmd.extend([
             "--bin", "axicor-baker", "--",
             "--brain", str(brain_toml_path.absolute()),

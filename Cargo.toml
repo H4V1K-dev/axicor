@@ -10,7 +10,7 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.95.0"
 authors = ["Oleksandr Arzamazov <alex@axicor.dev>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/H4V1K-dev/Axicor"
@@ -24,6 +24,6 @@ categories = ["science::neuroscience", "simulation"]
 [workspace.dependencies]
 # axicor-core is a local dep for the others
 axicor-core = { version = "0.1.0", path = "axicor-core" }
-wyhash = "0.5"
-serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
+wyhash = "=0.5.0"
+serde = { version = "=1.0.228", features = ["derive"] }
+toml = "=1.0.3"

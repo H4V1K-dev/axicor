@@ -104,6 +104,7 @@ unsafe impl Send for NodeRuntime {}
 unsafe impl Sync for NodeRuntime {}
 
 impl NodeRuntime {
+    #[allow(clippy::too_many_arguments)]
     pub fn boot(
         shards: Vec<crate::node::shard_thread::ShardDescriptor>,
         io_server: Arc<ExternalIoServer>,
@@ -205,7 +206,7 @@ impl NodeRuntime {
             core_id += 1;
         }
 
-        let node = Self {
+        Self {
             services: NodeServices {
                 io_server,
                 routing_table,
@@ -235,9 +236,7 @@ impl NodeRuntime {
             sync_batch_ticks,
             cluster_secret,
             egress_transpose_buffer: Vec::with_capacity(1024 * 1024), // 1MB reserve
-        };
-
-        node
+        }
     }
 
     fn patch_routing_tables(&mut self) {
@@ -431,7 +430,7 @@ impl NodeRuntime {
 
                         self.services.io_server.send_output_batch_pool(
                             &self.network.egress_pool,
-                            &addr,
+                            addr,
                             zone_hash,
                             *m_hash,
                             payload,

@@ -27,13 +27,9 @@ class AxicorSurgeon:
         total_axons = struct.unpack_from("<I", self.mem._mm, 0x20)[0]
         axon_to_soma = np.full(total_axons, -1, dtype=np.int32)
         
-        # [DOD FIX] Locate active axons and map them back to somas
-        valid_somas = np.where(self.mem.soma_to_axon != 0xFFFFFFFF)[0]
-        valid_axons = self.mem.soma_to_axon[valid_somas]
-        
-        # Protect against array bounds violation in case of corrupted dump
-        valid_mask = valid_axons < total_axons
-        axon_to_soma[valid_axons[valid_mask]] = valid_somas[valid_mask]
+        # [DOD FIX] Invariant 14: Local axons have identity mapping soma_id == axon_id
+        # The first padded_n axons in VRAM are local axons for the neurons.
+        axon_to_soma[:padded_n] = np.arange(padded_n, dtype=np.int32)
 
         # 2. Global survival masks (Zero-Garbage BFS)
         surviving_somas = np.zeros(padded_n, dtype=np.bool_)

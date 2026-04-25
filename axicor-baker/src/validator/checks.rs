@@ -110,7 +110,7 @@ pub fn run_all_checks(const_mem: &AxicorConstantMemory) -> anyhow::Result<()> {
 
 /// Invariant check: (potentiation * inertia) >> 7 >= 1
 fn validate_gsop_dead_zones(const_mem: &AxicorConstantMemory) {
-    for (_type_idx, variant) in const_mem.variants.iter().enumerate() {
+    for variant in const_mem.variants.iter() {
         if variant.gsop_potentiation > 0 {
             // Note: inertia_curve is now part of VariantParameters in layout.rs?
             // No, in blueprints.toml. It's not in VariantParameters, it's in the LUT.

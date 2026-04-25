@@ -132,6 +132,8 @@ pub fn cpu_record_outputs(
 /// DOD FIX: Raw pointer index iteration (Zero-Cost). Branchless .
 // MONOLITH: HIGH — cpu_update_neurons is a complex Hot Loop with deeply nested logic and branchless optimizations.
 // REFACTOR: Decompose into discrete inline "Math Blocks" (Leak, Integrate, Threshold) for maintainability.
+/// # Safety
+/// `ptrs` must contain valid, 64-byte aligned SoA pointers allocated for `padded_n` and `total_axons`.
 pub unsafe fn cpu_update_neurons(
     ptrs: &ShardVramPtrs,
     padded_n: u32,
@@ -249,11 +251,12 @@ pub unsafe fn cpu_update_neurons(
         let final_spike = is_glif_spiking | is_heartbeat;
 
         // 7. AHP: Сброс мембраны с undershoot
+        // [DOD FIX] Hardware alignment: ONLY GLIF spikes reset voltage and ref_timer. Heartbeat is independent.
         let reset_v = p.rest_potential - (p.ahp_amplitude as i32);
-        current_voltage = final_spike * reset_v + (1 - final_spike) * current_voltage;
-        thresh_offset += final_spike * p.homeostasis_penalty;
+        current_voltage = is_glif_spiking * reset_v + (1 - is_glif_spiking) * current_voltage;
+        thresh_offset += is_glif_spiking * p.homeostasis_penalty;
         *timer_ptr =
-            (final_spike * p.refractory_period as i32 + (1 - final_spike) * timer as i32) as u8;
+            (is_glif_spiking * p.refractory_period as i32 + (1 - is_glif_spiking) * timer as i32) as u8;
 
         // 8.   (Burst Shift)
         if final_spike != 0 {
@@ -291,6 +294,8 @@ pub unsafe fn cpu_update_neurons(
 
 ///  5:  GSOP.
 /// DOD FIX: Branchless- STDP. Zero-Warp Divergence.
+/// # Safety
+/// `ptrs` must contain valid, 64-byte aligned SoA pointers allocated for `padded_n` and `total_axons`.
 pub unsafe fn cpu_apply_gsop(ptrs: &ShardVramPtrs, padded_n: u32, total_axons: u32, dopamine: i16) {
     use crate::bindings::VARIANT_LUT;
 
@@ -428,6 +433,7 @@ pub fn cpu_extract_telemetry(soma_flags: &[u8], out_ids: &mut [u32]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axicor_core::constants::V_SEG;
     use crate::bindings::cpu_allocate_shard;
     use crate::bindings::cpu_free_shard;
     use crate::bindings::TEST_MUTEX;
@@ -489,7 +495,7 @@ mod tests {
             let mut p = VariantParameters::default();
             p.threshold = 100;
             p.rest_potential = 0;
-            p.leak_shift = 0;
+            p.leak_shift = 6; // No leak
             p.refractory_period = 5;
             p.homeostasis_penalty = 50;
 
@@ -501,7 +507,7 @@ mod tests {
             *ptrs.soma_to_axon.add(0) = 0; // Axon 0
 
             // Tick 1
-            cpu_update_neurons(&ptrs, padded_n, 1, 1);
+            cpu_update_neurons(&ptrs, padded_n, axons, 1, V_SEG);
 
             // Spike check
             assert_eq!((*ptrs.soma_flags.add(0)) & 0x01, 1, "Neuron 0 must spike");
@@ -559,7 +565,7 @@ mod tests {
             (*ptrs.axon_heads.add(1)).h0 = 0;
 
             // Apply GSOP with dopamine +200
-            cpu_apply_gsop(&ptrs, padded_n, 200);
+            cpu_apply_gsop(&ptrs, padded_n, axons, 200);
 
             let new_w_full = *ptrs.dendrite_weights.add(0);
             assert!(
@@ -598,7 +604,9 @@ mod tests {
 // =============================================================================
 // DEBUG HARNESS (Epic 2) - CPU Implementations
 // =============================================================================
-pub fn cpu_debug_inject_current(
+/// # Safety
+/// Caller must ensure `soma_voltage` pointer is valid and aligned.
+pub unsafe fn cpu_debug_inject_current(
     soma_voltage: *mut i32,
     target_tids: &[u32],
     injection_uv: &[i32],
@@ -611,7 +619,9 @@ pub fn cpu_debug_inject_current(
     }
 }
 
-pub fn cpu_debug_record_v(
+/// # Safety
+/// Caller must ensure `soma_voltage` pointer is valid and aligned.
+pub unsafe fn cpu_debug_record_v(
     soma_voltage: *const i32,
     target_tids: &[u32],
     out_trace: &mut [i32],

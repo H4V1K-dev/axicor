@@ -29,6 +29,12 @@ pub struct SlowPathQueues {
     pub outgoing_prune: Arc<SegQueue<AxonHandoverPrune>>,
 }
 
+impl Default for SlowPathQueues {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SlowPathQueues {
     pub fn new() -> Self {
         Self {

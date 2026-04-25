@@ -14,6 +14,7 @@ use tracing::info;
 
 // MONOLITH: HIGH — build_local_topology_internal is a massive procedural function handling disparate concerns.
 // REFACTOR: Separate into discrete topology stages: PlacementEngine, GrowthOrchestrator, and IoMapper.
+#[allow(clippy::too_many_arguments)]
 pub fn build_local_topology_internal(
     sim: &SimulationConfig,
     anatomy: &AnatomyConfig,
@@ -163,10 +164,8 @@ pub fn build_local_topology_internal(
             &shard_bounds,
             master_seed,
         );
-        let mut ghost_counter = 0;
-        for _ in &ghost_axons {
+        for (ghost_counter, _) in ghost_axons.iter().enumerate() {
             vram_axon_ids.push((padded_n + num_virtual + ghost_counter) as u32);
-            ghost_counter += 1;
         }
         axons.append(&mut ghost_axons);
     }
@@ -194,7 +193,7 @@ pub fn build_local_topology_internal(
     }
 
     for (axon_id, axon) in axons.iter().enumerate() {
-        if axon.soma_idx != std::usize::MAX {
+        if axon.soma_idx != usize::MAX {
             shard.soma_to_axon[axon.soma_idx] = vram_axon_ids[axon_id];
         }
     }
@@ -207,7 +206,7 @@ pub fn build_local_topology_internal(
         &axons,
         &vram_axon_ids,
         neuron_types,
-        sim.simulation.voxel_size_um as f32, // Pass voxel size
+        sim.simulation.voxel_size_um, // Pass voxel size
     );
     info!(
         "[baker]  Synapses established: {} (avg: {:.1}/soma)",
@@ -269,8 +268,8 @@ pub fn build_local_topology_internal(
         shard_cfg.dimensions.h,
     );
     let bounds_um = (
-        shard_cfg.dimensions.w as f32 * voxel_um as f32,
-        shard_cfg.dimensions.d as f32 * voxel_um as f32,
+        shard_cfg.dimensions.w as f32 * voxel_um,
+        shard_cfg.dimensions.d as f32 * voxel_um,
     );
 
     let compiled_shard = CompiledShard {

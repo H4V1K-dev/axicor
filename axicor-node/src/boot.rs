@@ -369,20 +369,21 @@ impl Bootloader {
         }
         if use_gpu {
             let err = axicor_compute::ffi::cu_upload_constant_memory(
-                gpu_variants.as_ptr() as *const axicor_core::layout::VariantParameters
+                gpu_variants.as_ptr()
             );
             if err != 0 {
                 anyhow::bail!("FATAL: cu_upload_constant_memory failed with {}", err);
             }
         } else {
             axicor_compute::bindings::cpu_upload_constant_memory(
-                gpu_variants.as_ptr() as *const axicor_core::layout::VariantParameters
+                gpu_variants.as_ptr()
             );
         }
         info!("[Boot] Hardware physics parameters flashed.");
         Ok(())
     }
 
+    #[allow(clippy::type_complexity)]
     fn load_all_shards_into_vram_vfs(
         archive: &axicor_core::vfs::AxicArchive,
         project_name: &str,
@@ -442,7 +443,7 @@ impl Bootloader {
                     for matrix in &io_config.input {
                         for pin in &matrix.pin {
                             let hash = axicor_core::hash::fnv1a_32(pin.name.as_bytes());
-                            matrix_offsets.insert(hash, (current_bit_offset / 8) as u32);
+                            matrix_offsets.insert(hash, current_bit_offset / 8);
                             current_bit_offset += pin.width * pin.height;
                             current_bit_offset = (current_bit_offset + 31) & !31;
                         }
@@ -462,7 +463,7 @@ impl Bootloader {
 
                             output_routes
                                 .entry(zone_hash)
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push((target.clone(), hash, current_pixel_offset, chunk_pixels));
                             info!(
                                 "[Boot] Registered Output Route: {} (0x{:08X}) -> {}",
@@ -520,6 +521,7 @@ impl Bootloader {
             all_geo_data.extend(geo_data);
 
             // [DOD FIX] Hardcode removed: let sync_batch_ticks = 100u32;
+            #[allow(clippy::manual_div_ceil)]
             let input_words_per_tick = (num_virtual_axons + 63) / 64 * 2;
             let input_capacity_bytes = (input_words_per_tick * sync_batch_ticks * 4) as usize;
 
@@ -568,6 +570,7 @@ impl Bootloader {
         ))
     }
 
+    #[allow(clippy::type_complexity)]
     fn build_routing_channels_vfs(
         archive: &axicor_core::vfs::AxicArchive,
         zone_manifests_with_names: &[(ZoneManifest, String)],

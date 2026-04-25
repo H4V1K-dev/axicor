@@ -55,7 +55,7 @@ fn emulate_update_neuron(
 
     // 4. GLIF Leak
     let mut v = soma.voltage;
-    let leaked = v - p.leak_rate;
+    let leaked = v - p.leak_shift as i32;
     // max(rest, leaked)
     v = if leaked > p.rest_potential {
         leaked
@@ -127,7 +127,7 @@ fn test_neuron() -> NeuronType {
         name: "Test".to_string(),
         threshold: 200,
         rest_potential: 0,
-        leak_rate: 10,
+        leak_shift: 10,
         homeostasis_penalty: 50,
         homeostasis_decay: 5,
         refractory_period: 10,

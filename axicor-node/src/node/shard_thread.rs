@@ -116,7 +116,7 @@ impl ThreadWorkspace {
                     ghost_origins: vec![0u32; total_ghosts],
                     ephys_mmap: {
                         let path = axicor_core::ipc::ephys_shm_path(zone_hash);
-                        if let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).create(true).open(&path) {
+                        if let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&path) {
                             let size = std::mem::size_of::<axicor_core::ipc::EphysShm>() as u64;
                             if file.metadata().map(|m| m.len()).unwrap_or(0) < size {
                                 let _ = file.set_len(size);
@@ -175,7 +175,7 @@ impl ThreadWorkspace {
     pub fn flags_slice_mut(&mut self, padded_n: usize) -> &mut [u8] {
         unsafe {
             std::slice::from_raw_parts_mut(
-                self.shm_buffer.as_mut_ptr().add(self.flags_offset) as *mut u8,
+                self.shm_buffer.as_mut_ptr().add(self.flags_offset),
                 padded_n,
             )
         }
@@ -204,7 +204,7 @@ impl ThreadWorkspace {
     pub fn timers_slice_mut(&mut self, padded_n: usize) -> &mut [u8] {
         unsafe {
             std::slice::from_raw_parts_mut(
-                self.shm_buffer.as_mut_ptr().add(self.timers_offset) as *mut u8,
+                self.shm_buffer.as_mut_ptr().add(self.timers_offset),
                 padded_n,
             )
         }
@@ -212,6 +212,8 @@ impl ThreadWorkspace {
 }
 
 // PHASE 1: GPU batch execution (Day Phase)
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::manual_div_ceil)]
 #[inline(always)]
 fn execute_day_phase(
     shard: &mut ShardEngine,
@@ -247,29 +249,27 @@ fn execute_day_phase(
     // [DOD FIX] Ephys SHM Orchestration (Zero-Copy Host-to-Device)
     if let Some(mmap) = &mut workspace.ephys_mmap {
         let ephys = unsafe { &mut *(mmap.as_mut_ptr() as *mut axicor_core::ipc::EphysShm) };
-        if ephys.magic == axicor_core::ipc::EPHYS_MAGIC {
-            if ephys.state == 1 { // Trigger command from Python SDK
-                let count = ephys.count.min(16);
-                match shard {
-                    ShardEngine::Gpu(_) => unsafe {
-                        axicor_compute::ffi::gpu_memcpy_host_to_device(workspace.d_ephys_tids as *mut _, ephys.target_tids.as_ptr() as *const _, (count * 4) as usize);
-                        axicor_compute::ffi::gpu_memcpy_host_to_device(workspace.d_ephys_uvs as *mut _, ephys.injection_uv.as_ptr() as *const _, (count * 4) as usize);
-                    },
-                    ShardEngine::Cpu(_) => unsafe {
-                        std::ptr::copy_nonoverlapping(ephys.target_tids.as_ptr(), workspace.d_ephys_tids, count as usize);
-                        std::ptr::copy_nonoverlapping(ephys.injection_uv.as_ptr(), workspace.d_ephys_uvs, count as usize);
-                    }
+        if ephys.magic == axicor_core::ipc::EPHYS_MAGIC && ephys.state == 1 { // Trigger command from Python SDK
+            let count = ephys.count.min(16);
+            match shard {
+                ShardEngine::Gpu(_) => unsafe {
+                    axicor_compute::ffi::gpu_memcpy_host_to_device(workspace.d_ephys_tids as *mut _, ephys.target_tids.as_ptr() as *const _, (count * 4) as usize);
+                    axicor_compute::ffi::gpu_memcpy_host_to_device(workspace.d_ephys_uvs as *mut _, ephys.injection_uv.as_ptr() as *const _, (count * 4) as usize);
+                },
+                ShardEngine::Cpu(_) => unsafe {
+                    std::ptr::copy_nonoverlapping(ephys.target_tids.as_ptr(), workspace.d_ephys_tids, count as usize);
+                    std::ptr::copy_nonoverlapping(ephys.injection_uv.as_ptr(), workspace.d_ephys_uvs, count as usize);
                 }
-                shard.set_ephys_state(Some(axicor_compute::compute::shard::EphysState {
-                    tids_d: workspace.d_ephys_tids,
-                    uvs_d: workspace.d_ephys_uvs,
-                    trace_d: workspace.d_ephys_trace,
-                    count,
-                    max_ticks: ephys.max_ticks.min(10000),
-                    current_tick: 0,
-                }));
-                ephys.state = 2; // Mark Busy
             }
+            shard.set_ephys_state(Some(axicor_compute::compute::shard::EphysState {
+                tids_d: workspace.d_ephys_tids,
+                uvs_d: workspace.d_ephys_uvs,
+                trace_d: workspace.d_ephys_trace,
+                count,
+                max_ticks: ephys.max_ticks.min(10000),
+                current_tick: 0,
+            }));
+            ephys.state = 2; // Mark Busy
         }
     }
 
@@ -285,19 +285,21 @@ fn execute_day_phase(
         None
     };
 
-    shard.step_day_phase_batch(
-        batch_size,
-        io_buffers,
-        input_slice,
-        Some(incoming_slice),
-        counts_slice,
-        virtual_offset,
-        num_virtual_axons,
-        mapped_soma_ids,
-        v_seg,
-        global_dopamine,
-        tick_base,
-    );
+    unsafe {
+        shard.step_day_phase_batch(
+            batch_size,
+            io_buffers,
+            input_slice,
+            Some(incoming_slice),
+            counts_slice,
+            virtual_offset,
+            num_virtual_axons,
+            mapped_soma_ids,
+            v_seg,
+            global_dopamine,
+            tick_base,
+        );
+    }
 
     // [DOD FIX] Ephys SHM Output (Zero-Copy Device-to-Host)
     if let Some(mmap) = &mut workspace.ephys_mmap {
@@ -424,6 +426,7 @@ fn save_hot_checkpoint(
 }
 
 // PHASE 4: Graph maintenance (Night Phase)
+#[allow(clippy::too_many_arguments)]
 #[inline(always)]
 fn execute_night_phase(
     desc: &mut ShardDescriptor,
@@ -624,7 +627,7 @@ fn execute_night_phase(
 
                 // [DOD FIX] Read GC cleans from SHM and route deaths
                 dispatch_prunes(
-                    &mut desc.engine,
+                    &desc.engine,
                     client,
                     &workspace.ghost_origins,
                     padded_n,
@@ -812,6 +815,7 @@ fn dispatch_prunes(
     }
 }
 // VRAM buffers initialization
+#[allow(clippy::manual_div_ceil)]
 fn init_io_buffers(
     num_virtual_axons: u32,
     max_spikes_per_tick: u32,
@@ -965,6 +969,7 @@ pub fn spawn_shard_thread(
                         if desc.num_outputs > 0 {
                             download_outputs(desc.num_outputs, &mut pinned_out, &io_buffers, output_bytes, &desc.engine);
                         }
+
                         if is_warmup {
                             warmup_ticks_remaining = warmup_ticks_remaining.saturating_sub(batch_size);
                             if warmup_ticks_remaining == 0 {
@@ -975,7 +980,7 @@ pub fn spawn_shard_thread(
                         // PHASE 3: Periodic disk flush (I/O)
                         let cp_interval_ticks = ctx.atomic_settings.save_checkpoints_interval_ticks.load(Ordering::Relaxed);
                         let cp_interval = (cp_interval_ticks as u32 / batch_size).max(1);
-                        if batch_counter > 0 && batch_counter % cp_interval as u64 == 0 {
+                        if batch_counter > 0 && batch_counter.is_multiple_of(cp_interval as u64) {
                             save_hot_checkpoint(
                                 &desc.engine, 
                                 hash, 
@@ -988,7 +993,7 @@ pub fn spawn_shard_thread(
                         // PHASE 4: Graph maintenance (Night Phase)
                         let current_tick_count = (batch_counter + 1) * batch_size as u64;
                         let n_interval = ctx.atomic_settings.night_interval_ticks.load(Ordering::Relaxed);
-                        if n_interval > 0 && current_tick_count % n_interval == 0 {
+                        if n_interval > 0 && current_tick_count.is_multiple_of(n_interval) {
                             let current_prune_threshold = ctx.atomic_settings.prune_threshold.load(Ordering::Relaxed);
                             let current_max_sprouts = ctx.atomic_settings.max_sprouts.load(Ordering::Relaxed);
                             let night_start = std::time::Instant::now();

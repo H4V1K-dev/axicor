@@ -16,7 +16,7 @@ fn hash_jitter(seed: u64, salt: u32) -> f32 {
     ((hash % 2000) as f32 / 1000.0) - 1.0
 }
 
-/// Generates a .ghosts file based on UV projection
+#[allow(clippy::too_many_arguments)]
 pub fn bake_atlas_connection(
     out_dir: &Path,
     from_name: &str,

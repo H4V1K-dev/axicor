@@ -11,6 +11,7 @@ pub struct MasterSeed(pub u64);
 
 impl MasterSeed {
     /// Creates MasterSeed from any string (ASCII, spaces, Unicode, Emoji).
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         Self(seed_from_str(s))
     }

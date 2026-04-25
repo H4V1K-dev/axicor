@@ -23,7 +23,7 @@ fn emulate_gsop_math(
 
     // 2. Inertia and bursts
     let rank = (abs_w >> 27) as usize;
-    let rank_safe = rank.min(15);
+    let rank_safe = rank.min(7);
     let inertia = p.inertia_curve[rank_safe] as i32;
     let burst_mult = if burst_count > 0 {
         burst_count as i32
@@ -69,7 +69,7 @@ fn test_neuron() -> NeuronType {
     nt.d1_affinity = 128; // 1.0x
     nt.d2_affinity = 128; // 1.0x
     nt.inertia_curve = [
-        128, 120, 112, 104, 96, 88, 80, 72, 64, 56, 48, 40, 32, 24, 16, 8,
+        128, 112, 96, 80, 64, 48, 32, 16,
     ];
     nt
 }

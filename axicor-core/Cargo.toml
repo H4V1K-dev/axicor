@@ -29,11 +29,12 @@ exclude = [
 ]
 
 [dependencies]
-bytemuck = { version = "1.25.0", features = ["derive"] }
-memmap2 = "0.9.10"
+bytemuck = { version = "=1.25.0", features = ["derive"] }
+memmap2 = "=0.9.10"
 serde = { workspace = true }
 toml = { workspace = true }
-uuid = { version = "1.12", features = ["v4"] }
+uuid = { version = "=1.12.1", features = ["v4"] }
+time = "=0.3.36"
 
 [features]
 amd = []

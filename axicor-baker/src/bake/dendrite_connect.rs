@@ -101,6 +101,7 @@ pub fn connect_dendrites(
     // 4. TRANSPOSITION: AoS -> SoA (Single linear pass)
     for soma_id in 0..shard.padded_n {
         let count = soma_slot_counts[soma_id];
+        #[allow(clippy::needless_range_loop)]
         for slot in 0..count {
             let col_idx = slot * shard.padded_n + soma_id;
             let temp = aos_dendrites[soma_id][slot];

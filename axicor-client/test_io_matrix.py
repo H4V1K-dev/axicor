@@ -60,7 +60,8 @@ def test_torture_scenarios():
 
     print("Torture Test: Edge case - exact fit...")
     designer_exact = IoMatrixDesigner(32, 1)
-    chunks = designer_exact.fragment(sync_batch_ticks=1, mtu=24)
+    # [DOD FIX] Minimum payload for 64-bit alignment is 8 bytes. Header is 20 bytes. MTU = 28.
+    chunks = designer_exact.fragment(sync_batch_ticks=1, mtu=28)
     assert len(chunks) == 1
     assert chunks[0]["uv_rect"] == [0.0, 0.0, 1.0, 1.0]
     print("Exact fit test passed.")

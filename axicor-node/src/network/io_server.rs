@@ -246,7 +246,7 @@ impl ExternalIoServer {
             .store(header.global_reward as i32, Ordering::Relaxed);
         if header.global_reward != 0 {
             let n = self.dopamine_log_counter.fetch_add(1, Ordering::Relaxed);
-            if n % 100 == 0 {
+            if n.is_multiple_of(100) {
                 info!(
                     " [Dopamine] Reward Received: {} ({} packets)",
                     header.global_reward,

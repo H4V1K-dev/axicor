@@ -132,6 +132,7 @@ impl ShardSoA {
 
 /// Zero-Cost assembly of .state binary blob.
 /// Arrays must have length `padded_n`.
+#[allow(clippy::too_many_arguments)]
 pub fn write_state_blob(
     path: &Path,
     padded_n: usize,

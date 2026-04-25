@@ -74,11 +74,11 @@ pub fn compute_state_offsets(padded_n: usize) -> StateOffsets {
     let soma_voltage = off;
     off = (off + padded_n * 4 + 63) & !63;
     let soma_flags = off;
-    off = (off + padded_n * 1 + 63) & !63;
+    off = (off + padded_n + 63) & !63;
     let threshold_offset = off;
     off = (off + padded_n * 4 + 63) & !63;
     let timers = off;
-    off = (off + padded_n * 1 + 63) & !63;
+    off = (off + padded_n + 63) & !63;
     let soma_to_axon = off;
     off = (off + padded_n * 4 + 63) & !63;
     let dendrite_targets = off;
@@ -86,7 +86,7 @@ pub fn compute_state_offsets(padded_n: usize) -> StateOffsets {
     let dendrite_weights = off;
     off = (off + padded_n * MAX_DENDRITES * 4 + 63) & !63;
     let dendrite_timers = off;
-    off = (off + padded_n * MAX_DENDRITES * 1 + 63) & !63;
+    off = (off + padded_n * MAX_DENDRITES + 63) & !63;
     StateOffsets {
         soma_voltage,
         soma_flags,

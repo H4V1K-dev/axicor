@@ -36,7 +36,7 @@ def test_checkpointing():
         mm = mmap.mmap(f.fileno(), 0)
         # C-ABI Header v2 (64 bytes)
         struct.pack_into("<IBBHIIIIQIIIIIIII", mm, 0,
-                         0x47454E53, 2, 0, 0,
+                         0x41584943, 2, 0, 0,
                          PADDED_N, 128, 64, 64 + WEIGHTS_SIZE,
                          0, # epoch
                          PADDED_N, 

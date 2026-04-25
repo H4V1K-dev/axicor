@@ -221,10 +221,7 @@ impl BlueprintsConfig {
     }
 }
 
-/// Physics and plasticity parameters for a single neuron type (Variant).
-/// Aligned to exactly 64 bytes for optimal caching in GPU L1 Constant Memory.
-// use serde::Serialize;
-
+// Aligned to exactly 64 bytes for optimal caching in GPU L1 Constant Memory.
 // VariantParameters is now defined in crate::layout.rs
 /*
 pub struct VariantParameters {

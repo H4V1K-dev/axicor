@@ -19,11 +19,7 @@ impl EgressPool {
         let ready_queue = ArrayQueue::new(capacity);
 
         for _ in 0..capacity {
-            let mut buffer = Vec::with_capacity(axicor_core::constants::MAX_UDP_PAYLOAD);
-            // [DOD FIX] Fix length. We will NEVER call push() or resize() again
-            unsafe {
-                buffer.set_len(axicor_core::constants::MAX_UDP_PAYLOAD);
-            }
+            let buffer = vec![0u8; axicor_core::constants::MAX_UDP_PAYLOAD];
 
             free_queue
                 .push(EgressMessage {

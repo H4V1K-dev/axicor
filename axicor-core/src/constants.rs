@@ -53,7 +53,7 @@ pub const V_SEG: u32 = SIGNAL_SPEED_UM_TICK / SEGMENT_LENGTH_UM; // 1
 /// If v_seg is fractional, the GPU cannot operate without floats, violating Integer Physics.
 #[allow(clippy::eq_op)]
 const _: () = assert!(
-    SIGNAL_SPEED_UM_TICK % SEGMENT_LENGTH_UM == 0,
+    SIGNAL_SPEED_UM_TICK.is_multiple_of(SEGMENT_LENGTH_UM),
     "Spec 01 1.6 violation: signal_speed_um_tick must be divisible by segment_length_um (v_seg must be integer)"
 );
 

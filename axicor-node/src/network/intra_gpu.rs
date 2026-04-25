@@ -34,6 +34,8 @@ impl Drop for IntraGpuChannel {
 }
 
 impl IntraGpuChannel {
+    /// # Safety
+    /// Caller must ensure CUDA context is initialized and that capacity is sufficient for the connection count.
     pub unsafe fn from_slices(
         src_zone_hash: u32,
         target_zone_hash: u32,
@@ -104,7 +106,8 @@ impl IntraGpuChannel {
         unimplemented!("sync_spikes is not available after axicor-compute split");
     }
 
-    /// GPU-side sync: calls CUDA kernel launch_ghost_sync (production).
+    /// # Safety
+    /// Pointers must be aligned to 32 bytes (`BurstHeads8`).
     pub unsafe fn sync_ghosts(
         &self,
         src_heads: *const axicor_core::layout::BurstHeads8,
@@ -130,6 +133,8 @@ impl IntraGpuChannel {
     }
 
     // Drop src_zone_idx and dst_zone_idx from push_route
+    /// # Safety
+    /// Caller must ensure CUDA stream and routing indices are valid.
     pub unsafe fn push_route(
         &mut self,
         src_axon: u32,
@@ -171,6 +176,8 @@ impl IntraGpuChannel {
         self.count += 1;
     }
 
+    /// # Safety
+    /// Caller must ensure CUDA stream is valid.
     pub unsafe fn prune_route(
         &mut self,
         target_ghost_id: u32,

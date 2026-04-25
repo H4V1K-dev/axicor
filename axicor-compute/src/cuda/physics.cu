@@ -467,8 +467,9 @@ __global__ void cu_ghost_sync_kernel(
     uint32_t head = s_arr[i];
     if (head == 0x80000000u) continue;
 
-    uint32_t age = head / v_seg;
-    if (age < sync_batch_ticks) {
+    // [DOD FIX] Cast to int32_t to properly evaluate spikes born in the current tick (-v_seg)
+    int32_t age_ticks = ((int32_t)head / (int32_t)v_seg) + 1;
+    if (age_ticks >= 0 && age_ticks < (int32_t)sync_batch_ticks) {
       push_burst_head(&d_h, v_seg);
     }
   }

@@ -10,19 +10,16 @@ from axicor import AxicorMemory, AxicorSurgeon
 def test_surgeon():
     print("--- Testing AxicorSurgeon ---")
     
-    # 1. Setup mock memory shards
-    shard_path = "/dev/shm/axicor_shard_test"
-    if not os.path.exists(shard_path):
-        # Create a dummy shard if it doesn't exist for testing
-        # In a real scenario, we'd use live shards
-        print(f"Note: Shard {shard_path} not found. Manual verification required on live shards.")
-        # We can't easily create a valid SHM shard with correct header here without more effort,
-        # but the logic is vector-based on numpy arrays.
-        
     # Find a real shard to test on
-    shards = [f for f in os.listdir("/dev/shm") if f.startswith("axicor_shard_")]
+    import tempfile
+    shm_dir = "/dev/shm" if sys.platform != "win32" else tempfile.gettempdir()
+    if not os.path.exists(shm_dir):
+        print(f"No active shards found in {shm_dir}.")
+        return
+        
+    shards = [f for f in os.listdir(shm_dir) if f.startswith("axicor_shard_")]
     if not shards:
-        print("No active shards found in /dev/shm. Please start axicor-node.")
+        print(f"No active shards found in {shm_dir}. Please start axicor-node.")
         return
 
     zone_hash = int(shards[0].split("_")[-1], 16)
@@ -36,25 +33,17 @@ def test_surgeon():
     count = surgeon.incubate_gaba(baseline_weight=-30000)
     print(f"Incubated {count} inhibitory synapses with weight -30000.")
     
-    # 2. Test Graft Extraction
-    print("Testing extract_graft...")
-    offsets, signs = surgeon.extract_graft(threshold=1000)
-    print(f"Extracted graft with {len(offsets)} synapses.")
+    # 2. Test Graft Extraction (Reflex Path)
+    print("Testing extract_reflex_path...")
+    # Use dummy root soma IDs for testing
+    payload = surgeon.extract_reflex_path(root_soma_ids=np.array([0, 1, 2], dtype=np.int32))
+    print(f"Extracted graft with {np.sum(payload['soma_mask'])} somas.")
     
-    if len(offsets) > 0:
-        print(f"First 5 offsets: {offsets[:5]}")
-        print(f"First 5 signs: {signs[:5]}")
-        
-        # 3. Test Graft Injection
-        print("Testing inject_graft...")
-        surgeon.inject_graft(offsets, signs)
-        print("Graft injected (weights set to +/- 32767).")
-        
-        # Verify weight update
-        sample_idx = offsets[0]
-        new_weight = memory.weights.ravel()[sample_idx]
-        expected = int(signs[0]) * 32767
-        print(f"Verification: Index {sample_idx}, Weight: {new_weight}, Expected: {expected}")
+    if np.any(payload['soma_mask']):
+        # 3. Test Graft Injection (Subgraph)
+        print("Testing inject_subgraph...")
+        surgeon.inject_subgraph(payload)
+        print("Graft injected.")
         
     print("--- Test Completed ---")
 

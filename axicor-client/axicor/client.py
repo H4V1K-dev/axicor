@@ -11,12 +11,13 @@ GSIO_MAGIC = 0x4F495347
 GSOO_MAGIC = 0x4F4F5347  # Axicor Standard Output
 
 class AxicorMultiClient:
-    def __init__(self, addr: tuple[str, int], matrices: List[Dict[str, int]], rx_layout: list[dict] = None, timeout: float = 2.0):
+    def __init__(self, addr: tuple[str, int], matrices: List[Dict[str, int]], rx_layout: list[dict] = None, timeout: float = 2.0, bind_addr: tuple[str, int] = None):
         """
         :param addr: Node address (ip, port) (External UDP In)
         :param matrices: List of dictionaries [{'zone_hash': int, 'matrix_hash': int, 'payload_size': int}]
         :param rx_layout: List of expected response chunks [{'matrix_hash': int, 'size': int}]
         :param timeout: Response timeout (Biological Amnesia)
+        :param bind_addr: Optional local (ip, port) to bind before first send. Ensures node replies to fixed port.
         """
         self.addr = addr
         self.num_chunks = len(matrices)
@@ -50,7 +51,10 @@ class AxicorMultiClient:
         # [DOD FIX] Expand OS receive buffer to 8 MB to handle burst L7 chunks
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 * 1024 * 1024)
         self.sock.settimeout(timeout)
-        
+        # [DOD FIX] Bind before any sendto so node replies to our fixed port.
+        if bind_addr is not None:
+            self.sock.bind(bind_addr)
+
         self.payload_views = []
         self._tx_packets = []
         
@@ -139,4 +143,10 @@ class AxicorMultiClient:
                 print(f"[WARN] [AxicorClient] UDP Timeout waiting for hash {expected_rx_hash}")
             else:
                 print(f"[WARN] [AxicorClient] UDP Timeout. Received {chunks_received}/{self.expected_chunks} chunks.")
+            return self._rx_view[0:0]
+        except ConnectionResetError as e:
+            print(f"[WARN] [AxicorClient] UDP ConnectionResetError: {e}")
+            return self._rx_view[0:0]
+        except Exception as e:
+            print(f"[WARN] [AxicorClient] UDP Unexpected Error: {e}")
             return self._rx_view[0:0]

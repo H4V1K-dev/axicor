@@ -58,8 +58,10 @@ pub extern "C" fn gpu_malloc(size: usize) -> *mut c_void {
     unsafe { mock_alloc_64(size) }
 }
 
+/// # Safety
+/// `dev_ptr` must be valid.
 #[no_mangle]
-pub extern "C" fn gpu_free(dev_ptr: *mut c_void) {
+pub unsafe extern "C" fn gpu_free(dev_ptr: *mut c_void) {
     unsafe { mock_free_64(dev_ptr) }
 }
 
@@ -68,8 +70,10 @@ pub extern "C" fn gpu_host_alloc(size: usize) -> *mut c_void {
     unsafe { mock_alloc_64(size) }
 }
 
+/// # Safety
+/// `ptr` must be valid.
 #[no_mangle]
-pub extern "C" fn gpu_host_free(dev_ptr: *mut c_void) {
+pub unsafe extern "C" fn gpu_host_free(dev_ptr: *mut c_void) {
     unsafe { mock_free_64(dev_ptr) }
 }
 
@@ -136,8 +140,10 @@ pub extern "C" fn gpu_memcpy_peer_async(
     true
 }
 
+/// # Safety
+/// `out_stream` must be valid and mutable.
 #[no_mangle]
-pub extern "C" fn gpu_stream_create(out_stream: *mut *mut c_void) -> i32 {
+pub unsafe extern "C" fn gpu_stream_create(out_stream: *mut *mut c_void) -> i32 {
     unsafe {
         *out_stream = std::ptr::null_mut();
     }
@@ -174,6 +180,8 @@ pub extern "C" fn update_constant_memory_hot_reload(
 ) {
 }
 
+/// # Safety
+/// Caller must ensure pointers are valid.
 #[no_mangle]
 pub unsafe extern "C" fn cu_allocate_shard(
     padded_n: u32,
@@ -183,6 +191,10 @@ pub unsafe extern "C" fn cu_allocate_shard(
     bindings::cpu_allocate_shard(padded_n, total_axons, out_vram)
 }
 
+/// # Safety
+/// - All VRAM pointers inside `ShardVramPtrs` MUST be 64-byte aligned (L1/L2 Cache Invariant).
+/// - `padded_n` MUST be an exact multiple of the hardware warp size (32 for CUDA, 64 for HIP).
+/// - Host-side I/O arrays MUST be allocated as pinned memory (`gpu_host_alloc`) to prevent PCIe page faults.
 #[no_mangle]
 pub unsafe extern "C" fn cu_reset_burst_counters(
     _ptrs: *const ShardVramPtrs,
@@ -191,6 +203,10 @@ pub unsafe extern "C" fn cu_reset_burst_counters(
 ) {
 }
 
+/// # Safety
+/// - All VRAM pointers inside `ShardVramPtrs` MUST be 64-byte aligned (L1/L2 Cache Invariant).
+/// - `padded_n` MUST be an exact multiple of the hardware warp size (32 for CUDA, 64 for HIP).
+/// - Host-side I/O arrays MUST be allocated as pinned memory (`gpu_host_alloc`) to prevent PCIe page faults.
 #[no_mangle]
 pub unsafe extern "C" fn cu_upload_state_blob(
     vram: *const ShardVramPtrs,
@@ -200,6 +216,8 @@ pub unsafe extern "C" fn cu_upload_state_blob(
     bindings::cpu_upload_state_blob(vram, state_blob, state_size)
 }
 
+/// # Safety
+/// Caller must ensure pointers are valid and aligned to 64 bytes.
 #[no_mangle]
 pub unsafe extern "C" fn cu_upload_axons_blob(
     vram: *const ShardVramPtrs,
@@ -209,11 +227,19 @@ pub unsafe extern "C" fn cu_upload_axons_blob(
     bindings::cpu_upload_axons_blob(vram, axons_blob, axons_size)
 }
 
+/// # Safety
+/// - All VRAM pointers inside `ShardVramPtrs` MUST be 64-byte aligned (L1/L2 Cache Invariant).
+/// - `padded_n` MUST be an exact multiple of the hardware warp size (32 for CUDA, 64 for HIP).
+/// - Host-side I/O arrays MUST be allocated as pinned memory (`gpu_host_alloc`) to prevent PCIe page faults.
 #[no_mangle]
 pub unsafe extern "C" fn cu_free_shard(vram: *mut ShardVramPtrs) {
     bindings::cpu_free_shard(vram);
 }
 
+/// # Safety
+/// - All VRAM pointers inside `ShardVramPtrs` MUST be 64-byte aligned (L1/L2 Cache Invariant).
+/// - `padded_n` MUST be an exact multiple of the hardware warp size (32 for CUDA, 64 for HIP).
+/// - Host-side I/O arrays MUST be allocated as pinned memory (`gpu_host_alloc`) to prevent PCIe page faults.
 #[no_mangle]
 pub unsafe extern "C" fn cu_step_day_phase(
     vram: *const ShardVramPtrs,
@@ -260,6 +286,8 @@ pub unsafe extern "C" fn cu_step_day_phase(
     0
 }
 
+/// # Safety
+/// Caller must ensure `lut` points to 16 VariantParameters.
 #[no_mangle]
 pub unsafe extern "C" fn cu_upload_constant_memory(lut: *const VariantParameters) -> i32 {
     bindings::cpu_upload_constant_memory(lut);
@@ -378,8 +406,10 @@ pub extern "C" fn launch_ghost_sync(
 #[no_mangle]
 pub extern "C" fn gpu_reset_telemetry_count(_count_d: *mut u32, _stream: *mut std::ffi::c_void) {}
 
+/// # Safety
+/// Pointers must be valid and correctly sized according to `padded_n`.
 #[no_mangle]
-pub extern "C" fn launch_extract_telemetry(
+pub unsafe extern "C" fn launch_extract_telemetry(
     flags_d: *const u8,
     out_ids_d: *mut u32,
     out_count_d: *mut u32,
@@ -401,6 +431,8 @@ unsafe fn aligned_alloc_zeroed<T>(count: usize) -> *mut T {
     mock_alloc_64(size) as *mut T
 }
 
+/// # Safety
+/// Caller must ensure all double-pointers are valid.
 #[no_mangle]
 pub unsafe extern "C" fn cu_allocate_io_buffers(
     input_words: u32,
@@ -416,6 +448,10 @@ pub unsafe extern "C" fn cu_allocate_io_buffers(
     0
 }
 
+/// # Safety
+/// - All VRAM pointers inside `ShardVramPtrs` MUST be 64-byte aligned (L1/L2 Cache Invariant).
+/// - `padded_n` MUST be an exact multiple of the hardware warp size (32 for CUDA, 64 for HIP).
+/// - Host-side I/O arrays MUST be allocated as pinned memory (`gpu_host_alloc`) to prevent PCIe page faults.
 #[no_mangle]
 pub unsafe extern "C" fn cu_free_io_buffers(
     d_input_bitmask: *mut u32,
@@ -433,6 +469,10 @@ pub unsafe extern "C" fn cu_free_io_buffers(
     }
 }
 
+/// # Safety
+/// - All VRAM pointers inside `ShardVramPtrs` MUST be 64-byte aligned (L1/L2 Cache Invariant).
+/// - `padded_n` MUST be an exact multiple of the hardware warp size (32 for CUDA, 64 for HIP).
+/// - Host-side I/O arrays MUST be allocated as pinned memory (`gpu_host_alloc`) to prevent PCIe page faults.
 #[no_mangle]
 pub unsafe extern "C" fn cu_dma_h2d_io(
     d_input_bitmask: *mut u32,
@@ -456,6 +496,8 @@ pub unsafe extern "C" fn cu_dma_h2d_io(
     0
 }
 
+/// # Safety
+/// - All host-side buffers MUST be Pinned RAM.
 #[no_mangle]
 pub unsafe extern "C" fn cu_dma_d2h_io(
     h_output_history: *mut u8,

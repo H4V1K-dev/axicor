@@ -38,22 +38,22 @@ path = "src/bin/daemon.rs"
 
 [dependencies]
 axicor-core = { version = "0.1.0", path = "../axicor-core" }
-toml = "0.8"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-anyhow = "1"
-clap = { version = "4", features = ["derive"] }
-wyhash = "0.5"
-glam = "0.24"
-rayon = "1.10"
-rand = "0.8"
-rand_chacha = "0.3"
-bytemuck = "1.14"
-memmap2 = "0.9"
+toml = { workspace = true }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.149"
+anyhow = "=1.0.102"
+clap = { version = "=4.5.60", features = ["derive"] }
+wyhash = "=0.5.0"
+glam = "=0.24.2"
+rayon = "=1.11.0"
+rand = "=0.8.5"
+rand_chacha = "=0.3.1"
+bytemuck = "=1.25.0"
+memmap2 = "=0.9.10"
 axicor-compute = { version = "0.1.0", path = "../axicor-compute" }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-appender = "0.2"
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.22", features = ["env-filter"] }
+tracing-appender = "=0.2.5"
 
 [features]
 mock-gpu = ["axicor-compute/mock-gpu"]

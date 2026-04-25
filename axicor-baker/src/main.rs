@@ -286,6 +286,7 @@ pub struct BakeWorkspace {
     pub brain_config: axicor_core::config::brain::BrainConfig,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_and_validate(
     brain_config: &axicor_core::config::brain::BrainConfig,
     sim_path: &Path,

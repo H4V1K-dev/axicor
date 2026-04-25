@@ -238,7 +238,7 @@ impl ShardStateSoA {
     /// - `total_axons`: total axons (local + ghost + virtual).
     pub fn new(padded_n: usize, total_axons: usize) -> Self {
         assert!(
-            padded_n % 32 == 0,
+            padded_n.is_multiple_of(32),
             "padded_n must be warp-aligned (multiple of 32)"
         );
 
@@ -331,10 +331,9 @@ pub struct VramState {
 }
 
 impl VramState {
-    /// WARNING: Caller must guarantee `soa` is not moved, resized, or dropped
-    /// while `VramState` is in use. For GPU DMA, arrays in `soa` must be
-    /// allocated as Page-Locked.
-    #[inline(always)]
+    /// # Safety
+    /// The caller must ensure that `ShardStateSoA` arrays are padded to a multiple of 32
+    /// and correctly aligned. Data lifetime must exceed the returned layout struct.
     pub unsafe fn from_soa(soa: &mut ShardStateSoA) -> Self {
         Self {
             padded_n: soa.padded_n as u32,

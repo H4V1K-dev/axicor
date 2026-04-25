@@ -41,7 +41,8 @@ impl RoutingTable {
         self.map_ptr.load(Ordering::Acquire)
     }
 
-    // [DOD FIX] Zero-Lock RCU Routing
+    /// # Safety
+    /// Caller must ensure RCU synchronization and thread safety.
     pub unsafe fn update_routes(&self, new_map: HashMap<u32, (SocketAddr, u16)>) {
         let boxed = Box::new(new_map);
         let new_ptr = Box::into_raw(boxed);
@@ -190,6 +191,7 @@ impl InterNodeRouter {
 
     // MONOLITH: HIGH — spawn_ghost_listener loop mixes IO, amnesia checks, self-healing, and deduplication logic.
     // REFACTOR: Separate the UDP Listener from the protocol decoder (FastPathDecoder) and state manager.
+    #[allow(clippy::needless_range_loop)]
     /// Starts inter-zone spike listener (Sender-Side Mapping)
     pub async fn spawn_ghost_listener(
         port: u16,
@@ -269,7 +271,7 @@ impl InterNodeRouter {
                         let n = bsp_barrier
                             .self_heal_log_counter
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        if n % 100 == 0 {
+                        if n.is_multiple_of(100) {
                             warn!("[BSP] Self-Healing: Fast-forwarding epoch {} -> {} (dropped lag data)", current_epoch, header.epoch);
                         }
                         bsp_barrier
@@ -336,7 +338,7 @@ impl InterNodeRouter {
 
                         // Read spikes
                         let payload_bytes = &buf[16..size];
-                        if payload_bytes.len() % 8 == 0 && !payload_bytes.is_empty() {
+                        if payload_bytes.len().is_multiple_of(8) && !payload_bytes.is_empty() {
                             let schedule = bsp_barrier.get_write_schedule();
                             for chunk in payload_bytes.chunks_exact(8) {
                                 let ghost_id = u32::from_le_bytes(chunk[0..4].try_into().unwrap());

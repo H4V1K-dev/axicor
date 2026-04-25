@@ -4,9 +4,9 @@
 /// "raw" GPU constants. The hot loop does not perform multiplications  it operates
 /// on pre-calculated numbers from Constant Memory.
 ///
-/// Invariant 1.6: `signal_speed_um_tick % segment_length_um == 0`.
+/// Invariant 1.6: signal_speed_um_tick % segment_length_um == 0.
 /// Violation  return Err before any GPU-upload.
-
+///
 /// Derived physical constants ready for loading into GPU Constant Memory.
 ///
 /// Calculated once at startup via `compute_derived_physics`.
@@ -142,6 +142,7 @@ pub const fn inertia_rank(abs_weight: i32) -> usize {
 
 /// Calculates new synaptic weight value according to GSOP (STDP) algorithm.
 /// Math is optimized for fixed-point integer calculations.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_gsop_weight(
     current_weight: i32,
     dopamine: i16,
@@ -175,12 +176,8 @@ pub fn compute_gsop_weight(
     // 3. Spatial Cooling
     // Farther spike from synapse = weaker LTP effect
     let is_active = dist_to_spike.is_some();
-    let min_dist = if let Some(d) = dist_to_spike {
-        d
-    } else {
-        u32::MAX
-    };
-    let cooling_shift = if is_active { (min_dist >> 4) as u32 } else { 0 };
+    let min_dist = dist_to_spike.unwrap_or(u32::MAX);
+    let cooling_shift = if is_active { min_dist >> 4 } else { 0 };
 
     // 4. Final delta
     let delta = if is_active {
@@ -196,14 +193,12 @@ pub fn compute_gsop_weight(
     // 6. Apply change and clamp to i32 limits with Headroom
     // 2.14B ceiling leaves room to i32::MAX to prevent wrap-around.
     let mut new_abs = abs_w + delta;
-    if new_abs < 0 {
-        new_abs = 0;
-    }
+    new_abs &= !(new_abs >> 31);
     if new_abs > 2140000000 {
         new_abs = 2140000000;
     }
     // 7. Restore sign
-    (sign * new_abs) as i32
+    sign * new_abs
 }
 
 #[cfg(test)]

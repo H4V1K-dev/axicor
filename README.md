@@ -29,6 +29,15 @@
     <a href="https://t.me/+zptNJAJhDe41ZTEy"><img src="https://img.shields.io/badge/Telegram-Contributors-26A5E4?logo=telegram" alt="Telegram"></a>
     <a href="https://ko-fi.com/axicor"><img src="https://img.shields.io/badge/Support-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
   </p>
+
+  <p>
+    <strong>Get AI Help:</strong>
+    <a href="https://notebooklm.google.com/notebook/6b731a06-043c-4959-a557-f088b6c1216c"><img src="https://img.shields.io/badge/🫀_Core-Expert-red" alt="Core Expert"></a>
+    <a href="https://notebooklm.google.com/notebook/b3baaac2-91a1-4988-94aa-430ba760a0a6"><img src="https://img.shields.io/badge/🔥_Compute-Expert-orange" alt="Compute Expert"></a>
+    <a href="https://notebooklm.google.com/notebook/d540c34f-0ace-4ed6-b9f7-5ae9c4adbdff"><img src="https://img.shields.io/badge/📡_Node-Expert-blue" alt="Node Expert"></a>
+    <a href="https://notebooklm.google.com/notebook/c412b68a-be7b-4f17-bb50-61f74667af21"><img src="https://img.shields.io/badge/🐍_SDK-Expert-green" alt="SDK Expert"></a>
+    <a href="https://notebooklm.google.com/notebook/f5cf46c6-8f6c-4bdb-9cf0-979080fb5c06"><img src="https://img.shields.io/badge/🧬_Baker-Expert-purple" alt="Baker Expert"></a>
+  </p>
 </div>
 
 ---
@@ -154,6 +163,18 @@ Axicor makes a handful of deliberate design choices that differ from mainstream 
 - **Dale's Law.** Synapse sign (excitatory / inhibitory) is immutable after connectome compilation. Plasticity can only modify magnitude.
 - **BSP lockstep.** All shards advance in epoch-aligned barriers. No out-of-order simulation between zones.
 - **Deterministic RNG.** All stochastic processes (spontaneous firing, axon growth noise) derive from `wyhash(master_seed, entity_id)`. Two runs with the same seed produce byte-identical results.
+
+## 🤖 AI Crate Experts
+
+Each crate has a dedicated AI assistant trained on its architecture, invariants, and C-ABI contracts. Click to open a conversation:
+
+| | Expert | What I Know | Ask Me About |
+|---|--------|-------------|---------------|
+| 🫀 | [**Core**](https://notebooklm.google.com/notebook/6b731a06-043c-4959-a557-f088b6c1216c) | Axicor's binary foundation: integer physics, bitwise packing, and C-ABI memory contracts. | Struct alignment, bit packing, or synaptic arithmetic without floats. |
+| 🔥 | [**Compute**](https://notebooklm.google.com/notebook/b3baaac2-91a1-4988-94aa-430ba760a0a6) | GPU simulation pipeline: CUDA kernels, VRAM management, and warp-level processing of 100,000+ neurons. | Simulation kernels, video memory, or Rust↔CUDA FFI contracts. |
+| 📡 | [**Node**](https://notebooklm.google.com/notebook/d540c34f-0ace-4ed6-b9f7-5ae9c4adbdff) | Network orchestrator: UDP fast-path, BSP sync barrier, and signal routing between zones. | Data exchange protocol, InputSwapchain mechanics, or network stack debugging. |
+| 🐍 | [**SDK**](https://notebooklm.google.com/notebook/c412b68a-be7b-4f17-bb50-61f74667af21) | Python client internals: zero-copy integration, memoryview, pre-allocated buffers, and allocation-free UDP. | Writing an agent, connecting an environment, or synapse surgery via AxicorSurgeon. |
+| 🧬 | [**Baker**](https://notebooklm.google.com/notebook/f5cf46c6-8f6c-4bdb-9cf0-979080fb5c06) | Night Phase pipeline: genome compilation, axon growth, and packing neural networks into `.axic` binaries. | Building, rebuilding, or debugging an `.axic` file. |
 
 ## Documentation
 

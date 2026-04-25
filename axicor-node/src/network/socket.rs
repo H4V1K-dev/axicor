@@ -91,7 +91,7 @@ impl NodeSocket {
         let expected_body_sz = body_bytes.len() / std::mem::size_of::<SpikeEvent>()
             * std::mem::size_of::<SpikeEvent>();
 
-        if body_bytes.len() < std::mem::size_of::<SpikeEvent>() && body_bytes.len() > 0 {
+        if body_bytes.len() < std::mem::size_of::<SpikeEvent>() && !body_bytes.is_empty() {
             bail!("Packet truncated. Body is {} bytes.", body_bytes.len());
         }
 

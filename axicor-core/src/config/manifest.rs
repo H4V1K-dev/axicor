@@ -3,9 +3,7 @@ use serde::{Deserialize, Serialize};
 // use std::fmt;
 
 /// 1. DTO: Read from manifest.toml. Contains String, lives on Heap.
-/// Must NOT be passed via raw pointer to C++!
-
-/// 1. DTO: Read from manifest.toml.
+///    Must NOT be passed via raw pointer to C++!
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ManifestVariant {
     pub id: u8,

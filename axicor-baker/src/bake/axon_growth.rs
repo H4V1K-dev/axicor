@@ -49,6 +49,7 @@ pub struct SteeringWeights {
 
 /// Calculates the next axon step by mixing gradients and returns (Continuous position, Quantized position)
 #[inline(always)]
+#[allow(clippy::too_many_arguments)]
 pub fn step_and_pack(
     current_pos_um: Vec3,
     v_global: Vec3,
@@ -144,7 +145,7 @@ pub fn compute_growth_step(
     rng: &mut ChaCha8Rng,
     last_packed: Option<u32>,
 ) -> GrowthEvent {
-    let voxel_size_um = sim.simulation.voxel_size_um as f32;
+    let voxel_size_um = sim.simulation.voxel_size_um;
     let segment_length_um = sim.simulation.segment_length_voxels as f32 * voxel_size_um;
 
     let world_w_vox = (sim.world.width_um as f32 / voxel_size_um) as u32;
@@ -344,8 +345,6 @@ pub fn compute_layer_ranges(anatomy: &Anatomy, sim: &SimulationConfig) -> Vec<La
 /// 5. XY: small cone drift (FOV) relative to original XY position.
 ///    `tip_x = soma_x + x`, where `|x|  cone_radius`
 /// 6. Axon length = |target_z - soma_z| + 1 (in segments/voxels)
-// Removed local imports, moved to top.
-
 pub fn grow_axons(
     positions: &[PackedPosition],
     layer_ranges: &[LayerZRange],
@@ -382,7 +381,7 @@ pub fn grow_axons(
                 soma_y,
                 soma_z,
                 soma_idx,
-                type_idx as u8,
+                type_idx,
                 types,
                 sim,
                 world_w_vox,
@@ -470,7 +469,7 @@ pub fn grow_single_axon(
 
     let fov_cos = (type_params.steering_fov_deg / 2.0).to_radians().cos();
     let _max_search_radius_vox =
-        type_params.steering_radius_um / sim.simulation.voxel_size_um as f32;
+        type_params.steering_radius_um / sim.simulation.voxel_size_um;
     let weights = SteeringWeights {
         global: type_params.steering_weight_inertia,
         attract: type_params.steering_weight_sensor,
@@ -482,7 +481,7 @@ pub fn grow_single_axon(
     let is_horizontal = bias < 0.1; // Only pure horizontal if bias is very low (e.g. 0.0)
 
     let current_pos = Vec3::new(soma_x as f32, soma_y as f32, soma_z as f32);
-    let voxel_size_um = sim.simulation.voxel_size_um as f32;
+    let voxel_size_um = sim.simulation.voxel_size_um;
     let _segment_length_um = segment_length_vox * voxel_size_um;
     let current_pos_um = current_pos * voxel_size_um;
     let is_growing_up = tip_z >= soma_z;
@@ -619,7 +618,7 @@ pub fn inject_ghost_axons(
             packet.entry_y as f32,
             packet.entry_z as f32,
         );
-        let current_pos_um = current_pos * voxel_um as f32;
+        let current_pos_um = current_pos * voxel_um;
         let forward_dir = packet.entry_dir;
 
         let ghost_seed = master_seed
@@ -759,7 +758,7 @@ mod tests {
             variants: [VariantParameters {
                 threshold: 0,
                 rest_potential: 0,
-                leak_rate: 0,
+                leak_shift: 0,
                 homeostasis_penalty: 0,
                 gsop_potentiation: 0,
                 gsop_depression: 0,
@@ -853,7 +852,7 @@ pub fn inject_handover_events(
 
         let mut ctx = GrowthContext {
             current_pos_um: Vec3::new(entry_x as f32, entry_y as f32, entry_z as f32)
-                * voxel_um as f32,
+                * voxel_um,
             current_pos_vox: Vec3::new(entry_x as f32, entry_y as f32, entry_z as f32),
             forward_dir: entry_dir,
             target_pos: None,

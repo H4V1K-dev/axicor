@@ -13,7 +13,6 @@
 ///   SPROUTING   daemon writes result          NIGHT_DONE
 ///   NIGHT_DONE  runtime reads & resets        IDLE
 ///   Any state   daemon panics                ERROR
-
 /// Magic number at offset 0 of every SHM segment.
 pub const SHM_MAGIC: u32 = 0x41584943; // "AXIC"
 
@@ -190,7 +189,7 @@ impl ShmHeader {
         let prunes_offset = handovers_offset + handovers_bytes;
         let prunes_bytes = (MAX_PRUNES_PER_NIGHT * std::mem::size_of::<AxonHandoverPrune>()) as u32;
         let flags_offset = prunes_offset + prunes_bytes;
-        let flags_bytes = ((padded_n + 63) & !63) as u32;
+        let flags_bytes = (padded_n + 63) & !63;
         let voltage_offset = flags_offset + flags_bytes;
         let voltage_bytes = padded_n * 4;
         let threshold_offset_offset = voltage_offset + voltage_bytes;
@@ -431,7 +430,7 @@ impl GhostConnection {
         unsafe {
             std::slice::from_raw_parts(
                 slice.as_ptr() as *const u8,
-                slice.len() * std::mem::size_of::<Self>(),
+                std::mem::size_of_val(slice),
             )
         }
     }

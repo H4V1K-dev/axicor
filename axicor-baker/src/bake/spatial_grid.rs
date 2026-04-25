@@ -13,6 +13,7 @@ pub struct SpatialGrid {
     positions: Vec<PackedPosition>,
 }
 
+#[allow(clippy::new_without_default)]
 impl SpatialGrid {
     pub fn new(positions: Vec<PackedPosition>, cell_size_voxels: u32) -> Self {
         let mut grid = Self {

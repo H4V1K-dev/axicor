@@ -15,27 +15,22 @@ def test_builder_io_integration():
     builder = BrainBuilder("TestProject", "out")
     zone = builder.add_zone("V1", 64, 64, 64)
     
-    # Default sync_batch_ticks = 100
-    # For a 256x256 matrix:
-    # payload = 65487. bytes_per_tick = 65487 // 100 = 654.
-    # max_aligned_pixels = (654 // 4) * 32 = 163 * 32 = 5216.
-    # 256 * 256 = 65536. 
-    # 65536 // 5216 = 12.5 -> should be approximately 13 chunks.
-    
-    print("Adding fragmented input 'retina' (256x256)...")
+    print("Adding input 'retina' (256x256)...")
     zone.add_input("retina", 256, 256)
+
+    # [DOD FIX] Inputs are never fragmented (atomic bitmask requirement for GPU)
+    assert len(zone.inputs) == 1, f"Expected exactly 1 matrix for inputs, got {len(zone.inputs)}"
     
-    assert len(zone.inputs) > 1, f"Expected multiple chunks, got {len(zone.inputs)}"
+    first_matrix = zone.inputs[0]
+    print(f"First matrix name: {first_matrix['name']}")
+    assert first_matrix["name"] == "retina"
     
-    first_chunk = zone.inputs[0]
-    print(f"First chunk name: {first_chunk['name']}")
-    assert first_chunk["name"] == "retina_chunk_0"
-    assert first_chunk["target_zone"] == "V1"
-    assert first_chunk["target_type"] == "All"
-    assert first_chunk["entry_z"] == "top"
-    assert first_chunk["stride"] == 1
-    assert "uv_rect" in first_chunk
-    assert len(first_chunk["uv_rect"]) == 4
+    # Assertions on the first pin (chunk) of the matrix
+    first_pin = first_matrix["pin"][0]
+    assert first_pin["name"] == "retina"
+    assert first_pin["target_type"] == "All"
+    assert first_pin["stride"] == 1
+    assert "u_width" in first_pin
     
     print("Adding non-fragmented output 'motor' (10, 10)...")
     zone.add_output("motor", 10, 10)
@@ -43,11 +38,10 @@ def test_builder_io_integration():
     assert len(zone.outputs) == 1
     motor_out = zone.outputs[0]
     assert motor_out["name"] == "motor"
-    assert motor_out["source_zone"] == "V1"
-    assert motor_out["target_type"] == "All"
-    assert motor_out["stride"] == 1
-    assert "uv_rect" in motor_out
-    assert "entry_z" not in motor_out
+    # [DOD FIX] Attributes are now inside pins
+    assert motor_out["pin"][0]["target_type"] == "All"
+    assert motor_out["pin"][0]["stride"] == 1
+    assert "u_width" in motor_out["pin"][0]
     
     print("Testing entry_z validation...")
     # Valid float string

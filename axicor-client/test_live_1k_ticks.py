@@ -28,10 +28,14 @@ def wait_for_node_ready(process, timeout=300):
                 print(f"[*] Zone {zone_hash} stabilized ({len(stabilized_zones)}/3)")
         
         if len(stabilized_zones) >= 3:
-            print("[*] All zones stabilized. Waiting 5s for network...")
-            time.sleep(5)
+            print("[*] All zones stabilized.")
             return True
     return False
+
+def consume_stdout(process):
+    for line in iter(process.stdout.readline, ''):
+        if not line: break
+        # print(f"[node-bg] {line.strip()}")
 
 def run_simulation(root_dir, axic_archive, ticks=1000):
     """Runs a single simulation and returns the concatenated payload."""
@@ -42,6 +46,27 @@ def run_simulation(root_dir, axic_archive, ticks=1000):
     if mem_dir.exists():
         print(f"[*] Clearing stale SRAM: {mem_dir}")
         shutil.rmtree(mem_dir)
+
+    print("\n--- Connecting Client (Pre-Bind) ---")
+    # AntConnectome hashes
+    z_motor_hash = fnv1a_32(b"MotorCortex")
+    m_motor_hash = fnv1a_32(b"motor_out")
+    
+    client = AxicorMultiClient(
+        addr=("127.0.0.1", 8081),
+        matrices=[{
+            'zone_hash': fnv1a_32(b"SensoryCortex"),
+            'matrix_hash': fnv1a_32(b"ant_sensors"),
+            'payload_size': 5600 # 56 bytes * 100 ticks
+        }],
+        rx_layout=[{
+            'matrix_hash': m_motor_hash,
+            'size': 12800 # 128 bytes * 100 ticks
+        }],
+        timeout=10.0,
+        # [DOD FIX] Node sends output to 127.0.0.1:8092 by default
+        bind_addr=("127.0.0.1", 8092)
+    )
 
     print(f"\n--- Launching Node (Archive: {axic_archive}) ---")
     env = os.environ.copy()
@@ -59,44 +84,28 @@ def run_simulation(root_dir, axic_archive, ticks=1000):
         if not wait_for_node_ready(node_proc):
             raise RuntimeError("Node failed to reach ready state within timeout")
 
-        print("\n--- Connecting Client ---")
-        # AntConnectome hashes
-        z_motor_hash = fnv1a_32(b"MotorCortex")
-        m_motor_hash = fnv1a_32(b"motor_out")
-        
-        # ant_sensors matrix is 28x16 = 448 pixels -> 56 bytes per tick
-        # motor_out matrix is 16x8 = 128 pixels -> 128 bytes per tick (output is u8)
-        # Note: payloads are aligned to 64 bytes in builder.py
-        # matrix_out = 16x8 = 128. bytes_per_tick = 128.
-        # matrix_in = 28x16 = 448. bytes_per_tick = 448 / 8 = 56. Padded to 64 = 8 bytes.
-        
-        client = AxicorMultiClient(
-            addr=("127.0.0.1", 8081),
-            matrices=[{
-                'zone_hash': fnv1a_32(b"SensoryCortex"),
-                'matrix_hash': fnv1a_32(b"ant_sensors"),
-                'payload_size': 5600 # 56 bytes * 100 ticks
-            }],
-            rx_layout=[{
-                'matrix_hash': m_motor_hash,
-                'size': 12800 # 128 bytes * 100 ticks
-            }],
-            timeout=2.0
-        )
-        client.sock.bind(("127.0.0.1", 8092))
+        import threading
+        threading.Thread(target=consume_stdout, args=(node_proc,), daemon=True).start()
 
         print(f"\n--- Hot Loop ({ticks} ticks) ---")
         num_batches = ticks // 100
         for i in range(num_batches):
-            client.payload_views[0].fill(0) # No external input, rely on DDS noise
+            for pv in client.payload_views:
+                pv.fill(0) # No external input, rely on DDS noise
             rx_view = client.step(reward=0)
+            
+            # [DOD FIX] Strict Assertion. Silent drops break determinism tests.
+            assert len(rx_view) == 12800, f"FATAL: UDP Drop detected at batch {i}. Expected 12800 bytes, got {len(rx_view)}."
+            
             all_payloads.append(rx_view.tobytes())
             if i % 2 == 0:
                 print(f"Batch {i}/{num_batches} processed")
 
         print("\n--- Simulation Run Complete ---")
     finally:
-        print("\n--- Teardown Node ---")
+        print("\n--- Teardown Node & Client ---")
+        if 'client' in locals():
+            client.sock.close()
         node_proc.terminate()
         try:
             node_proc.wait(timeout=10)
@@ -113,7 +122,7 @@ def test_live_1k_ticks_determinism():
 
     # 1. Build Brain DNA with active spontaneous firing
     print("\n--- Phase 1: Building Deterministic Brain DNA ---")
-    gnm_path = os.path.join(root_dir, "GNM-Library")
+    gnm_path = os.path.join(root_dir, "Axicor_Neuron-Lib")
     out_dir = os.path.join(root_dir, "Axicor-Models", "DeterminismTest")
     
     if os.path.exists(out_dir):
@@ -126,24 +135,27 @@ def test_live_1k_ticks_determinism():
     builder.sim_params["sync_batch_ticks"] = 100
     builder.sim_params["tick_duration_us"] = 100
     
-    # Use GNM types with active spontaneous_firing_period_ticks
-    # VISp4/141 has spontaneous_firing_period_ticks = 759
-    exc_type = builder.gnm_lib("VISp4/141")
-    inh_type = builder.gnm_lib("VISp4/114")
+    # [DOD FIX] Dynamically resolve types to prevent test fragility
+    available_types = sorted(list(builder._lib_index.keys()))
+    if len(available_types) < 2:
+        raise ValueError(f"Neuron library must contain at least 2 profiles. Found: {len(available_types)}")
+    
+    exc_type = builder.gnm_lib(available_types[0])
+    inh_type = builder.gnm_lib(available_types[1])
     
     # Zone 1: Sensory
-    sensory = builder.add_zone("SensoryCortex", width_vox=32, depth_vox=32, height_vox=16)
+    sensory = builder.add_zone("SensoryCortex", width_vox=16, depth_vox=16, height_vox=8)
     sensory.add_layer("L4", height_pct=1.0, density=0.5).add_population(exc_type, 1.0)
     sensory.add_input("ant_sensors", width=28, height=16)
     sensory.add_output("to_thoracic", width=16, height=16)
     
     # Zone 2: Thoracic
-    thoracic = builder.add_zone("ThoracicGanglion", width_vox=32, depth_vox=32, height_vox=16)
+    thoracic = builder.add_zone("ThoracicGanglion", width_vox=16, depth_vox=16, height_vox=8)
     thoracic.add_layer("L_Main", height_pct=1.0, density=0.5).add_population(exc_type, 0.7).add_population(inh_type, 0.3)
     thoracic.add_output("to_motor", width=16, height=16)
     
     # Zone 3: Motor
-    motor = builder.add_zone("MotorCortex", width_vox=32, depth_vox=32, height_vox=16)
+    motor = builder.add_zone("MotorCortex", width_vox=16, depth_vox=16, height_vox=8)
     motor.add_layer("L5", height_pct=1.0, density=0.5).add_population(exc_type, 1.0)
     motor.add_output("motor_out", width=16, height=8)
     

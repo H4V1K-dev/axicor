@@ -435,26 +435,26 @@ __global__ void cu_ghost_sync_kernel(
     //      O(1) 
     const uint32_t* s_arr = (const uint32_t*)&s_h;
 
-    // [DOD]   ( h7  h0)   
-    //      
+    // [DOD]   ( h7  h0)
+    //
     #pragma unroll
     for (int i = 7; i >= 0; i--) {
         uint32_t head = s_arr[i];
-        
-        //      
+
+        //
         // [DOD FIX] Пропускаем только пустой Sentinel. Свежие спайки (0xFFFFFFFF) обязаны пройти барьер.
         if (head == 0x80000000u) continue;
 
-        uint32_t age = head / v_seg;
-        
-        // Sender-Side Extraction:     
-        if (age < sync_batch_ticks) {
+        // [DOD FIX] Cast to int32_t to properly evaluate spikes born in the current tick (-v_seg)
+        int32_t age_ticks = ((int32_t)head / (int32_t)v_seg) + 1;
+
+        // Sender-Side Extraction:
+        if (age_ticks >= 0 && age_ticks < (int32_t)sync_batch_ticks) {
             push_burst_head(&d_h, v_seg);
         }
     }
 
-    dst_heads[dst_ghost] = d_h;
-}
+    dst_heads[dst_ghost] = d_h;}
 
 // ============================================================================
 // DEBUG HARNESS (Epic 2) - Isolated Micro-Kernels for Electrophysiology

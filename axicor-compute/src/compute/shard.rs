@@ -134,7 +134,10 @@ impl ShardEngine {
         }
     }
 
-    pub fn step_day_phase_batch(
+    /// # Safety
+    /// Caller must ensure device pointers and buffer boundaries are valid.
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn step_day_phase_batch(
         &mut self,
         sync_batch_ticks: u32,
         io_buffers: &mut IoBuffers,
@@ -437,18 +440,16 @@ impl ShardEngine {
 }
 
 impl Drop for ShardEngine {
+    #[allow(unused_variables)]
     fn drop(&mut self) {
-        match self {
-            Self::Gpu(_gpu) => {
-                #[cfg(not(feature = "mock-gpu"))]
-                unsafe {
-                    crate::ffi::gpu_stream_destroy(_gpu.stream);
-                    crate::ffi::gpu_free(_gpu.telemetry_ids_d as *mut _);
-                    crate::ffi::gpu_free(_gpu.telemetry_count_d as *mut _);
-                    crate::ffi::gpu_host_free(_gpu.telemetry_count_pinned_h as *mut _);
-                }
+        if let Self::Gpu(gpu) = self {
+            #[cfg(not(feature = "mock-gpu"))]
+            unsafe {
+                crate::ffi::gpu_stream_destroy(gpu.stream);
+                crate::ffi::gpu_free(gpu.telemetry_ids_d as *mut _);
+                crate::ffi::gpu_free(gpu.telemetry_count_d as *mut _);
+                crate::ffi::gpu_host_free(gpu.telemetry_count_pinned_h as *mut _);
             }
-            _ => {}
         }
     }
 }
@@ -541,19 +542,21 @@ mod tests {
 
         let spike_counts = vec![999999];
 
-        engine.step_day_phase_batch(
-            1,
-            &mut io_buffers,
-            None,
-            None,
-            &spike_counts,
-            0,
-            0,
-            std::ptr::null(),
-            0,
-            0,
-            0,
-        );
+        unsafe {
+            engine.step_day_phase_batch(
+                1,
+                &mut io_buffers,
+                None,
+                None,
+                &spike_counts,
+                0,
+                0,
+                std::ptr::null(),
+                0,
+                0,
+                0,
+            );
+        }
     }
 
     #[test]
@@ -593,18 +596,20 @@ mod tests {
         let bad_mask = vec![0u32; 3];
         let spike_counts = vec![0u32; 2];
 
-        engine.step_day_phase_batch(
-            2,
-            &mut io_buffers,
-            Some(&bad_mask),
-            None,
-            &spike_counts,
-            0,
-            0,
-            std::ptr::null(),
-            0,
-            0,
-            0,
-        );
+        unsafe {
+            engine.step_day_phase_batch(
+                2,
+                &mut io_buffers,
+                Some(&bad_mask),
+                None,
+                &spike_counts,
+                0,
+                0,
+                std::ptr::null(),
+                0,
+                0,
+                0,
+            );
+        }
     }
 }

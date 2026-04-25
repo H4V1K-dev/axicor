@@ -107,7 +107,6 @@ fn sentinel_always_dead() {
 
 #[cfg(test)]
 mod burst_heads_tests {
-    use super::*;
     use crate::constants::AXON_SENTINEL;
 
     /// Test Vector 1: The Wrap-Around Wrap (Overflow Arithmetic)

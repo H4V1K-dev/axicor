@@ -1,0 +1,253 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+# Prevent duplicate releases from rapid re-tagging
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # Strip debug symbols from release binaries (~60% size reduction)
+  CARGO_PROFILE_RELEASE_STRIP: "true"
+
+jobs:
+  # ─────────────────────────────────────────────
+  # 1. Preflight: version guard + tests + clippy
+  # ─────────────────────────────────────────────
+  preflight:
+    name: Preflight Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify tag matches Cargo.toml version
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          TAG_BASE="${TAG%%-*}"
+          # All crates share workspace version — grab from first package
+          CARGO_VER=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[0].version')
+          if [ "$TAG_BASE" != "$CARGO_VER" ]; then
+            echo "::error::Tag version ($TAG_BASE) does not match Cargo.toml version ($CARGO_VER)"
+            exit 1
+          fi
+          echo "✅ Version match: $CARGO_VER"
+
+      - name: Run tests
+        run: cargo test --locked --workspace --features axicor-compute/mock-gpu
+
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets --features axicor-compute/mock-gpu -- -D warnings
+
+  # ─────────────────────────────────────────────
+  # 2. Build: cross-platform matrix (mock-gpu)
+  # ─────────────────────────────────────────────
+  build:
+    name: Build (${{ matrix.suffix }})
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            suffix: x86_64-windows-cpu
+            archive_ext: zip
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            suffix: x86_64-linux-cpu
+            archive_ext: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            suffix: aarch64-macos-cpu
+            archive_ext: tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binaries
+        run: cargo build --locked --release --features axicor-compute/mock-gpu -p axicor-baker -p axicor-node
+
+      - name: Verify binaries
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            EXT=".exe"
+          else
+            EXT=""
+          fi
+          for bin in axicor-baker axicor-baker-daemon axicor-node; do
+            if [ ! -f "target/release/${bin}${EXT}" ]; then
+              echo "::error::Binary ${bin}${EXT} not found in target/release/"
+              exit 1
+            fi
+            target/release/${bin}${EXT} --help > /dev/null 2>&1 || {
+              echo "::error::Binary ${bin}${EXT} failed --help smoke test"
+              exit 1
+            }
+          done
+          echo "✅ All binaries verified"
+
+      - name: Determine tag
+        id: tag
+        shell: bash
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      # ── Package: Windows ──
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.tag.outputs.version }}"
+          $dir = "axicor-$tag-${{ matrix.suffix }}"
+          New-Item -ItemType Directory -Path $dir | Out-Null
+          Copy-Item target/release/axicor-baker.exe        $dir/
+          Copy-Item target/release/axicor-baker-daemon.exe $dir/
+          Copy-Item target/release/axicor-node.exe         $dir/
+          Copy-Item LICENSE-MIT    $dir/
+          Copy-Item LICENSE-APACHE $dir/
+          Compress-Archive -Path "$dir/*" -DestinationPath "$dir.zip"
+          # SHA256
+          $hash = (Get-FileHash "$dir.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $dir.zip" | Out-File -Encoding ascii -FilePath SHA256SUMS.txt
+
+      # ── Package: Linux / macOS ──
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          tag="${{ steps.tag.outputs.version }}"
+          dir="axicor-${tag}-${{ matrix.suffix }}"
+          mkdir -p "$dir"
+          cp target/release/axicor-baker        "$dir/"
+          cp target/release/axicor-baker-daemon "$dir/"
+          cp target/release/axicor-node         "$dir/"
+          cp LICENSE-MIT    "$dir/"
+          cp LICENSE-APACHE "$dir/"
+          tar czf "${dir}.tar.gz" "$dir"
+          # SHA256
+          sha256sum "${dir}.tar.gz" > SHA256SUMS.txt
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.suffix }}
+          path: |
+            axicor-*.${{ matrix.archive_ext }}
+            SHA256SUMS.txt
+
+  # ─────────────────────────────────────────────
+  # 3. Release: create GitHub Release page
+  # ─────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout is required to read CHANGELOG.md
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Determine tag
+        id: tag
+        shell: bash
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Collect release files
+        shell: bash
+        run: |
+          mkdir -p release-files
+          find artifacts/ -type f \( -name '*.zip' -o -name '*.tar.gz' \) -exec cp {} release-files/ \;
+          # Merge and deduplicate SHA256SUMS from all builds
+          find artifacts/ -name 'SHA256SUMS.txt' -exec cat {} \; | sort -k2 | uniq > release-files/SHA256SUMS.txt
+
+      - name: Build release notes
+        shell: bash
+        run: |
+          tag="${{ steps.tag.outputs.version }}"
+          ver="${tag#v}"
+          ver_base="${ver%%-*}"
+          # Extract changelog: try exact version first (e.g. 0.1.0-rc1), fallback to base (0.1.0)
+          changelog=$(awk "/^## \\[${ver}\\]/{found=1; next} /^## \\[/{if(found) exit} found{print}" CHANGELOG.md)
+          if [ -z "$changelog" ] && [ "$ver" != "$ver_base" ]; then
+            changelog=$(awk "/^## \\[${ver_base}\\]/{found=1; next} /^## \\[/{if(found) exit} found{print}" CHANGELOG.md)
+          fi
+          if [ -z "$changelog" ]; then
+            changelog="No changelog entry found for version ${ver}."
+          fi
+          # Write changelog (needs variable interpolation)
+          echo "$changelog" > release-notes.md
+          # Append static download guide (no interpolation needed)
+          cat >> release-notes.md << 'GUIDE_EOF'
+
+          ---
+
+          ### 📦 Download Guide
+
+          | Archive | GPU Support |
+          |---|---|
+          | `*-cpu.zip / .tar.gz` | CPU only (mock-gpu) — works everywhere, no GPU drivers needed |
+          | `*-cuda.zip / .tar.gz` | NVIDIA CUDA — requires CUDA Runtime 12+ *(attached manually after CI)* |
+
+          > **Don't have a GPU?** The CPU builds are fully functional. They use a software fallback for the neural compute kernels.
+
+          > **Building with GPU support from source:**
+          > ```bash
+          > # NVIDIA (requires nvcc in PATH)
+          > cargo build --release -p axicor-node -p axicor-baker
+          >
+          > # AMD (requires hipcc in PATH)
+          > cargo build --release -p axicor-node -p axicor-baker --features amd
+          > ```
+          > Requires: Rust 1.75+, CUDA Toolkit 12+ or ROCm 6+.
+          GUIDE_EOF
+
+      - name: Determine if prerelease
+        id: prerelease
+        shell: bash
+        run: |
+          tag="${{ steps.tag.outputs.version }}"
+          if [[ "$tag" == *-rc* ]] || [[ "$tag" == *-alpha* ]] || [[ "$tag" == *-beta* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.version }}
+          name: "Axicor ${{ steps.tag.outputs.version }}"
+          body_path: release-notes.md
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
+          files: release-files/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -33,6 +33,8 @@ impl Drop for InterNodeChannel {
 }
 
 impl InterNodeChannel {
+    /// # Safety
+    /// Pointers must be valid and aligned.
     pub unsafe fn new(
         src_zone_hash: u32,
         target_zone_hash: u32,
@@ -101,6 +103,8 @@ impl InterNodeChannel {
         }
     }
 
+    /// # Safety
+    /// Caller must ensure CUDA pointers and sizes are valid.
     pub unsafe fn extract_spikes(
         &self,
         axon_heads: *const axicor_core::layout::BurstHeads8,
@@ -124,7 +128,8 @@ impl InterNodeChannel {
         );
     }
 
-    /// O(1) addition of new inter-zone link (Hot-Patching)
+    /// # Safety
+    /// Caller must ensure CUDA stream and routing table indices are valid.
     pub unsafe fn push_route(
         &mut self,
         src_axon: u32,
@@ -168,6 +173,8 @@ impl InterNodeChannel {
     }
 
     /// O(1) link removal via Swap-and-Pop
+    /// # Safety
+    /// Caller must ensure CUDA stream is valid.
     pub unsafe fn prune_route(
         &mut self,
         target_ghost_id: u32,

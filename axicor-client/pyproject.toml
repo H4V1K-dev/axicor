@@ -20,10 +20,10 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
-    "numpy>=1.26,<2.0",
-    "toml",
-    "opencv-python-headless",
-    "websockets>=12.0",
+    "numpy==1.26.4",
+    "toml==0.10.2",
+    "opencv-python-headless==4.13.0.92",
+    "websockets==16.0",
 ]
 
 [tool.setuptools.packages.find]

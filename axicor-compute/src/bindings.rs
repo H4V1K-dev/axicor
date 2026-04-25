@@ -42,6 +42,8 @@ pub struct CpuConstantMemory {
 
 pub static mut VARIANT_LUT: CpuConstantMemory = unsafe { std::mem::zeroed() };
 
+/// # Safety
+/// Caller must ensure `lut` points to 16 valid VariantParameters aligned to 64 bytes.
 pub unsafe fn cpu_upload_constant_memory(lut: *const VariantParameters) {
     let src = std::slice::from_raw_parts(lut, 16);
     std::ptr::copy_nonoverlapping(
@@ -55,13 +57,15 @@ pub unsafe fn cpu_upload_constant_memory(lut: *const VariantParameters) {
 // 1.2 VRAM Allocation via std::alloc
 // =============================================================================
 
+/// # Safety
+/// Caller must ensure pointer is valid and correctly aligned.
 pub unsafe fn cpu_allocate_shard(
     padded_n: u32,
     total_axons: u32,
     out_vram: *mut ShardVramPtrs,
 ) -> i32 {
     let n = padded_n as usize;
-    let total_state_size = n * 1166; // The 1166-Byte Invariant
+    let total_state_size = n * 1166; // The 1166-Byte Invariant (Dense Layout)
 
     // Base .state pointer is strictly 64-byte aligned
     let base_ptr = alloc_aligned_with_prefix(total_state_size, 64);
@@ -70,17 +74,15 @@ pub unsafe fn cpu_allocate_shard(
     }
 
     (*out_vram).soma_voltage = base_ptr.add(0) as *mut i32;
-    (*out_vram).soma_flags = base_ptr.add(4 * n) as *mut u8;
+    (*out_vram).soma_flags = base_ptr.add(4 * n);
     (*out_vram).threshold_offset = base_ptr.add(5 * n) as *mut i32;
-    (*out_vram).timers = base_ptr.add(9 * n) as *mut u8;
+    (*out_vram).timers = base_ptr.add(9 * n);
     (*out_vram).soma_to_axon = base_ptr.add(10 * n) as *mut u32;
     (*out_vram).dendrite_targets = base_ptr.add(14 * n) as *mut u32;
     (*out_vram).dendrite_weights = base_ptr.add(526 * n) as *mut i32;
-    (*out_vram).dendrite_timers = base_ptr.add(1038 * n) as *mut u8;
+    (*out_vram).dendrite_timers = base_ptr.add(1038 * n);
 
-    std::ptr::write_bytes((*out_vram).soma_to_axon as *mut u8, 0xFF, n * 4);
-
-    let total_axons_size = total_axons as usize * std::mem::size_of::<BurstHeads8>();
+    std::ptr::write_bytes((*out_vram).soma_to_axon as *mut u8, 0xFF, n * 4);    let total_axons_size = total_axons as usize * std::mem::size_of::<BurstHeads8>();
 
     // Axons are strictly 32-byte aligned for Burst Architecture
     let axons_ptr = alloc_aligned_with_prefix(total_axons_size, 32);
@@ -102,6 +104,8 @@ pub unsafe fn cpu_allocate_shard(
 // 1.4 Zero-Copy DMA and Free
 // =============================================================================
 
+/// # Safety
+/// Caller must ensure pointers are valid and aligned to 64 bytes.
 pub unsafe fn cpu_upload_state_blob(
     vram: *const ShardVramPtrs,
     state_blob: *const c_void,
@@ -111,6 +115,8 @@ pub unsafe fn cpu_upload_state_blob(
     0
 }
 
+/// # Safety
+/// Caller must ensure pointers are valid and aligned to 64 bytes.
 pub unsafe fn cpu_upload_axons_blob(
     vram: *const ShardVramPtrs,
     axons_blob: *const c_void,
@@ -120,6 +126,8 @@ pub unsafe fn cpu_upload_axons_blob(
     0
 }
 
+/// # Safety
+/// Caller must ensure `vram` is a valid pointer.
 pub unsafe fn cpu_free_shard(vram: *mut ShardVramPtrs) {
     if vram.is_null() {
         return;

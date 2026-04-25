@@ -17,6 +17,12 @@ pub struct SpatialGrid {
     cells: HashMap<GridCell, Vec<u32>>,
 }
 
+impl Default for SpatialGrid {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SpatialGrid {
     pub fn new() -> Self {
         Self {

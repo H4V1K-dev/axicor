@@ -37,7 +37,8 @@ impl NodeRuntime {
         );
     }
 
-    /// Called if BspBarrier detects neighbor death.
+    /// # Safety
+    /// Caller must ensure node state permits safe resurrection without data races.
     pub async unsafe fn resurrect_shard(&self, dead_zone_hash: u32) {
         info!(
             " [Recovery] Initiating The Great Resurrection for 0x{:08X}",

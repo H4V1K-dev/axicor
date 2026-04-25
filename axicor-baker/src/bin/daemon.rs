@@ -118,7 +118,7 @@ fn main() {
     {
         let _ = std::fs::remove_file(&socket_addr);
         let listener = std::os::unix::net::UnixListener::bind(&socket_addr)
-            .expect(&format!("FATAL: Cannot bind Unix socket {}", socket_addr));
+            .unwrap_or_else(|_| panic!("FATAL: Cannot bind Unix socket {}", socket_addr));
         tracing::info!(" Listening on {}", socket_addr);
         tracing::info!("   Waiting for Night Phase requests from axicor-node...");
         for stream in listener.incoming() {
@@ -129,7 +129,7 @@ fn main() {
                         zone_hash,
                         blueprints.as_ref(),
                         night_ctx.as_mut(),
-                        mmap.as_mut_ptr() as *mut u8,
+                        mmap.as_mut_ptr(),
                     ) {
                         tracing::error!("[ERROR] Night Phase error: {}", e);
                     }
@@ -142,7 +142,7 @@ fn main() {
     #[cfg(windows)]
     {
         let listener = std::net::TcpListener::bind(&socket_addr)
-            .expect(&format!("FATAL: Cannot bind TCP {}", socket_addr));
+            .unwrap_or_else(|_| panic!("FATAL: Cannot bind TCP {}", socket_addr));
         tracing::info!(" Listening on {}", socket_addr);
         tracing::info!("   Waiting for Night Phase requests from axicor-node...");
         for stream in listener.incoming() {
@@ -153,7 +153,7 @@ fn main() {
                         zone_hash,
                         blueprints.as_ref(),
                         night_ctx.as_mut(),
-                        mmap.as_mut_ptr() as *mut u8,
+                        mmap.as_mut_ptr(),
                     ) {
                         tracing::error!("[ERROR] Night Phase error: {}", e);
                     }
@@ -164,7 +164,7 @@ fn main() {
     }
 }
 
-fn load_blueprints(baked_dir: &std::path::PathBuf) -> Option<BlueprintsConfig> {
+fn load_blueprints(baked_dir: &std::path::Path) -> Option<BlueprintsConfig> {
     let bp_path = baked_dir.join("BrainDNA").join("blueprints.toml");
     if bp_path.exists() {
         match BlueprintsConfig::load(&bp_path) {
@@ -184,6 +184,7 @@ fn load_blueprints(baked_dir: &std::path::PathBuf) -> Option<BlueprintsConfig> {
     None
 }
 
+#[allow(clippy::ptr_arg)]
 fn build_night_context(
     baked_dir: &std::path::PathBuf,
     manifest_path: &std::path::PathBuf,
@@ -397,7 +398,7 @@ fn run_night_phase<S: Read + Write>(
     let h_count = hdr.handovers_count as usize;
     let slot_n = padded_n * axicor_core::constants::MAX_DENDRITE_SLOTS;
 
-    let h_count_max = axicor_core::ipc::MAX_HANDOVERS_PER_NIGHT as usize;
+    let h_count_max = axicor_core::ipc::MAX_HANDOVERS_PER_NIGHT;
 
     // 3. Obtain slices directly from SHM (Zero-Copy)
     let (weights, targets, flags, handovers) = unsafe {
@@ -486,7 +487,7 @@ fn run_night_phase<S: Read + Write>(
         (*hdr_ptr).handovers_count = generated_handovers as u32;
     }
 
-    if let Some(ctx) = ctx.as_deref_mut() {
+    if let Some(ctx) = ctx {
         // [DOD FIX] Asynchronous dirty page flush to SSD (Crash Tolerance).
         // Does not block the thread; OS will sync data to disk in background.
         let _ = ctx._geom_mmap.flush_async();
