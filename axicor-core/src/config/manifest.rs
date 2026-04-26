@@ -37,10 +37,8 @@ impl ManifestVariant {
         // [DOD FIX] Pre-calculate DDS multiplier if not provided or to ensure sync with Python
         let m = if self.heartbeat_m > 0 {
             self.heartbeat_m
-        } else if self.spontaneous_firing_period_ticks > 0 {
-            65536 / self.spontaneous_firing_period_ticks
         } else {
-            0
+            65536u32.checked_div(self.spontaneous_firing_period_ticks).unwrap_or(0)
         };
 
         crate::layout::VariantParameters {
@@ -143,6 +141,8 @@ pub struct ModelManifest {
 pub struct ManifestMemory {
     pub padded_n: usize,
     pub virtual_axons: usize,
+    #[serde(default)]
+    pub injected_ghosts: u32,
     pub ghost_capacity: usize,
     pub v_seg: u16,
 }

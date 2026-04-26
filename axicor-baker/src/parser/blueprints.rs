@@ -56,11 +56,7 @@ pub fn parse_blueprints(
             d1_affinity: nt.d1_affinity,
             d2_affinity: nt.d2_affinity,
             // [DOD FIX] Zero-cost: предвычисляем DDS-фазу при компиляции, чтобы избавить GPU от деления
-            heartbeat_m: if nt.spontaneous_firing_period_ticks > 0 {
-                65536 / nt.spontaneous_firing_period_ticks
-            } else {
-                0
-            },
+            heartbeat_m: 65536u32.checked_div(nt.spontaneous_firing_period_ticks).unwrap_or(0),
         };
     }
 

@@ -62,6 +62,7 @@ fn main() {
 
     let padded_n = manifest.memory.padded_n as u32;
     let total_axons = (manifest.memory.virtual_axons
+        + manifest.memory.injected_ghosts as usize
         + manifest.memory.ghost_capacity
         + manifest.memory.padded_n) as u32;
 

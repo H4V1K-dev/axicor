@@ -165,8 +165,7 @@ impl NodeRuntime {
         let mut thread_handles = Vec::new();
 
         // [DOD] Consume shards to spawn threads
-        let mut core_id = 1;
-        for desc in shards {
+        for (core_id, desc) in (1..).zip(shards) {
             let hash = desc.hash;
             let v_seg = desc.v_seg;
             let v_offset = desc.virtual_offset;
@@ -203,7 +202,6 @@ impl NodeRuntime {
                 sync_batch_ticks,
             );
             thread_handles.push(handle);
-            core_id += 1;
         }
 
         Self {

@@ -31,6 +31,7 @@ pub fn build_local_topology_internal(
     CompiledShard,
     u32,
     usize,
+    usize, // total_ghosts
     Vec<crate::bake::input_map::BakedGxi>,
     Vec<crate::bake::output_map::BakedGxo>,
 ) {
@@ -238,9 +239,9 @@ pub fn build_local_topology_internal(
         // [DOD FIX] Strict 10-10-8-4 PackedPosition layout alignment
         shard.axon_tips_uvw[dst_offset] =
             ((ax.type_idx as u32 & 0x0F) << 28) | (ax.tip_z << 20) | (ax.tip_y << 10) | ax.tip_x;
-        let dx = (ax.last_dir.x * 127.0).clamp(-127.0, 127.0) as i8 as u32;
-        let dy = (ax.last_dir.y * 127.0).clamp(-127.0, 127.0) as i8 as u32;
-        let dz = (ax.last_dir.z * 127.0).clamp(-127.0, 127.0) as i8 as u32;
+        let dx = (ax.last_dir.x * 127.0).clamp(-127.0, 127.0) as i8 as u8 as u32;
+        let dy = (ax.last_dir.y * 127.0).clamp(-127.0, 127.0) as i8 as u8 as u32;
+        let dz = (ax.last_dir.z * 127.0).clamp(-127.0, 127.0) as i8 as u8 as u32;
         shard.axon_dirs_xyz[dst_offset] = (dz << 16) | (dy << 8) | dx;
 
         // [DOD FIX] Get exact VRAM address, no guessing
@@ -289,7 +290,9 @@ pub fn build_local_topology_internal(
         compiled_shard,
         v_seg,
         num_virtual,
+        total_ghosts,
         gxi_matrices,
         gxo_matrices,
     )
 }
+

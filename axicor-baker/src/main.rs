@@ -85,9 +85,9 @@ fn bake_single_brain(brain_path: &Path, clean: bool, yes: bool) -> Result<()> {
             zone_idx as u16,
         )?;
 
-        let (shard_soa, compiled_shard, v_seg, num_virtual, gxis, gxos) =
+        let (shard_soa, compiled_shard, v_seg, num_virtual, total_ghosts, gxis, gxos) =
             build_local_topology(&workspace);
-        serialize_artifacts(&shard_soa, &workspace, num_virtual, v_seg, &gxis, &gxos)?;
+        serialize_artifacts(&shard_soa, &workspace, num_virtual, v_seg, total_ghosts, &gxis, &gxos)?;
         compiled_zones.insert(zone.name.clone(), compiled_shard);
     }
 
@@ -340,6 +340,7 @@ fn build_local_topology(
     bake::layout::CompiledShard,
     u32,
     usize,
+    usize, // total_ghosts
     Vec<crate::bake::input_map::BakedGxi>,
     Vec<crate::bake::output_map::BakedGxo>,
 ) {
@@ -362,6 +363,7 @@ fn serialize_artifacts(
     workspace: &BakeWorkspace,
     num_virtual: usize,
     v_seg: u32,
+    total_ghosts: usize,
     gxis: &[crate::bake::input_map::BakedGxi],
     gxos: &[crate::bake::output_map::BakedGxo],
 ) -> Result<()> {
@@ -387,6 +389,7 @@ fn serialize_artifacts(
         memory: axicor_core::config::manifest::ManifestMemory {
             padded_n: shard.soma_to_axon.len(),
             virtual_axons: num_virtual,
+            injected_ghosts: total_ghosts as u32,
             ghost_capacity: workspace.ghost_capacity,
             v_seg: v_seg as u16,
         },
@@ -458,11 +461,7 @@ fn serialize_artifacts(
                 adaptive_mode: v.adaptive_mode,
                 d1_affinity: v.d1_affinity,
                 d2_affinity: v.d2_affinity,
-                heartbeat_m: if v.spontaneous_firing_period_ticks > 0 {
-                    65536 / v.spontaneous_firing_period_ticks
-                } else {
-                    0
-                },
+                heartbeat_m: 65536u32.checked_div(v.spontaneous_firing_period_ticks).unwrap_or(0),
             })
             .collect(),
     };
@@ -487,3 +486,4 @@ fn serialize_artifacts(
     std::fs::write(dna_dir.join("shard.toml"), toml::to_string(&workspace.shard_cfg).expect("Failed to serialize shard.toml"))?;
     Ok(())
 }
+

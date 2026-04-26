@@ -113,8 +113,10 @@ pub fn boot_shard_from_vfs(
     let file_axons = (axons_blob.len() / 32) as u32;
 
     // 2. Size derivation (take maximum between config and reality on disk)
-    let calc_axons =
-        (manifest.memory.padded_n as u32) + (manifest.memory.virtual_axons as u32) + total_ghosts;
+    let calc_axons = (manifest.memory.padded_n as u32)
+        + (manifest.memory.virtual_axons as u32)
+        + manifest.memory.injected_ghosts
+        + total_ghosts;
     let total_axons = std::cmp::max(calc_axons, file_axons);
     let total_axons = (total_axons + 31) & !31; // Warp Alignment
 
@@ -662,6 +664,7 @@ impl Bootloader {
                 let receiver_manifest = receiver_manifests.get(&dst_hash).unwrap();
                 let dst_total_axons = receiver_manifest.memory.padded_n 
                     + receiver_manifest.memory.virtual_axons 
+                    + receiver_manifest.memory.injected_ghosts as usize
                     + receiver_manifest.memory.ghost_capacity;
 
                 let channel = unsafe {
