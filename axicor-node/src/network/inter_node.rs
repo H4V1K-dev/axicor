@@ -6,6 +6,7 @@ pub struct InterNodeChannel {
     pub src_zone_hash: u32,
     pub capacity: u32, // [DOD FIX] Physical VRAM limit
     pub count: u32,    // [DOD FIX] Current number of active links
+    pub src_total_axons: u32, // [DOD FIX] Hardware Guard Contract
 
     pub src_indices_host: Vec<u32>,
     pub dst_ghost_ids_host: Vec<u32>, // [DOD FIX] Mirror for Swap-and-Pop
@@ -41,6 +42,7 @@ impl InterNodeChannel {
         src_indices: &[u32],
         dst_ghost_ids: &[u32],
         capacity: u32,
+        src_total_axons: u32,
     ) -> Self {
         let count = src_indices.len() as u32;
         debug_assert!(
@@ -94,6 +96,7 @@ impl InterNodeChannel {
             src_zone_hash,
             capacity,
             count,
+            src_total_axons,
             src_indices_host: src_host,
             dst_ghost_ids_host: dst_host,
             src_indices_d: src_d,

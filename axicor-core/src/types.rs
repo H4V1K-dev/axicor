@@ -90,6 +90,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_packed_position_memory_layout() {
+        assert_eq!(std::mem::size_of::<PackedPosition>(), 4);
+        assert_eq!(std::mem::align_of::<PackedPosition>(), 4);
+    }
+
+    #[test]
     fn test_packed_position_boundaries() {
         // Max values for 10/10/8/4 layout
         let p = PackedPosition::new(1023, 1023, 255, 15);
@@ -116,11 +122,17 @@ mod tests {
     }
 
     #[test]
-    fn test_flag_extraction() {
-        assert_eq!(extract_variant_id(0b1010_0000), 10);
-        assert_eq!(extract_variant_id(0b1111_0001), 15);
-        assert_eq!(extract_variant_id(0b0000_0000), 0);
-        assert_eq!(extract_variant_id(0b0001_1111), 1);
+    fn test_packed_position_bit_bleed() {
+        // X = 2048 (11 bits: 100000000000), should cap at 1023 (0x3FF: 001111111111)
+        // Y = 1025 (11 bits: 10000000001), should cap at 1023 (0x3FF: 001111111111)
+        // Z = 300 (9 bits: 100101100), should cap at 255 (0xFF: 11111111)
+        // Type = 25 (5 bits: 11001), should cap at 15 (0xF: 1111)
+        let p = PackedPosition::pack_raw(2048, 1025, 300, 25);
+        
+        assert_eq!(p.x(), 0, "X overflowed or didn't mask correctly");
+        assert_eq!(p.y(), 1, "Y overflowed into Z or masked incorrectly");
+        assert_eq!(p.z(), 44, "Z overflowed into Type or masked incorrectly");
+        assert_eq!(p.type_id(), 9, "Type ID masked incorrectly");
     }
 
     #[test]

@@ -24,6 +24,9 @@ pub mod cpu;
 pub mod ffi;
 pub mod memory;
 
+#[cfg(test)]
+mod test_memory;
+
 #[cfg(feature = "mock-gpu")]
 pub mod mock_ffi;
 

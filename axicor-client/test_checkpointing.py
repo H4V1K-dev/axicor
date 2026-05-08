@@ -14,17 +14,19 @@ def test_checkpointing():
     TARGETS_SIZE = PADDED_N * 128 * 4
     FLAGS_SIZE = PADDED_N * 1
     
-    # 64 (Header) + Weights + Targets + Axons + Handovers + Prunes + Incoming + Flags
-    # Flags offset: 64 + W + T + Axons(N*4) + Handovers(10000*20) + Prunes(10000*8) + Incoming(10000*4)
-    # According to AxicorMemory.SHM_HEADER_FMT, flags_offset is the 17th element (index 16)
-    
-    axons_off = 64 + WEIGHTS_SIZE + TARGETS_SIZE
+    # [DOD FIX] Strict C-ABI v3 Header requirements
+    # 128 (Header) + Weights + Targets + Axons + Handovers + Prunes + Incoming + Flags + Voltage + Threshold + Timers
+    # flags_offset is at 60, but let's re-calculate offsets starting from 128
+    axons_off = 128 + WEIGHTS_SIZE + TARGETS_SIZE
     handovers_off = axons_off + (PADDED_N * 4)
     prunes_off = handovers_off + (10000 * 20)
     inc_prunes_off = prunes_off + (10000 * 8)
     flags_off = inc_prunes_off + (10000 * 4)
+    voltage_off = flags_off + FLAGS_SIZE
+    threshold_off = voltage_off + (PADDED_N * 4)
+    timers_off = threshold_off + (PADDED_N * 4)
     
-    SHM_SIZE = flags_off + FLAGS_SIZE
+    SHM_SIZE = timers_off + ((PADDED_N + 63) & ~63)
     
     shm_path = get_shm_path(ZONE_HASH)
     
@@ -34,13 +36,15 @@ def test_checkpointing():
         
     with open(shm_path, "r+b") as f:
         mm = mmap.mmap(f.fileno(), 0)
-        # C-ABI Header v2 (64 bytes)
-        struct.pack_into("<IBBHIIIIQIIIIIIII", mm, 0,
-                         0x41584943, 2, 0, 0,
-                         PADDED_N, 128, 64, 64 + WEIGHTS_SIZE,
+        # C-ABI Header v3 (128 bytes)
+        struct.pack_into("<IBBHIIIIQIIIIIIIIIII13I", mm, 0,
+                         0x41584943, 3, 0, 0,
+                         PADDED_N, 128, 128, 128 + WEIGHTS_SIZE,
                          0, # epoch
                          PADDED_N, 
-                         handovers_off, 0, ZONE_HASH, prunes_off, 0, 0, flags_off)
+                         handovers_off, 0, ZONE_HASH, prunes_off, 0, 0, flags_off,
+                         voltage_off, threshold_off, timers_off,
+                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) # 33 items
         mm.close()
 
     # 2. Initialize memory

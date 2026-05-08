@@ -662,8 +662,13 @@ impl Bootloader {
                 let src_ptr = *axon_head_ptrs.get(&src_hash).unwrap();
                 let dst_ptr = *axon_head_ptrs.get(&dst_hash).unwrap();
                 let receiver_manifest = receiver_manifests.get(&dst_hash).unwrap();
-                let dst_total_axons = receiver_manifest.memory.padded_n 
-                    + receiver_manifest.memory.virtual_axons 
+                let sender_manifest = receiver_manifests.get(&src_hash).unwrap();
+                let src_total_axons = sender_manifest.memory.padded_n
+                    + sender_manifest.memory.virtual_axons
+                    + sender_manifest.memory.injected_ghosts as usize
+                    + sender_manifest.memory.ghost_capacity;
+                let dst_total_axons = receiver_manifest.memory.padded_n
+                    + receiver_manifest.memory.virtual_axons
                     + receiver_manifest.memory.injected_ghosts as usize
                     + receiver_manifest.memory.ghost_capacity;
 
@@ -674,6 +679,7 @@ impl Bootloader {
                         &src_axons,
                         &dst_ghosts,
                         capacity,
+                        src_total_axons as u32, // [DOD FIX] Hardware Guard Contract
                         dst_total_axons as u32, // [DOD FIX] Pass layout limit
                     )
                 };

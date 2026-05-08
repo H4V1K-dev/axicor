@@ -1,5 +1,6 @@
 import socket
 import struct
+import ctypes
 import numpy as np
 from typing import List, Dict
 
@@ -9,6 +10,21 @@ HEADER_SIZE = 20
 HEADER_FMT = "<IIIIhH"  # 20 bytes: magic, zone_hash, matrix_hash, size, reward, pad
 GSIO_MAGIC = 0x4F495347
 GSOO_MAGIC = 0x4F4F5347  # Axicor Standard Output
+
+class ExternalIoHeader(ctypes.Structure):
+    """
+    Strict C-ABI Header for Data Plane UDP packets.
+    Must be exactly 20 bytes without CPython padding.
+    """
+    _pack_ = 1
+    _fields_ = [
+        ("magic", ctypes.c_uint32),         # 0x4F495347 ("GSIO") or 0x4F4F5347 ("GSOO")
+        ("zone_hash", ctypes.c_uint32),     # FNV-1a hash of the zone
+        ("matrix_hash", ctypes.c_uint32),   # FNV-1a hash of the I/O matrix
+        ("payload_size", ctypes.c_uint32),  # Size of bitmask payload (excluding header)
+        ("global_reward", ctypes.c_int16),  # R-STDP Dopamine Modulator
+        ("_padding", ctypes.c_uint16),      # Alignment to 20 bytes
+    ]
 
 class AxicorMultiClient:
     def __init__(self, addr: tuple[str, int], matrices: List[Dict[str, int]], rx_layout: list[dict] = None, timeout: float = 2.0, bind_addr: tuple[str, int] = None):

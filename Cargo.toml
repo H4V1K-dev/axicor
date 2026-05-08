@@ -26,4 +26,4 @@ categories = ["science::neuroscience", "simulation"]
 axicor-core = { version = "0.1.0", path = "axicor-core" }
 wyhash = "=0.5.0"
 serde = { version = "=1.0.228", features = ["derive"] }
-toml = "=1.0.3"
+toml = "=1.0.4"

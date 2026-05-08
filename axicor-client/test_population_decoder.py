@@ -10,13 +10,13 @@ class PopulationEncoder:
         self.centers = np.linspace(0.0, 1.0, self.M)
 
     def encode(self, values: np.ndarray) -> bytearray:
-        # payload: (Batch, Var, Neurons)
-        data = np.zeros((self.B, self.V, self.M), dtype=np.uint8)
+        # payload: (Var, Neurons, Batch) - Transposed for efficient time integration on client
+        data = np.zeros((self.V, self.M, self.B), dtype=np.uint8)
         for v_idx, val in enumerate(values):
             # Find the index of the nearest center
             m_idx = np.argmin(np.abs(self.centers - val))
             # Activate this neuron across all batch ticks (maximum confidence)
-            data[:, v_idx, m_idx] = 1
+            data[v_idx, m_idx, :] = 1
         return bytearray(data.tobytes())
 
 def test_population_decoder():
@@ -50,10 +50,10 @@ def test_population_decoder():
     # 3. Partial silence test (one variable without spikes)
     print("Testing Partial Silence...")
     # Create data where the second variable (index 1) has no spikes
-    partial_payload = np.zeros((B, V, M), dtype=np.uint8)
+    partial_payload = np.zeros((V, M, B), dtype=np.uint8)
     # First variable: spike at 0.3
     m_idx = np.argmin(np.abs(encoder.centers - 0.3))
-    partial_payload[:, 0, m_idx] = 1
+    partial_payload[0, m_idx, :] = 1
     
     full_packet_partial = bytearray(20) + partial_payload.tobytes()
     decoded_partial = decoder.decode_from(memoryview(full_packet_partial), offset=20)

@@ -12,6 +12,7 @@ pub struct IntraGpuChannel {
     pub target_zone_hash: u32, // [DOD FIX] Strict binding to destination
     pub capacity: u32,
     pub count: u32,
+    pub src_total_axons: u32, // [DOD FIX] Hardware Guard Contract
     pub dst_total_axons: u32, // [DOD FIX] Guard for OOB Ghost Sync
 
     pub src_indices_host: Vec<u32>,
@@ -42,6 +43,7 @@ impl IntraGpuChannel {
         src_indices: &[u32],
         dst_indices: &[u32],
         capacity: u32,
+        src_total_axons: u32,
         dst_total_axons: u32,
     ) -> Self {
         assert_eq!(src_indices.len(), dst_indices.len());
@@ -94,6 +96,7 @@ impl IntraGpuChannel {
             dst_indices_host: dst_host,
             src_indices_d: src_d,
             dst_indices_d: dst_d,
+            src_total_axons,
             dst_total_axons,
         }
     }

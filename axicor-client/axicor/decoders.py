@@ -20,7 +20,7 @@ class PwmDecoder:
         
         # Pre-calculated reshape view (B, N) -> Project standard: [Batch, Channel]
         self._raw_bytes = np.zeros(self.payload_size, dtype=np.uint8)
-        self._spikes_view = self._raw_bytes.reshape((self.B, self.N))
+        self._spikes_view = self._raw_bytes.reshape((self.B, self.N)) # Правильный C-ABI Layout
 
     def decode_from(self, rx_view: memoryview, offset: int = 0) -> np.ndarray:
         """
@@ -67,7 +67,7 @@ class PopulationDecoder:
         self._out_buffer = np.zeros(self.V, dtype=np.float16)
         self._silence_mask = np.zeros(self.V, dtype=bool)
 
-        # [DOD FIX] Data layout is [Batch, Var, Neuron] to match ExternalIoHeader standard
+        # [DOD FIX] Data layout is [Batch, Var, Neuron] for efficient time integration
         self._raw_bytes = np.zeros(self.payload_size, dtype=np.uint8)
         self._spikes_view = self._raw_bytes.reshape((self.B, self.V, self.M))
 
@@ -87,7 +87,7 @@ class PopulationDecoder:
             return self._out_buffer
         
         # 3. Sum spikes across ticks (Time Integration, axis=0)
-        np.sum(self._spikes_view, axis=0, dtype=np.float16, out=self._sum_buffer)
+        np.sum(self._spikes_view, axis=0, dtype=np.float16, out=self._sum_buffer) # Суммируем по тикам (ось 0)
         
         # 4. Find total spike mass for each variable
         np.sum(self._sum_buffer, axis=1, out=self._mass_buffer)

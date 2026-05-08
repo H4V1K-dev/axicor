@@ -31,8 +31,6 @@ exclude = [
 [dependencies]
 axicor-core = { workspace = true }
 anyhow = "=1.0.102"
-bytemuck = { version = "=1.25.0", features = ["derive"] }
-memmap2 = "=0.9.10"
 rayon = "=1.11.0"
 
 [build-dependencies]

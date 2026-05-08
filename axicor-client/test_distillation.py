@@ -14,40 +14,47 @@ def test_distillation():
     # 64 (Header) + Weights (100k * 128 * 2) + Targets (100k * 128 * 4) + Handovers...
     WEIGHTS_SIZE = PADDED_N * 128 * 4
     TARGETS_SIZE = PADDED_N * 128 * 4
-    # [DOD FIX] Strict C-ABI v4 Header requirements
-    SHM_SIZE = 64 + WEIGHTS_SIZE + TARGETS_SIZE + (10000 * 20) + (10000 * 8) + PADDED_N
-    
+    # [DOD FIX] Strict C-ABI v3 Header requirements
+    # 128 (Header) + Weights + Targets + Axons + Handovers + Prunes + Flags + Voltages + Thresholds + Timers
+    # PADDED_N = 100,000
+    WEIGHTS_SIZE = PADDED_N * 128 * 4
+    TARGETS_SIZE = PADDED_N * 128 * 4
+    FLAGS_SIZE = (PADDED_N + 63) & ~63
+    VOLTAGE_SIZE = PADDED_N * 4
+    THRESHOLD_SIZE = PADDED_N * 4
+    TIMERS_SIZE = (PADDED_N + 63) & ~63
+
+    SHM_SIZE = 128 + WEIGHTS_SIZE + TARGETS_SIZE + (10000 * 20) + (10000 * 8) + (10000 * 4) + FLAGS_SIZE + VOLTAGE_SIZE + THRESHOLD_SIZE + TIMERS_SIZE
+
     shm_path = get_shm_path(ZONE_HASH)
-    
+
     # 1. Create fake VRAM dump
     with open(shm_path, "wb") as f:
         f.truncate(SHM_SIZE)
-        
+
     with open(shm_path, "r+b") as f:
         mm = mmap.mmap(f.fileno(), 0)
-        
-        weights_off = 64
-        targets_off = 64 + WEIGHTS_SIZE
-        
-        # Write strict C-ABI Header v2
-        # magic(I), version(B), state(B), pad(H)
-        # padded_n(I), dendrite_slots(I), weights_off(I), targets_off(I)
-        # ... rest 64 bytes
-        # Using the format I identified earlier: "<IBBHIIIIQIIIIIIII" (64 bytes)
-        # But user's struct.pack_into used a shorter one: "<IBBHIIII"
-        # I'll use the user's provided code as is, it's their test.
-        # Wait, the user's struct.pack_into in the test_distillation code was:
-        # struct.pack_into("<IBBHIIII", mm, 0, 0x47454E53, 2, 0, 0, PADDED_N, 128, weights_off, targets_off)
-        # 4 + 1+1+2 + 4 + 4 + 4 + 4 = 24 bytes. The remaining 40 bytes will be 0.
-        
-        # [DOD FIX] Strict C-ABI v2 (64 bytes)
-        # <IBBHIIIIQIIIIIIII
-        struct.pack_into("<IBBHIIIIQIIIIIIII", mm, 0,
-                         0x41584943, 2, 0, 0,
+
+        weights_off = 128
+        targets_off = 128 + WEIGHTS_SIZE
+        axons_off = targets_off + TARGETS_SIZE
+        handovers_off = axons_off + (10000 * 4)
+        prunes_off = handovers_off + (10000 * 20)
+        flags_off = prunes_off + (10000 * 8)
+        voltage_off = flags_off + FLAGS_SIZE
+        threshold_off = voltage_off + VOLTAGE_SIZE
+        timers_off = threshold_off + THRESHOLD_SIZE
+
+        # Write strict C-ABI Header v3 (128 bytes)
+        # Format string: <IBBHIIIIQIIIIIIIIIII13I (33 items, 128 bytes)
+        struct.pack_into("<IBBHIIIIQIIIIIIIIIII13I", mm, 0,
+                         0x41584943, 3, 0, 0,
                          PADDED_N, 128, weights_off, targets_off,
                          0, # epoch
-                         PADDED_N, # total_axons (set to padded_n for testing)
-                         0, 0, ZONE_HASH, 0, 0, 0, 0)
+                         PADDED_N, # total_axons
+                         handovers_off, 0, ZONE_HASH, prunes_off, 0, 0, flags_off,
+                         voltage_off, threshold_off, timers_off,
+                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) # 33 items
         mm.close()
 
     # 2. Connect Data-Oriented SDK

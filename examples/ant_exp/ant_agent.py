@@ -108,7 +108,7 @@ def run_ant():
             np.clip(norm_state, 0.0, 1.0, out=norm_state)
 
             # 2. Encode to Network Buffer
-            encoder.encode_into(norm_state, client.payload_views)
+            encoder.encode_into(norm_state, client.payload_views[0])
 
             # 3. Axicor Step (Network I/O)
             rx_raw = client.step(DOPAMINE_REWARD)
