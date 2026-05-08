@@ -106,3 +106,105 @@ pub fn generate_placement_from_config(
     positions.sort_by_key(|p| p.z());
     positions
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axicor_core::config::anatomy::{AnatomyConfig, LayerConfig};
+    use axicor_core::config::instance::{Coordinate, Dimensions};
+    use axicor_core::config::InstanceConfig;
+    use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn test_placement_zero_collisions() {
+        let mut composition = HashMap::new();
+        composition.insert("TypeA".to_string(), 1.0);
+
+        let anatomy = AnatomyConfig {
+            layers: vec![LayerConfig {
+                name: "L1".to_string(),
+                height_pct: 1.0,
+                density: 1.0,
+                composition,
+            }],
+        };
+
+        let shard_cfg_str = r#"
+            zone_id = "test_zone"
+            [world_offset]
+            x = 0
+            y = 0
+            z = 0
+            [dimensions]
+            w = 10
+            d = 10
+            h = 10
+            [neighbors]
+            [settings]
+            bsp_sync_timeout_ms = 500
+        "#;
+        let shard_cfg: InstanceConfig = toml::from_str(shard_cfg_str).unwrap();
+
+        let type_names = vec!["TypeA".to_string()];
+        let positions = generate_placement_from_config(&anatomy, &shard_cfg, 42, &type_names);
+
+        let mut unique_positions = HashSet::new();
+        let mut dummies = 0;
+        for p in &positions {
+            if p.0 == 0 {
+                dummies += 1;
+            } else {
+                unique_positions.insert(p.0);
+            }
+        }
+
+        // We might have one real neuron at 0,0,0 with type 0, which .0 is 0.
+        // Total positions = 1000. Padded = 1024.
+        // We expect exactly 1000 unique real positions + dummy paddings.
+        // If 0,0,0 is a real position, dummies will be 24 (padding) + 1 (real).
+        assert_eq!(
+            unique_positions.len() + (if dummies > 24 { 1 } else { 0 }),
+            1000
+        );
+    }
+
+    #[test]
+    fn test_placement_warp_alignment() {
+        let mut composition = HashMap::new();
+        composition.insert("TypeA".to_string(), 1.0);
+
+        let anatomy = AnatomyConfig {
+            layers: vec![LayerConfig {
+                name: "L2".to_string(),
+                height_pct: 1.0,
+                density: 0.042, // 1000 * 0.042 = 42
+                composition,
+            }],
+        };
+
+        let shard_cfg_str = r#"
+            zone_id = "test_zone"
+            [world_offset]
+            x = 0
+            y = 0
+            z = 0
+            [dimensions]
+            w = 10
+            d = 10
+            h = 10
+            [neighbors]
+            [settings]
+            bsp_sync_timeout_ms = 500
+        "#;
+        let shard_cfg: InstanceConfig = toml::from_str(shard_cfg_str).unwrap();
+
+        let type_names = vec!["TypeA".to_string()];
+        let positions = generate_placement_from_config(&anatomy, &shard_cfg, 123, &type_names);
+
+        assert_eq!(positions.len(), 64);
+
+        let dummies_count = positions.iter().filter(|p| p.0 == 0).count();
+        // Expecting exactly 22 paddings. Plus maybe 1 real if at 0,0,0
+        assert!(dummies_count == 22 || dummies_count == 23);
+    }
+}

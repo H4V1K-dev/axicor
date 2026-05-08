@@ -132,9 +132,9 @@ pub const fn update_homeostasis(
 /// `rank = abs_w >> 27`. This is 1 ALU cycle, no branching.
 #[inline(always)]
 pub const fn inertia_rank(abs_weight: i32) -> usize {
-    let rank = (abs_weight >> 27) as usize; // 2.14B >> 27 = 15
-    if rank > 15 {
-        15
+    let rank = (abs_weight >> 28) as usize; // 2.14B >> 28 = 7
+    if rank > 7 {
+        7
     } else {
         rank
     }

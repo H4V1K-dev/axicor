@@ -106,9 +106,9 @@ class AxicorControl:
         self._update_manifest(mutate)
 
     def set_inertia_curve(self, variant_id: int, new_curve: list[int]):
-        """Zero-Downtime patch of the inertia curve (16 ranks) to control graph crystallization."""
-        if len(new_curve) != 16:
-            raise ValueError("Inertia curve must contain exactly 16 values.")
+        """Zero-Downtime patch of the inertia curve (8 ranks) to control graph crystallization."""
+        if len(new_curve) != 8:
+            raise ValueError("Inertia curve must contain exactly 8 values.")
         def mutate(d):
             for v in d.get("variants", []):
                 if v["id"] == variant_id:

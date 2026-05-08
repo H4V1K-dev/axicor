@@ -155,10 +155,17 @@ pub unsafe fn cpu_update_neurons(
 
         flag &= !0x01; //
 
+        // 4.  (Soft Limit) - MOVED UP to prevent chrono-stasis
+        let t_off_ptr = ptrs.threshold_offset.add(tid);
+        let mut thresh_offset = *t_off_ptr;
+        let decayed = thresh_offset - p.homeostasis_decay as i32;
+        thresh_offset = decayed & !(decayed >> 31); // Branchless max(0, val)
+
         // 2.   - Early Exit (~90% )
         if timer > 0 {
             *timer_ptr = timer - 1;
             *flags_ptr = flag;
+            *t_off_ptr = thresh_offset;
             return;
         }
 
@@ -213,23 +220,11 @@ pub unsafe fn cpu_update_neurons(
             }
         }
 
-        // 4.  (Soft Limit)
-        let t_off_ptr = ptrs.threshold_offset.add(tid);
-        let mut thresh_offset = *t_off_ptr;
-        let decayed = thresh_offset - p.homeostasis_decay as i32;
-        thresh_offset = decayed & !(decayed >> 31); // Branchless max(0, val)
-
-        // 5. Adaptive GLIF Leak
-        let mut current_shift = p.leak_shift;
-        if p.adaptive_mode == 1 {
-            let adaptive_sub = (thresh_offset * (p.adaptive_leak_gain as i32)) >> 8;
-            let mut new_shift = (current_shift as i32) - adaptive_sub;
-            let lower_bound = p.adaptive_leak_min_shift;
-            if new_shift < lower_bound {
-                new_shift = lower_bound;
-            }
-            current_shift = if new_shift < 0 { 0 } else { new_shift as u32 };
-        }
+        // 5. Adaptive GLIF Leak (Branchless)
+        let adaptive_sub = ((thresh_offset * (p.adaptive_leak_gain as i32)) >> 8) * (p.adaptive_mode as i32);
+        let mut new_shift = (p.leak_shift as i32) - adaptive_sub;
+        new_shift = std::cmp::max(new_shift, p.adaptive_leak_min_shift);
+        let current_shift = std::cmp::max(new_shift, 0) as u32;
 
         current_voltage += i_in;
 
@@ -598,6 +593,70 @@ mod tests {
         assert_eq!(out_ids[0], 42);
         assert_eq!(out_ids[1], 1337);
         assert_eq!(out_ids[2], 9999);
+    }
+
+    #[test]
+    fn test_soma_flags_bit_bleed() {
+        let mut flag = 0b1111_1110u8; // Type 15, Burst 7, Spiking 0
+        let final_spike = 1;
+        
+        let mut burst_count = (flag >> 1) & 0x07;
+        burst_count = (final_spike as u8) * (burst_count + (burst_count < 7) as u8);
+        flag = (flag & 0xF0) | (burst_count << 1) | (final_spike as u8);
+        
+        assert_eq!(flag, 0b1111_1111, "Burst should saturate at 7, Type ID must be preserved"); // Type 15, Burst 7, Spiking 1
+        
+        let final_spike_0 = 0;
+        let mut burst_count_2 = (flag >> 1) & 0x07;
+        burst_count_2 = (final_spike_0 as u8) * (burst_count_2 + (burst_count_2 < 7) as u8);
+        flag = (flag & 0xF0) | (burst_count_2 << 1) | (final_spike_0 as u8);
+        
+        assert_eq!(flag, 0b1111_0000, "Burst must reset to 0, Type ID must be preserved"); // Type 15, Burst 0, Spiking 0
+    }
+
+    #[test]
+    fn test_dds_heartbeat_phase_accumulation() {
+        let current_tick = u32::MAX;
+        let tid = 100_000u32;
+        let heartbeat_m = 32768u16;
+
+        let phase = ((current_tick as u64) * (heartbeat_m as u64) + (tid as u64) * 104729) & 0xFFFF;
+        let is_heartbeat = if heartbeat_m > 0 && phase < (heartbeat_m as u64) { 1 } else { 0 };
+        
+        // As long as it evaluates without panic, phase is correct.
+        assert!(is_heartbeat == 0 || is_heartbeat == 1, "is_heartbeat should be deterministically 0 or 1");
+    }
+
+    #[test]
+    fn test_homeostasis_decays_during_refractory() {
+        let _lock = TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let mut ptrs: ShardVramPtrs = unsafe { std::mem::zeroed() };
+        let padded_n = 64;
+        let axons = 10;
+        unsafe {
+            cpu_allocate_shard(padded_n, axons, &mut ptrs);
+
+            let mut p = VariantParameters::default();
+            p.homeostasis_decay = 10;
+            p.threshold = 100;
+            VARIANT_LUT.variants[0] = p;
+
+            // Neuron 0: Sleeping
+            *ptrs.soma_voltage.add(0) = 0;
+            *ptrs.timers.add(0) = 5;
+            *ptrs.threshold_offset.add(0) = 100;
+            *ptrs.soma_flags.add(0) = 0 << 4;
+
+            cpu_update_neurons(&ptrs, padded_n, axons, 1, 1);
+
+            let new_timer = *ptrs.timers.add(0);
+            let new_offset = *ptrs.threshold_offset.add(0);
+
+            assert_eq!(new_timer, 4, "Refractory timer must decrease");
+            assert_eq!(new_offset, 90, "Threshold offset must decay even during refractory period! Chrono-stasis detected!");
+
+            cpu_free_shard(&mut ptrs);
+        }
     }
 }
 

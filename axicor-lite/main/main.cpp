@@ -114,7 +114,7 @@ void init_brain() { // [DOD FIX] Zero arguments!
     VARIANT_LUT[0].gsop_depression = 30;
     VARIANT_LUT[0].d1_affinity = 128;
     VARIANT_LUT[0].d2_affinity = 128;
-    for(int i=0; i<15; i++) VARIANT_LUT[0].inertia_curve[i] = 128 - (i * 8);
+    for(int i=0; i<8; i++) VARIANT_LUT[0].inertia_curve[i] = 128 - (i * 16);
 
     printf("[BRAIN] Axicor-Lite: %" PRIu32 " neurons. Memory Split: SRAM / Flash.\n", num_neurons);
 }
@@ -412,8 +412,8 @@ void day_phase_task(void *pvParameter) {
                 int32_t w_sign = (w >= 0) ? 1 : -1;
                 int32_t abs_w = w >= 0 ? w : -w;
 
-                uint32_t rank = abs_w >> 27;
-                if (rank > 15) rank = 15;
+                uint32_t rank = abs_w >> 28;
+                if (rank > 7) rank = 7;
                 int32_t inertia = p.inertia_curve[rank];
 
                 int16_t dopamine = global_dopamine.load(std::memory_order_relaxed);

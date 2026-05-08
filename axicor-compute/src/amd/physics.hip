@@ -166,14 +166,20 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
 
   flags &= ~0x01;
 
+  uint8_t variant_id = (flags >> 4) & 0x0F;
+  VariantParameters p = VARIANT_LUT[variant_id];
+
+  // [DOD FIX] Branchless Homeostasis Decay (Zero Warp Divergence)
+  int32_t thresh_offset = vram.threshold_offset[tid];
+  int32_t decayed = thresh_offset - p.homeostasis_decay;
+  thresh_offset = decayed & ~(decayed >> 31);
+
   if (timer > 0) {
     vram.timers[tid] = timer - 1;
     vram.soma_flags[tid] = flags;
+    vram.threshold_offset[tid] = thresh_offset;
     return;
   }
-
-  uint8_t variant_id = (flags >> 4) & 0x0F;
-  VariantParameters p = VARIANT_LUT[variant_id];
 
   int32_t current_voltage = vram.soma_voltage[tid];
   int32_t i_in = 0;
@@ -210,20 +216,11 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
     }
   }
 
-  // [DOD FIX] Branchless Homeostasis Decay (Zero Warp Divergence)
-  int32_t thresh_offset = vram.threshold_offset[tid];
-  int32_t decayed = thresh_offset - p.homeostasis_decay;
-  thresh_offset = decayed & ~(decayed >> 31);
-
-  // Adaptive GLIF Leak
-  uint32_t current_shift = p.leak_shift;
-  if (p.adaptive_mode == 1) {
-    int32_t adaptive_sub = (thresh_offset * p.adaptive_leak_gain) >> 8;
-    int32_t new_shift = (int32_t)current_shift - adaptive_sub;
-    int32_t lower_bound = p.adaptive_leak_min_shift;
-    new_shift = (new_shift < lower_bound) ? lower_bound : new_shift;
-    current_shift = (new_shift < 0) ? 0 : (uint32_t)new_shift;
-  }
+  // Adaptive GLIF Leak (Branchless)
+  int32_t adaptive_sub = ((thresh_offset * p.adaptive_leak_gain) >> 8) * p.adaptive_mode;
+  int32_t new_shift = (int32_t)p.leak_shift - adaptive_sub;
+  new_shift = max(new_shift, p.adaptive_leak_min_shift);
+  uint32_t current_shift = max(new_shift, 0);
 
   current_voltage += i_in; 
 
