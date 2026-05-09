@@ -1,12 +1,13 @@
 /// CPU emulation and tests for ApplyGSOP kernel math (Spec 1.3)
-/// Verifies formulas for potentiation, depression, clamp, spatial cooling, and inertia rank.
+/// Verifies formulas for potentiation, depression, clamp, and inertia rank.
+/// [PHASE 8.1] Spatial Cooling removed. 8-way Bitwise OR strategy.
 use crate::config::blueprints::NeuronType;
 
 /// Full copy of branchless logic from `physics.cu -> apply_gsop_kernel`
 fn emulate_gsop_math(
     weight: i32,
     dopamine: i16,
-    dist_to_spike: Option<u32>,
+    is_active: bool,
     burst_count: u8,
     p: &NeuronType,
 ) -> i32 {
@@ -19,10 +20,13 @@ fn emulate_gsop_math(
 
     let raw_pot = (p.gsop_potentiation as i32) + pot_mod;
     let raw_dep = (p.gsop_depression as i32) - dep_mod;
-    let final_dep = raw_dep.max(0);
+    
+    // Branchless clamp to 0
+    let final_pot = raw_pot & !(raw_pot >> 31);
+    let final_dep = raw_dep & !(raw_dep >> 31);
 
     // 2. Inertia and bursts
-    let rank = (abs_w >> 27) as usize;
+    let rank = (abs_w >> 28) as usize;
     let rank_safe = rank.min(7);
     let inertia = p.inertia_curve[rank_safe] as i32;
     let burst_mult = if burst_count > 0 {
@@ -31,26 +35,21 @@ fn emulate_gsop_math(
         1
     };
 
-    let delta_pot = (raw_pot * inertia * burst_mult) >> 7;
+    let delta_pot = (final_pot * inertia * burst_mult) >> 7;
     let delta_dep = (final_dep * inertia * burst_mult) >> 7;
 
-    // 3. Spatial Cooling
-    let is_active = dist_to_spike.is_some();
-    let min_dist = dist_to_spike.unwrap_or(u32::MAX);
-    let cooling_shift = if is_active { (min_dist >> 4) as u32 } else { 0 };
-
-    // 4. Final delta
+    // 3. Final delta (Spatial Cooling removed)
     let delta = if is_active {
-        delta_pot >> cooling_shift
+        delta_pot
     } else {
         -delta_dep
     };
 
-    // 5. Global Decay
+    // 4. Global Decay
     let decay = 128i32;
-    let delta = (delta * decay) >> 7; // [DOD FIX] Single Spatial Cooling
+    let delta = (delta * decay) >> 7;
 
-    // 6. Clamp
+    // 5. Clamp
     let mut new_abs = abs_w + delta;
     if new_abs < 0 {
         new_abs = 0;
@@ -77,43 +76,46 @@ fn test_neuron() -> NeuronType {
 #[test]
 fn test_gsop_potentiation_basic() {
     let nt = test_neuron();
-    // weight=100, dopamine=0, active (dist=0), no burst
-    let w = emulate_gsop_math(100, 0, Some(0), 0, &nt);
-    // delta_pot = (80 * 128 * 1) >> 7 = 80
-    // cooling_shift = 0
-    // delta = 80 >> 0 = 80
-    // decay: (80 * 128) >> 7 = 80
-    // new_abs = 100 + 80 = 180
+    // weight=100, dopamine=0, active (is_active=true), no burst
+    let w = emulate_gsop_math(100, 0, true, 0, &nt);
     assert_eq!(w, 180);
 }
 
 #[test]
 fn test_gsop_depression_basic() {
     let nt = test_neuron();
-    // weight=100, dopamine=0, inactive, no burst
-    let w = emulate_gsop_math(100, 0, None, 0, &nt);
-    // delta_dep = (40 * 128 * 1) >> 7 = 40
-    // delta = -40
-    // decay: (-40 * 128) >> 7 = -40
-    // new_abs = 100 - 40 = 60
+    // weight=100, dopamine=0, inactive (is_active=false), no burst
+    let w = emulate_gsop_math(100, 0, false, 0, &nt);
     assert_eq!(w, 60);
 }
 
 #[test]
 fn test_gsop_clamp_max() {
     let nt = test_neuron();
-    let w = emulate_gsop_math(2140000000, 0, Some(0), 0, &nt);
+    let w = emulate_gsop_math(2140000000, 0, true, 0, &nt);
     assert_eq!(w, 2140000000);
 }
 
 #[test]
-fn test_gsop_spatial_cooling() {
-    let nt = test_neuron();
-    // dist=32 -> cooling_shift = 32 >> 4 = 2
-    let w = emulate_gsop_math(1000, 0, Some(32), 0, &nt);
-    // delta_pot = (80 * 128) >> 7 = 80
-    // cooling = 80 >> 2 = 20
-    // decay = (20 * 128) >> (7 + 2) = 2560 >> 9 = 20
-    // new_abs = 1000 + 20 = 1020
-    assert_eq!(w, 1020);
+fn test_gsop_inertia_dampening_effect() {
+    let nt = test_neuron(); // Использует кривую [128, 112, 96, 80, 64, 48, 32, 16]
+    
+    // 1. Молодой синапс (Rank 0: 100 >> 28 = 0)
+    let w_young_start = 100;
+    let w_young_new = emulate_gsop_math(w_young_start, 0, true, 0, &nt);
+    let delta_young = w_young_new - w_young_start;
+    
+    // 2. Монументальный синапс (Rank 7: 2.0B >> 28 = 7)
+    let w_old_start = 2_000_000_000;
+    let w_old_new = emulate_gsop_math(w_old_start, 0, true, 0, &nt);
+    let delta_old = w_old_new - w_old_start;
+    
+    // Математическое доказательство (Dampening Effect)
+    // Rank 0 inertia = 128. Delta = (80 * 128 * 1) >> 7 = 80.
+    // Rank 7 inertia = 16.  Delta = (80 * 16 * 1) >> 7 = 10.
+    assert_eq!(delta_young, 80, "Young synapse should have full potentiation");
+    assert_eq!(delta_old, 10, "Monumental synapse should have dampened potentiation");
+    
+    // Старый синапс сопротивляется изменениям в 8 раз сильнее (80 / 10 = 8)
+    assert!(delta_young > delta_old * 5, "Inertia dampening is too weak");
 }

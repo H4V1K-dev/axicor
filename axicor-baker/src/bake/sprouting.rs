@@ -298,8 +298,11 @@ pub fn run_sprouting_pass(
 
     // 4. Synaptogenesis (Zero-Cost Spatial Search with Type Scoring)
     let mut new_synapses = 0;
+    let mut connected_axons = Vec::with_capacity(MAX_DENDRITE_SLOTS);
 
     for i in 0..padded_n {
+        connected_axons.clear();
+
         let my_pos_raw = soma_positions[i];
         if my_pos_raw == 0 {
             continue;
@@ -318,6 +321,13 @@ pub fn run_sprouting_pass(
         let my_type_idx = my_pos.type_id() as usize;
 
         let my_type_cfg = blueprints.and_then(|bp| bp.neuron_types.get(my_type_idx));
+
+        for slot in 0..MAX_DENDRITE_SLOTS {
+            let t = targets[slot * padded_n + i];
+            if t != 0 {
+                connected_axons.push(axicor_core::layout::unpack_axon_id(t));
+            }
+        }
 
         let mut sprouts_tonight = 0;
         // [DOD FIX] Iterate FORWARD (0..128).
@@ -339,15 +349,7 @@ pub fn run_sprouting_pass(
                 } // Self-connection guard
 
                 // Rule of Uniqueness
-                let mut is_dup = false;
-                for existing_slot in 0..MAX_DENDRITE_SLOTS {
-                    let t = targets[existing_slot * padded_n + i];
-                    if t != 0 && axicor_core::layout::unpack_axon_id(t) == seg_ref.axon_id {
-                        is_dup = true;
-                        break;
-                    }
-                }
-                if is_dup {
+                if connected_axons.contains(&seg_ref.axon_id) {
                     return;
                 }
 
@@ -410,6 +412,8 @@ pub fn run_sprouting_pass(
                 };
 
                 targets[col_idx] = new_target;
+                connected_axons.push(seg.axon_id); // Update local cache
+
                 weights[col_idx] = if is_inhibitory_src {
                     -initial_weight
                 } else {

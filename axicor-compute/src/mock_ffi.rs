@@ -367,11 +367,13 @@ pub extern "C" fn launch_record_readout(
 
 #[no_mangle]
 pub extern "C" fn launch_sort_and_prune(
-    _ptrs: *const ShardVramPtrs,
-    _padded_n: u32,
+    ptrs: *const ShardVramPtrs,
+    padded_n: u32,
     prune_threshold: i16,
 ) {
-    log_call("SortAndPrune", prune_threshold as usize);
+    unsafe {
+        crate::cpu::physics::cpu_sort_and_prune(&*ptrs, padded_n, prune_threshold);
+    }
 }
 
 #[no_mangle]
@@ -381,6 +383,7 @@ pub extern "C" fn launch_extract_outgoing_spikes(
     _dst_ghost_ids: *const u32,
     _count: u32,
     _sync_batch_ticks: u32,
+    _v_seg: u32,
     _out_events: *mut c_void,
     _out_count: *mut u32,
     _stream: *mut c_void,
@@ -390,16 +393,34 @@ pub extern "C" fn launch_extract_outgoing_spikes(
 
 #[no_mangle]
 pub extern "C" fn launch_ghost_sync(
-    _src_heads: *const axicor_core::layout::BurstHeads8,
-    _dst_heads: *mut axicor_core::layout::BurstHeads8,
-    _src_indices: *const u32,
-    _dst_indices: *const u32,
-    _count: u32,
-    _dst_total_axons: u32, // [DOD FIX] C-ABI Sync
-    _sync_batch_ticks: u32,
-    _v_seg: u32,
+    src_heads: *const axicor_core::layout::BurstHeads8,
+    dst_heads: *mut axicor_core::layout::BurstHeads8,
+    src_indices: *const u32,
+    dst_indices: *const u32,
+    count: u32,
+    dst_total_axons: u32,
+    sync_batch_ticks: u32,
+    v_seg: u32,
     _stream: *mut c_void,
 ) -> i32 {
+    let batch_shift = sync_batch_ticks * v_seg;
+    for tid in 0..count as usize {
+        let src_axon = unsafe { *src_indices.add(tid) };
+        let dst_ghost = unsafe { *dst_indices.add(tid) };
+        if src_axon == 0x80000000 || dst_ghost >= dst_total_axons { continue; }
+
+        let src = unsafe { *src_heads.add(src_axon as usize) };
+        let mut dst = axicor_core::layout::BurstHeads8::empty(0x80000000);
+        dst.h0 = if src.h0 == 0x80000000 { 0x80000000 } else { src.h0.wrapping_sub(batch_shift) };
+        dst.h1 = if src.h1 == 0x80000000 { 0x80000000 } else { src.h1.wrapping_sub(batch_shift) };
+        dst.h2 = if src.h2 == 0x80000000 { 0x80000000 } else { src.h2.wrapping_sub(batch_shift) };
+        dst.h3 = if src.h3 == 0x80000000 { 0x80000000 } else { src.h3.wrapping_sub(batch_shift) };
+        dst.h4 = if src.h4 == 0x80000000 { 0x80000000 } else { src.h4.wrapping_sub(batch_shift) };
+        dst.h5 = if src.h5 == 0x80000000 { 0x80000000 } else { src.h5.wrapping_sub(batch_shift) };
+        dst.h6 = if src.h6 == 0x80000000 { 0x80000000 } else { src.h6.wrapping_sub(batch_shift) };
+        dst.h7 = if src.h7 == 0x80000000 { 0x80000000 } else { src.h7.wrapping_sub(batch_shift) };
+        unsafe { *dst_heads.add(dst_ghost as usize) = dst; }
+    }
     0
 }
 

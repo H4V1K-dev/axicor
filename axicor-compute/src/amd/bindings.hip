@@ -421,7 +421,7 @@ __global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n, int16_
     smem[lane_id][slot].weight = state.dendrite_weights[col_idx];
     smem[lane_id][slot].timer = state.dendrite_timers[col_idx];
   }
-  __builtin_amdgcn_wave_barrier();
+  __syncthreads();
 
   // 2. Sort by weight (Insertion Sort in L1/Shared Memory)
   for (int i = 1; i < MAX_DENDRITE_SLOTS; ++i) {
@@ -454,7 +454,21 @@ __global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n, int16_
       smem[lane_id][slot].timer = 0;
     }
   }
-  __builtin_amdgcn_wave_barrier();
+
+  // 3.5 COMPACTION (Dense Rule enforcement)
+  int compact_idx = 0;
+  for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {
+    if (smem[lane_id][slot].target != 0) {
+      smem[lane_id][compact_idx] = smem[lane_id][slot];
+      compact_idx++;
+    }
+  }
+  for (int slot = compact_idx; slot < MAX_DENDRITE_SLOTS; ++slot) {
+    smem[lane_id][slot].target = 0;
+    smem[lane_id][slot].weight = 0;
+    smem[lane_id][slot].timer = 0;
+  }
+  __syncthreads();
 
   // 4. Write back (Coalesced Store)
   for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {

@@ -325,10 +325,12 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
     int32_t raw_pot = (int32_t)p.gsop_potentiation + pot_mod;
     int32_t raw_dep = (int32_t)p.gsop_depression - dep_mod;
 
+    // Branchless clamp to 0 (Anti-Negative Guard)
+    int32_t final_pot = raw_pot & ~(raw_pot >> 31);
     int32_t final_dep = raw_dep & ~(raw_dep >> 31);
 
     // [BIT ACCURACY FIX] Multiplication BEFORE shift strictly exactly like CUDA
-    int32_t delta_pot = (raw_pot * inertia * burst_mult) >> 7;
+    int32_t delta_pot = (final_pot * inertia * burst_mult) >> 7;
     int32_t delta_dep = (final_dep * inertia * burst_mult) >> 7;
 
     uint32_t cooling_shift = is_active ? (min_dist >> 4) : 0;
@@ -427,29 +429,19 @@ __global__ void cu_ghost_sync_kernel(
     if (dst_ghost >= dst_total_axons) return;
 
     BurstHeads8 s_h = src_heads[src_axon];
-    BurstHeads8 d_h = dst_heads[dst_ghost];
+    BurstHeads8 d_h;
+    
+    // [DOD FIX] Temporal Shift (Branchless Vectorized Copy)
+    uint32_t batch_shift = sync_batch_ticks * v_seg;
 
-    //      O(1) 
-    const uint32_t* s_arr = (const uint32_t*)&s_h;
-
-    // [DOD]   ( h7  h0)
-    //
-    #pragma unroll
-    for (int i = 7; i >= 0; i--) {
-        uint32_t head = s_arr[i];
-
-        //
-        // [DOD FIX] Пропускаем только пустой Sentinel. Свежие спайки (0xFFFFFFFF) обязаны пройти барьер.
-        if (head == 0x80000000u) continue;
-
-        // [DOD FIX] Cast to int32_t to properly evaluate spikes born in the current tick (-v_seg)
-        int32_t age_ticks = ((int32_t)head / (int32_t)v_seg) + 1;
-
-        // Sender-Side Extraction:
-        if (age_ticks >= 0 && age_ticks < (int32_t)sync_batch_ticks) {
-            push_burst_head(&d_h, v_seg);
-        }
-    }
+    d_h.h0 = (s_h.h0 == 0x80000000u) ? 0x80000000u : s_h.h0 - batch_shift;
+    d_h.h1 = (s_h.h1 == 0x80000000u) ? 0x80000000u : s_h.h1 - batch_shift;
+    d_h.h2 = (s_h.h2 == 0x80000000u) ? 0x80000000u : s_h.h2 - batch_shift;
+    d_h.h3 = (s_h.h3 == 0x80000000u) ? 0x80000000u : s_h.h3 - batch_shift;
+    d_h.h4 = (s_h.h4 == 0x80000000u) ? 0x80000000u : s_h.h4 - batch_shift;
+    d_h.h5 = (s_h.h5 == 0x80000000u) ? 0x80000000u : s_h.h5 - batch_shift;
+    d_h.h6 = (s_h.h6 == 0x80000000u) ? 0x80000000u : s_h.h6 - batch_shift;
+    d_h.h7 = (s_h.h7 == 0x80000000u) ? 0x80000000u : s_h.h7 - batch_shift;
 
     dst_heads[dst_ghost] = d_h;}
 

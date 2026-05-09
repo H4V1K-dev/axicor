@@ -42,9 +42,9 @@ impl SpatialGrid {
             flat_cells.push((hash, dense_id as u32));
         }
 
-        // [DOD FIX] O(N log N) parallel sorting by hash.
+        // [DOD FIX] O(N log N) parallel sorting by hash and dense_id for determinism.
         // Elements in the same cell are physically adjacent in memory.
-        flat_cells.par_sort_unstable_by_key(|k| k.0);
+        flat_cells.par_sort_unstable_by_key(|k| (k.0, k.1));
 
         let mut cell_index = HashMap::with_capacity(flat_cells.len() / 10);
         let mut start = 0;
@@ -160,7 +160,7 @@ impl AxonSegmentGrid {
             }
         }
 
-        flat_cells.par_sort_unstable_by_key(|k| k.0);
+        flat_cells.par_sort_unstable_by_key(|k| (k.0, k.1.axon_id, k.1.seg_idx));
 
         let mut cell_index = HashMap::with_capacity(flat_cells.len() / 10);
         let mut start = 0;
@@ -203,7 +203,7 @@ impl AxonSegmentGrid {
             }
         }
 
-        flat_cells.par_sort_unstable_by_key(|k| k.0);
+        flat_cells.par_sort_unstable_by_key(|k| (k.0, k.1.axon_id, k.1.seg_idx));
 
         let mut cell_index = HashMap::with_capacity(flat_cells.len() / 10);
         let mut start = 0;
@@ -252,5 +252,57 @@ impl AxonSegmentGrid {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_spatial_grid_deterministic_iteration() {
+        let mut pos1 = vec![];
+        // Create 10 neurons all in voxel (10,10,10)
+        for i in 0..10 {
+            pos1.push(PackedPosition::pack_raw(10, 10, 10, i));
+        }
+
+        let grid1 = SpatialGrid::new(pos1.clone(), 10);
+        let mut results1 = vec![];
+        grid1.for_each_in_radius(&PackedPosition::pack_raw(10, 10, 10, 0), 1, |id| {
+            results1.push(id);
+        });
+
+        // Mutate order for pos2
+        let mut pos2 = vec![];
+        for i in (0..10).rev() {
+            pos2.push(PackedPosition::pack_raw(10, 10, 10, i));
+        }
+        
+        let grid2 = SpatialGrid::new(pos2.clone(), 10);
+        let mut results2 = vec![];
+        grid2.for_each_in_radius(&PackedPosition::pack_raw(10, 10, 10, 0), 1, |id| {
+            // Need to map the dense_id back to something comparable like type_id because dense_id 
+            // refers to the index in the original `positions` array, which changed order.
+            results2.push(grid2.get_position(id).type_id());
+        });
+        
+        let mut results1_types = vec![];
+        for id in results1 {
+            results1_types.push(grid1.get_position(id).type_id());
+        }
+
+        // They must iterate in the exact same order (by internal hash logic) regardless of input array order!
+        // Wait: The input arrays differ, so the positions themselves dictate the primary identity.
+        // Wait, par_sort_unstable_by_key(|k| (k.0, k.1)) sorts by (Hash, DenseId). 
+        // So they will be sorted by DenseId within the same cell.
+        // For Grid 1: DenseIDs are 0..9. TypeIDs are 0..9.
+        // For Grid 2: DenseIDs are 0..9. TypeIDs are 9..0.
+        // So Grid 1 yields TypeIDs: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9.
+        // Grid 2 yields TypeIDs: 9, 8, 7, 6, 5, 4, 3, 2, 1, 0.
+        // This is perfectly deterministic!
+        
+        assert_eq!(results1_types, vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert_eq!(results2, vec![9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
     }
 }

@@ -477,6 +477,20 @@ __global__ void sort_and_prune_kernel(SoA_State state, uint32_t padded_n, int16_
       smem[lane_id][slot].timer = 0;
     }
   }
+
+  // 3.5 COMPACTION (Dense Rule enforcement)
+  int compact_idx = 0;
+  for (int slot = 0; slot < MAX_DENDRITE_SLOTS; ++slot) {
+    if (smem[lane_id][slot].target != 0) {
+      smem[lane_id][compact_idx] = smem[lane_id][slot];
+      compact_idx++;
+    }
+  }
+  for (int slot = compact_idx; slot < MAX_DENDRITE_SLOTS; ++slot) {
+    smem[lane_id][slot].target = 0;
+    smem[lane_id][slot].weight = 0;
+    smem[lane_id][slot].timer = 0;
+  }
   __syncwarp();
 
   // 4. Write back (Coalesced Store)

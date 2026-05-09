@@ -38,6 +38,11 @@ pub fn calculate_v_attract(
     grid.for_each_in_radius(&origin_pos, radius_cells, |dense_id| {
         let neighbor_pos = grid.get_position(dense_id);
 
+        // [DOD FIX] Warp Padding Guard: Do not compute gravity for dummy neurons
+        if neighbor_pos.0 == 0 {
+            return;
+        }
+
         // Ignore self (coordinate collision)
         if neighbor_pos.0 == origin_pos.0 {
             return;
@@ -69,7 +74,8 @@ pub fn calculate_v_attract(
                 + (1.0 - is_same) * (1.0 - params.type_affinity))
                 * 2.0;
 
-            let weight = (1.0 / (dist_sq + 1.0)) * affinity_mod;
+            // [DOD FIX] Chemical Diffusion Gradient (1/r instead of 1/r^2) prevents Singularity Trap
+            let weight = (1.0 / (dist + 1.0)) * affinity_mod;
             v_attract += dir_to_target * weight;
         }
     });
@@ -79,5 +85,48 @@ pub fn calculate_v_attract(
         v_attract.normalize()
     } else {
         Vec3::ZERO
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bake::spatial_grid::SpatialGrid;
+
+    #[test]
+    fn test_cone_tracing_degenerate_v_attract() {
+        let grid = SpatialGrid::new(vec![], 10);
+        let origin = PackedPosition::pack_raw(10, 10, 10, 0);
+        let params = ConeParams {
+            radius_um: 100.0,
+            fov_cos: 0.0,
+            owner_type: 0,
+            type_affinity: 0.5,
+        };
+
+        let v = calculate_v_attract(origin, Vec3::X, &params, &grid, 1.0);
+        assert_eq!(v, Vec3::ZERO, "Degenerate cone must return Vec3::ZERO, not NaN");
+    }
+
+    #[test]
+    fn test_cone_tracing_fov_culling() {
+        let origin = PackedPosition::pack_raw(10, 10, 10, 0);
+        // target is at (10, 10, 5), meaning vector from origin to target is (0, 0, -5)
+        let target = PackedPosition::pack_raw(10, 10, 5, 0);
+        let grid = SpatialGrid::new(vec![origin, target], 10);
+        
+        let params = ConeParams {
+            radius_um: 100.0,
+            fov_cos: 0.707, // 90 degrees FOV (45 half angle)
+            owner_type: 0,
+            type_affinity: 0.5,
+        };
+
+        // Looking straight UP (0, 0, 1)
+        let current_dir = Vec3::Z;
+        let v = calculate_v_attract(origin, current_dir, &params, &grid, 1.0);
+        
+        // Target is BEHIND the origin. V_attract should be ZERO, completely ignored.
+        assert_eq!(v, Vec3::ZERO, "Target behind the FOV cone must be ignored");
     }
 }

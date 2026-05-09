@@ -425,6 +425,71 @@ pub fn cpu_extract_telemetry(soma_flags: &[u8], out_ids: &mut [u32]) -> u32 {
     count as u32
 }
 
+// =============================================================================
+// 2.7 cpu_sort_and_prune (CPU Fallback for Compaction)
+// =============================================================================
+// =============================================================================
+// 2.7 cpu_sort_and_prune (CPU Fallback for Compaction)
+// =============================================================================
+pub unsafe fn cpu_sort_and_prune(ptrs: &crate::ffi::ShardVramPtrs, padded_n: u32, prune_threshold: i16) {
+    // [DOD FIX] Strict Mass Domain Shift. Threshold is applied to abs(weight).
+    let threshold_mass = (prune_threshold.abs() as u32) << 16;
+
+    #[derive(Clone, Copy)]
+    struct DendriteSlot {
+        target: u32,
+        weight: i32,
+        timer: u8,
+    }
+
+    (0..padded_n as usize).into_par_iter().for_each(|tid| {
+        // Reset burst_count bits [3:1] without branching
+        let flag_ptr = ptrs.soma_flags.add(tid);
+        *flag_ptr &= 0xF1; 
+
+        // [DOD FIX] Zero-Allocation. Stack array perfectly fits in CPU cache.
+        let mut slots = [DendriteSlot { target: 0, weight: 0, timer: 0 }; 128];
+
+        // 1. Load & Prune
+        for slot in 0..128 {
+            let col_idx = slot * (padded_n as usize) + tid;
+            let target = *ptrs.dendrite_targets.add(col_idx);
+            let weight = *ptrs.dendrite_weights.add(col_idx);
+            let timer = *ptrs.dendrite_timers.add(col_idx);
+
+            // Keep only if structurally alive AND electrically strong enough
+            if target != 0 && weight.unsigned_abs() >= threshold_mass {
+                slots[slot] = DendriteSlot { target, weight, timer };
+            }
+        }
+
+        // 2. Sort & Compact (In-Place Pattern-Defeating Quicksort)
+        slots.sort_unstable_by(|a, b| {
+            let a_alive = a.target != 0;
+            let b_alive = b.target != 0;
+            
+            if a_alive && !b_alive {
+                std::cmp::Ordering::Less // Alive slots go first
+            } else if !a_alive && b_alive {
+                std::cmp::Ordering::Greater // Dead slots go to the tail
+            } else if a_alive && b_alive {
+                // Both alive: sort by absolute weight descending (LTM promotion)
+                b.weight.unsigned_abs().cmp(&a.weight.unsigned_abs())
+            } else {
+                std::cmp::Ordering::Equal // Both dead
+            }
+        });
+
+        // 3. Columnar Write Back
+        for slot in 0..128 {
+            let col_idx = slot * (padded_n as usize) + tid;
+            *ptrs.dendrite_targets.add(col_idx) = slots[slot].target;
+            *ptrs.dendrite_weights.add(col_idx) = slots[slot].weight;
+            *ptrs.dendrite_timers.add(col_idx) = slots[slot].timer;
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -531,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_gsop_potentiation() {
+    fn test_gsop_d1_d2_dopamine_modulation() {
         let _lock = TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let mut ptrs: ShardVramPtrs = unsafe { std::mem::zeroed() };
         let padded_n = 64;
@@ -540,35 +605,56 @@ mod tests {
             cpu_allocate_shard(padded_n, axons, &mut ptrs);
 
             let mut p = VariantParameters::default();
-            p.gsop_potentiation = 1000;
-            p.gsop_depression = 500;
+            p.gsop_potentiation = 100;
+            p.gsop_depression = 100;
             p.d1_affinity = 128; // 1.0x
-            p.inertia_curve[0] = 128; // 1.0x
+            p.d2_affinity = 128; // 1.0x
+            p.inertia_curve[0] = 128; // 1.0x (Rank 0)
             p.signal_propagation_length = 5;
             VARIANT_LUT.variants[0] = p;
 
-            // Neuron 0 spiked
+            // --- Scenario A: Positive Reward (Dopamine = +100) ---
+            // Setup: Neuron 0 spiked (flag 0x01)
             *ptrs.soma_flags.add(0) = (0 << 4) | 0x01;
 
-            // Synapse 0 in slot 0: weight 1000 (Mass Domain)
-            let old_w_full = 1000 << 16;
-            *ptrs.dendrite_weights.add(0) = old_w_full;
-            // Target: Axon 1, segment 0
-            *ptrs.dendrite_targets.add(0) = (0 << 24) | 2; // saturating_sub(1) -> axon 1
+            // Dendrite 0: Active Tail (LTP)
+            let w0_start = 1000;
+            *ptrs.dendrite_weights.add(0) = w0_start;
+            *ptrs.dendrite_targets.add(0) = (0 << 24) | 2; // Axon 1 (2-1=1)
+            (*ptrs.axon_heads.add(1)).h0 = 0; // Spike at 0 (Active)
 
-            // Axon 1 has spike on h0 = 0
-            (*ptrs.axon_heads.add(1)).h0 = 0;
+            // Dendrite 1: Miss (LTD)
+            let w1_start = 1000;
+            *ptrs.dendrite_weights.add(64) = w1_start;
+            *ptrs.dendrite_targets.add(64) = (0 << 24) | 3; // Axon 2 (3-1=2)
+            (*ptrs.axon_heads.add(2)).h0 = 0xFFFFFFFF; // No spike
 
-            // Apply GSOP with dopamine +200
-            cpu_apply_gsop(&ptrs, padded_n, axons, 200);
+            // Run GSOP with reward
+            cpu_apply_gsop(&ptrs, padded_n, axons, 100);
 
-            let new_w_full = *ptrs.dendrite_weights.add(0);
-            assert!(
-                new_w_full > old_w_full,
-                "Weight should increase (LTP). New: {}, Old: {}",
-                new_w_full,
-                old_w_full
-            );
+            let w0_a = *ptrs.dendrite_weights.add(0);
+            let w1_a = *ptrs.dendrite_weights.add(64);
+
+            // delta LTP: (100 + (100*128>>7)) * 1 * 1 = 200
+            assert_eq!(w0_a - w0_start, 200, "LTP with reward should be +200");
+            // delta LTD: (100 - (100*128>>7)) * 1 * 1 = 0
+            assert_eq!(w1_a - w1_start, 0, "LTD with reward should be 0 (suppressed)");
+
+            // --- Scenario B: Punishment (Dopamine = -200) ---
+            // Reset weights
+            *ptrs.dendrite_weights.add(0) = w0_start;
+            *ptrs.dendrite_weights.add(64) = w1_start;
+
+            // Run GSOP with extreme punishment
+            cpu_apply_gsop(&ptrs, padded_n, axons, -200);
+
+            let w0_b = *ptrs.dendrite_weights.add(0);
+            let w1_b = *ptrs.dendrite_weights.add(64);
+
+            // delta LTP: (100 + (-200*128>>7)) = -100 -> clamp 0
+            assert_eq!(w0_b - w0_start, 0, "LTP with punishment should be 0 (clamped)");
+            // delta LTD: (100 - (-200*128>>7)) = 300
+            assert_eq!(w1_b - w1_start, -300, "LTD with punishment should be -300 (amplified)");
 
             cpu_free_shard(&mut ptrs);
         }
@@ -654,6 +740,178 @@ mod tests {
 
             assert_eq!(new_timer, 4, "Refractory timer must decrease");
             assert_eq!(new_offset, 90, "Threshold offset must decay even during refractory period! Chrono-stasis detected!");
+
+            cpu_free_shard(&mut ptrs);
+        }
+    }
+
+    #[test]
+    fn test_sort_and_prune_compaction_no_holes() {
+        let mut ptrs: ShardVramPtrs = unsafe { std::mem::zeroed() };
+        let padded_n = 64;
+        unsafe {
+            cpu_allocate_shard(padded_n, 10, &mut ptrs);
+
+            for slot in 0..128 {
+                let target = if slot % 12 == 0 && slot < 120 { (slot as u32) + 1 } else { 0 };
+                let col_idx = slot * (padded_n as usize);
+                *ptrs.dendrite_targets.add(col_idx) = target;
+                *ptrs.dendrite_weights.add(col_idx) = if target != 0 { 100 } else { 0 };
+            }
+
+            cpu_sort_and_prune(&ptrs, padded_n, 0);
+
+            let mut alive_count = 0;
+            for slot in 0..128 {
+                if *ptrs.dendrite_targets.add(slot * (padded_n as usize)) != 0 {
+                    alive_count += 1;
+                }
+            }
+            assert_eq!(alive_count, 10, "Should have 10 alive slots, found {}", alive_count);
+
+            cpu_free_shard(&mut ptrs);
+        }
+    }
+
+    #[test]
+    fn test_sort_and_prune_threshold_kills() {
+        let mut ptrs: ShardVramPtrs = unsafe { std::mem::zeroed() };
+        let padded_n = 64;
+        unsafe {
+            cpu_allocate_shard(padded_n, 10, &mut ptrs);
+
+            for slot in 0..10 {
+                let col_idx = slot * (padded_n as usize);
+                *ptrs.dendrite_targets.add(col_idx) = (slot as u32) + 100;
+                *ptrs.dendrite_weights.add(col_idx) = if slot < 4 { 10 << 16 } else { 20 << 16 };
+                *ptrs.dendrite_timers.add(col_idx) = 5;
+            }
+
+            cpu_sort_and_prune(&ptrs, padded_n, 15);
+
+            for slot in 0..6 {
+                let col_idx = slot * (padded_n as usize);
+                assert_ne!(*ptrs.dendrite_targets.add(col_idx), 0, "Strong slot {} should survive", slot);
+                assert_eq!(*ptrs.dendrite_weights.add(col_idx), 20 << 16);
+            }
+            for slot in 6..128 {
+                let col_idx = slot * (padded_n as usize);
+                assert_eq!(*ptrs.dendrite_targets.add(col_idx), 0, "Weak/tail slot {} should be 0", slot);
+                assert_eq!(*ptrs.dendrite_weights.add(col_idx), 0);
+                assert_eq!(*ptrs.dendrite_timers.add(col_idx), 0);
+            }
+
+            cpu_free_shard(&mut ptrs);
+        }
+    }
+
+    #[test]
+    fn test_sort_and_prune_preserves_sort_order() {
+        let mut ptrs: ShardVramPtrs = unsafe { std::mem::zeroed() };
+        let padded_n = 64;
+        unsafe {
+            cpu_allocate_shard(padded_n, 128, &mut ptrs);
+
+            for slot in 0..128 {
+                let col_idx = slot * (padded_n as usize);
+                *ptrs.dendrite_targets.add(col_idx) = (slot as u32) + 1;
+                *ptrs.dendrite_weights.add(col_idx) = ((slot as i32 % 50) + 1) << 16;
+            }
+
+            cpu_sort_and_prune(&ptrs, padded_n, 0);
+
+            for slot in 0..127 {
+                let col_idx1 = slot * (padded_n as usize);
+                let col_idx2 = (slot + 1) * (padded_n as usize);
+                let w1 = *ptrs.dendrite_weights.add(col_idx1);
+                let w2 = *ptrs.dendrite_weights.add(col_idx2);
+                assert!(w1.unsigned_abs() >= w2.unsigned_abs(), "Not sorted descending");
+            }
+
+            cpu_free_shard(&mut ptrs);
+        }
+    }
+
+    #[test]
+    fn test_sort_and_prune_inhibitory_preserved() {
+        let mut ptrs: ShardVramPtrs = unsafe { std::mem::zeroed() };
+        let padded_n = 64;
+        unsafe {
+            cpu_allocate_shard(padded_n, 10, &mut ptrs);
+
+            let col0 = 0;
+            let col1 = 1 * (padded_n as usize);
+
+            *ptrs.dendrite_targets.add(col0) = 101;
+            *ptrs.dendrite_weights.add(col0) = 100 << 16;
+
+            *ptrs.dendrite_targets.add(col1) = 102;
+            *ptrs.dendrite_weights.add(col1) = -500 << 16; 
+
+            cpu_sort_and_prune(&ptrs, padded_n, 0);
+
+            assert_eq!(*ptrs.dendrite_weights.add(col0), -500 << 16, "Strong should be first");
+            assert_eq!(*ptrs.dendrite_targets.add(col0), 102);
+            
+            assert_eq!(*ptrs.dendrite_weights.add(col1), 100 << 16, "Weak should be second");
+            assert_eq!(*ptrs.dendrite_targets.add(col1), 101);
+
+            cpu_free_shard(&mut ptrs);
+        }
+    }
+
+    #[test]
+    fn test_sort_and_prune_burst_reset() {
+        let mut ptrs: ShardVramPtrs = unsafe { std::mem::zeroed() };
+        let padded_n = 64;
+        unsafe {
+            cpu_allocate_shard(padded_n, 10, &mut ptrs);
+
+            *ptrs.soma_flags.add(0) = 0xFF; // Type=15, Burst=7, Spike=1
+            
+            cpu_sort_and_prune(&ptrs, padded_n, 0);
+
+            let new_flag = *ptrs.soma_flags.add(0);
+            assert_eq!(new_flag, 0xF1, "Burst bits [3:1] should be 0, Type [7:4] and Spike [0] should be preserved");
+
+            cpu_free_shard(&mut ptrs);
+        }
+    }
+
+    #[test]
+    fn test_sort_empty_array() {
+        let mut ptrs: ShardVramPtrs = unsafe { std::mem::zeroed() };
+        let padded_n = 64;
+        unsafe {
+            cpu_allocate_shard(padded_n, 10, &mut ptrs);
+
+            cpu_sort_and_prune(&ptrs, padded_n, 0);
+
+            for slot in 0..128 {
+                assert_eq!(*ptrs.dendrite_targets.add(slot), 0);
+            }
+
+            cpu_free_shard(&mut ptrs);
+        }
+    }
+
+    #[test]
+    fn test_sort_full_array_no_prune() {
+        let mut ptrs: ShardVramPtrs = unsafe { std::mem::zeroed() };
+        let padded_n = 64;
+        unsafe {
+            cpu_allocate_shard(padded_n, 150, &mut ptrs);
+
+            for slot in 0..128 {
+                *ptrs.dendrite_targets.add(slot) = slot as u32 + 1;
+                *ptrs.dendrite_weights.add(slot) = (slot as i32 + 10) << 16;
+            }
+
+            cpu_sort_and_prune(&ptrs, padded_n, 5);
+
+            for slot in 0..128 {
+                assert_ne!(*ptrs.dendrite_targets.add(slot), 0, "No slot should be lost");
+            }
 
             cpu_free_shard(&mut ptrs);
         }

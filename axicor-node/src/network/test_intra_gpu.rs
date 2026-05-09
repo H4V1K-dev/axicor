@@ -7,31 +7,27 @@
 mod tests {
     use crate::network::intra_gpu::IntraGpuChannel;
 
-    /// Allocate a flat axon-heads buffer on host (via mock gpu_malloc) and
-    /// expose it as a *mut u32.
-    unsafe fn make_heads(count: usize) -> *mut u32 {
-        let ptr = axicor_compute::ffi::gpu_host_alloc(count * 4) as *mut u32;
-        std::ptr::write_bytes(ptr as *mut u8, 0, count * 4);
+    use axicor_core::layout::BurstHeads8;
+
+    unsafe fn make_heads(count: usize) -> *mut BurstHeads8 {
+        let ptr = axicor_compute::ffi::gpu_host_alloc(count * std::mem::size_of::<BurstHeads8>()) as *mut BurstHeads8;
+        for i in 0..count {
+            *ptr.add(i) = BurstHeads8::empty(0x80000000);
+        }
         ptr
     }
 
-    unsafe fn set(ptr: *mut u32, idx: u32, val: u32) {
+    unsafe fn set(ptr: *mut BurstHeads8, idx: u32, val: BurstHeads8) {
         *ptr.add(idx as usize) = val;
     }
 
-    unsafe fn get(ptr: *const u32, idx: u32) -> u32 {
+    unsafe fn get(ptr: *const BurstHeads8, idx: u32) -> BurstHeads8 {
         *ptr.add(idx as usize)
     }
 
-    /// Direct channel sync: reads src heads and writes to dst heads (mock-mode).
-    fn manual_sync(channel: &IntraGpuChannel, src_heads: *const u32, dst_heads: *mut u32) {
-        for i in 0..channel.count as usize {
-            let src_axon = channel.src_indices_host[i];
-            let dst_ghost = channel.dst_indices_host[i];
-            unsafe {
-                let val = get(src_heads, src_axon);
-                set(dst_heads, dst_ghost, val);
-            }
+    fn manual_sync(channel: &IntraGpuChannel, src_heads: *const BurstHeads8, dst_heads: *mut BurstHeads8) {
+        unsafe {
+            channel.sync_ghosts(src_heads, dst_heads, 100, 256, std::ptr::null_mut());
         }
     }
 
@@ -43,11 +39,14 @@ mod tests {
 
             let channel = IntraGpuChannel::from_slices(0, 1, &[8], &[9], 10, 128, 128);
 
-            set(h0, 10, 42);
+            let mut spike = BurstHeads8::empty(0x80000000);
+            spike.h0 = 10 * 256;
+            set(h0, 8, spike);
             manual_sync(&channel, h0, h1);
 
-            assert_eq!(get(h1, 60), 42);
-            assert_eq!(get(h1, 61), 0); // Adjacent slot untouched
+            let out = get(h1, 9);
+            assert_eq!(out.h0, (10u32 * 256u32).wrapping_sub(100 * 256)); // Shifted by batch_shift
+            assert_eq!(out.h1, 0x80000000);
 
             axicor_compute::ffi::gpu_free(h0 as *mut _);
             axicor_compute::ffi::gpu_free(h1 as *mut _);
@@ -62,12 +61,14 @@ mod tests {
 
             let channel = IntraGpuChannel::from_slices(0, 1, &[10, 10, 10], &[11, 12, 13], 10, 128, 128);
 
-            set(h0, 5, 99);
+            let mut spike = BurstHeads8::empty(0x80000000);
+            spike.h0 = 42 * 256;
+            set(h0, 10, spike);
             manual_sync(&channel, h0, h1);
 
-            assert_eq!(get(h1, 50), 99);
-            assert_eq!(get(h1, 51), 99);
-            assert_eq!(get(h1, 52), 99);
+            assert_eq!(get(h1, 11).h0, (42u32 * 256u32).wrapping_sub(100 * 256));
+            assert_eq!(get(h1, 12).h0, (42u32 * 256u32).wrapping_sub(100 * 256));
+            assert_eq!(get(h1, 13).h0, (42u32 * 256u32).wrapping_sub(100 * 256));
 
             axicor_compute::ffi::gpu_host_free(h0 as *mut _);
             axicor_compute::ffi::gpu_host_free(h1 as *mut _);
@@ -80,19 +81,19 @@ mod tests {
             let h0 = make_heads(100);
             let h1 = make_heads(100);
 
-            // Forward channel: 0 -> 1
             let ch_fwd = IntraGpuChannel::from_slices(0, 1, &[14], &[15], 10, 128, 128);
-            // Backward channel: 1 -> 0
             let ch_bwd = IntraGpuChannel::from_slices(1, 0, &[1], &[16], 10, 128, 128);
 
-            set(h0, 1, 111);
-            set(h1, 2, 222);
+            let mut s1 = BurstHeads8::empty(0x80000000); s1.h0 = 111 * 256;
+            let mut s2 = BurstHeads8::empty(0x80000000); s2.h0 = 222 * 256;
+            set(h0, 14, s1);
+            set(h1, 1, s2);
 
             manual_sync(&ch_fwd, h0, h1);
             manual_sync(&ch_bwd, h1, h0);
 
-            assert_eq!(get(h1, 99), 111);
-            assert_eq!(get(h0, 98), 222);
+            assert_eq!(get(h1, 15).h0, (111u32 * 256u32).wrapping_sub(100 * 256));
+            assert_eq!(get(h0, 16).h0, (222u32 * 256u32).wrapping_sub(100 * 256));
 
             axicor_compute::ffi::gpu_host_free(h0 as *mut _);
             axicor_compute::ffi::gpu_host_free(h1 as *mut _);
@@ -104,14 +105,15 @@ mod tests {
         unsafe {
             let h0 = make_heads(100);
             let h1 = make_heads(100);
-            set(h0, 10, 42);
+            
+            let mut s1 = BurstHeads8::empty(0x80000000); s1.h0 = 42;
+            set(h0, 10, s1);
 
             let channel = IntraGpuChannel::from_slices(0, 1, &[], &[], 10, 128, 128);
             manual_sync(&channel, h0, h1);
 
-            // Nothing should change
-            assert_eq!(get(h0, 10), 42);
-            assert_eq!(get(h1, 10), 0);
+            assert_eq!(get(h0, 10).h0, 42);
+            assert_eq!(get(h1, 10).h0, 0x80000000);
 
             axicor_compute::ffi::gpu_host_free(h0 as *mut _);
             axicor_compute::ffi::gpu_host_free(h1 as *mut _);
@@ -124,16 +126,16 @@ mod tests {
             let h0 = make_heads(100);
             let h1 = make_heads(100);
 
-            let mut channel = IntraGpuChannel::from_slices(0, 1, &[8], &[9], 10, 128, 128);
+            let channel = IntraGpuChannel::from_slices(0, 1, &[8], &[9], 10, 128, 128);
 
-            set(h0, 10, 42);
+            let mut s1 = BurstHeads8::empty(0x80000000); s1.h0 = 42 * 256;
+            set(h0, 8, s1);
             manual_sync(&channel, h0, h1);
-            assert_eq!(get(h1, 60), 42);
+            assert_eq!(get(h1, 9).h0, (42u32 * 256u32).wrapping_sub(100 * 256));
 
-            // Simulate decay: head resets to 0
-            set(h0, 10, 0);
+            set(h0, 8, BurstHeads8::empty(0x80000000));
             manual_sync(&channel, h0, h1);
-            assert_eq!(get(h1, 60), 0);
+            assert_eq!(get(h1, 9).h0, 0x80000000);
 
             axicor_compute::ffi::gpu_host_free(h0 as *mut _);
             axicor_compute::ffi::gpu_host_free(h1 as *mut _);
@@ -146,14 +148,13 @@ mod tests {
             let h0 = make_heads(100);
             let h1 = make_heads(100);
 
-            let sentinel = 0x80000000u32;
-            let mut channel = IntraGpuChannel::from_slices(0, 1, &[8], &[9], 10, 128, 128);
+            let sentinel = BurstHeads8::empty(0x80000000);
+            let channel = IntraGpuChannel::from_slices(0, 1, &[8], &[9], 10, 128, 128);
 
-            set(h0, 10, sentinel);
+            set(h0, 8, sentinel);
             manual_sync(&channel, h0, h1);
 
-            // Sentinel MUST be faithfully copied  GPU kernel will handle early-exit
-            assert_eq!(get(h1, 60), sentinel);
+            assert_eq!(get(h1, 9).h0, 0x80000000);
 
             axicor_compute::ffi::gpu_host_free(h0 as *mut _);
             axicor_compute::ffi::gpu_host_free(h1 as *mut _);

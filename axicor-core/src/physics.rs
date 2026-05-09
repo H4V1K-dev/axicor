@@ -128,11 +128,11 @@ pub const fn update_homeostasis(
 // GSOP Plasticity (Spec 04 2.4, 2.5)
 // ---------------------------------------------------------------------------
 
-/// Inertia Rank: split |weight| range (0..2.14B) into 16 ranks.
-/// `rank = abs_w >> 27`. This is 1 ALU cycle, no branching.
+/// Inertia Rank: split |weight| range (0..2.14B) into 8 ranks.
+/// `rank = abs_w >> 28` (8 ranks limit). This is 1 ALU cycle, no branching.
 #[inline(always)]
 pub const fn inertia_rank(abs_weight: i32) -> usize {
-    let rank = (abs_weight >> 28) as usize; // 2.14B >> 28 = 7
+    let rank = (abs_weight >> 28) as usize;
     if rank > 7 {
         7
     } else {
@@ -151,7 +151,7 @@ pub fn compute_gsop_weight(
     gsop_potentiation: u16,
     gsop_depression: u16,
     inertia: u8,
-    dist_to_spike: Option<u32>,
+    is_active: bool,
     burst_mult: u8,
 ) -> i32 {
     let sign = if current_weight >= 0 { 1 } else { -1 };
@@ -165,39 +165,34 @@ pub fn compute_gsop_weight(
     let raw_pot = (gsop_potentiation as i32) + pot_mod;
     let raw_dep = (gsop_depression as i32) - dep_mod;
 
-    // Protection against negative depression (Dead Zone Guard)
-    let final_dep = if raw_dep < 0 { 0 } else { raw_dep };
+    // Branchless clamp to 0 (Anti-Negative Guard)
+    let final_pot = raw_pot & !(raw_pot >> 31);
+    let final_dep = raw_dep & !(raw_dep >> 31);
 
     // 2. Base delta impulse with inertia and burst strength
     // [BIT ACCURACY] Multiplication BEFORE shift strictly as in CUDA
-    let delta_pot = (raw_pot * (inertia as i32) * (burst_mult as i32)) >> 7;
+    let delta_pot = (final_pot * (inertia as i32) * (burst_mult as i32)) >> 7;
     let delta_dep = (final_dep * (inertia as i32) * (burst_mult as i32)) >> 7;
 
-    // 3. Spatial Cooling
-    // Farther spike from synapse = weaker LTP effect
-    let is_active = dist_to_spike.is_some();
-    let min_dist = dist_to_spike.unwrap_or(u32::MAX);
-    let cooling_shift = if is_active { min_dist >> 4 } else { 0 };
-
-    // 4. Final delta
+    // 3. Final delta (Spatial Cooling removed - Phase 8.1)
     let delta = if is_active {
-        delta_pot >> cooling_shift
+        delta_pot
     } else {
         -delta_dep
     };
 
-    // 5. Global Decay coefficient
+    // 4. Global Decay coefficient
     let decay = 128i32; // 1.0 in Fixed Point 7
     let delta = (delta * decay) >> 7; // [DOD FIX] Single Spatial Cooling
 
-    // 6. Apply change and clamp to i32 limits with Headroom
+    // 5. Apply change and clamp to i32 limits with Headroom
     // 2.14B ceiling leaves room to i32::MAX to prevent wrap-around.
     let mut new_abs = abs_w + delta;
     new_abs &= !(new_abs >> 31);
     if new_abs > 2140000000 {
         new_abs = 2140000000;
     }
-    // 7. Restore sign
+    // 6. Restore sign
     sign * new_abs
 }
 
@@ -284,7 +279,7 @@ mod tests {
     fn test_gsop_potentiation_basic() {
         assert_eq!(
             // [DOD FIX] burst_mult = 1 (Hardware burst_count, not fixed-point)
-            compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, Some(0), 1),
+            compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, true, 1),
             180
         );
     }
@@ -293,59 +288,48 @@ mod tests {
     fn test_gsop_depression_basic() {
         assert_eq!(
             // [DOD FIX] burst_mult = 1
-            compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, None, 1),
+            compute_gsop_weight(100, 0, 0, 0, 80, 40, 128, false, 1),
             60
         );
     }
 
     #[test]
     fn test_gsop_i32_limits() {
-        let w = compute_gsop_weight(-1000000, 0, 0, 0, 80, 40, 128, Some(0), 1);
+        let w = compute_gsop_weight(-1000000, 0, 0, 0, 80, 40, 128, true, 1);
         assert_eq!(w, -1000080);
 
-        let w2 = compute_gsop_weight(-1000000, 0, 0, 0, 80, 40, 128, None, 1);
+        let w2 = compute_gsop_weight(-1000000, 0, 0, 0, 80, 40, 128, false, 1);
         assert_eq!(w2, -999960);
     }
 
     #[test]
     fn test_gsop_sign_preservation_negative() {
-        let w = compute_gsop_weight(-500, 0, 0, 0, 80, 40, 128, None, 1);
+        let w = compute_gsop_weight(-500, 0, 0, 0, 80, 40, 128, false, 1);
         assert!(w <= 0, "Dale's Law violated");
         assert_eq!(w, -460);
     }
 
     #[test]
     fn test_gsop_sign_preservation_depression_to_zero() {
-        let w = compute_gsop_weight(-5, 0, 0, 0, 80, 40, 128, None, 1);
+        let w = compute_gsop_weight(-5, 0, 0, 0, 80, 40, 128, false, 1);
         assert_eq!(w, 0);
     }
 
     #[test]
     fn test_gsop_clamp_max() {
-        let w = compute_gsop_weight(2140000000, 0, 0, 0, 80, 40, 128, Some(0), 1);
+        let w = compute_gsop_weight(2140000000, 0, 0, 0, 80, 40, 128, true, 1);
         assert_eq!(w, 2140000000);
     }
 
     #[test]
     fn test_gsop_inertia_rank_calculation() {
-        // [DOD FIX] Mass Domain >> 27 (1 rank = 134,217,728)
+        // [DOD FIX] Mass Domain >> 28 (1 rank = 268,435,456)
         assert_eq!(inertia_rank(0), 0);
-        assert_eq!(inertia_rank(134_217_727), 0);
-        assert_eq!(inertia_rank(134_217_728), 1);
-        assert_eq!(inertia_rank(268_435_455), 1);
-        assert_eq!(inertia_rank(268_435_456), 2);
-        assert_eq!(inertia_rank(1_879_048_192), 14);
-        assert_eq!(inertia_rank(2_140_000_000), 15);
-    }
-
-    #[test]
-    fn test_gsop_cooling_effect() {
-        // [DOD FIX] burst_mult = 1. Double Cooling shift removed!
-        let w_close = compute_gsop_weight(1000, 0, 0, 0, 128, 40, 128, Some(0), 1);
-        let w_far = compute_gsop_weight(1000, 0, 0, 0, 128, 40, 128, Some(64), 1);
-
-        assert!(w_close > w_far);
-        assert_eq!(w_close, 1128); // 1000 + 128
-        assert_eq!(w_far, 1008); // 1000 + (128 >> 4) = 1000 + 8
+        assert_eq!(inertia_rank(268_435_455), 0);
+        assert_eq!(inertia_rank(268_435_456), 1);
+        assert_eq!(inertia_rank(536_870_911), 1);
+        assert_eq!(inertia_rank(536_870_912), 2);
+        assert_eq!(inertia_rank(1_879_048_192), 7);
+        assert_eq!(inertia_rank(2_140_000_000), 7);
     }
 }

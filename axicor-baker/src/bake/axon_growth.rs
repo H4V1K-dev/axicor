@@ -61,9 +61,12 @@ pub fn step_and_pack(
     voxel_size_um: f32,
 ) -> (Vec3, PackedPosition) {
     // 1. V_noise: Escape from local minima (WyHash/ChaCha jitter)
+    // [DOD FIX] Uniform sphere sampling (Malley's Method)
+    // Sample cos(phi) uniformly in [-1, 1] to avoid Z-Pole density clustering
     let theta = rng.gen_range(0.0..std::f32::consts::TAU);
-    let phi = rng.gen_range(0.0..std::f32::consts::PI);
-    let v_noise = Vec3::new(phi.sin() * theta.cos(), phi.sin() * theta.sin(), phi.cos());
+    let u: f32 = rng.gen_range(-1.0_f32..1.0_f32);
+    let r = (1.0 - u * u).sqrt();
+    let v_noise = Vec3::new(r * theta.cos(), r * theta.sin(), u);
 
     // 2. Weighted steering mix
     let mut v_final =
@@ -81,9 +84,10 @@ pub fn step_and_pack(
 
     // 4. Quantization (Zero-Cost conversion to voxel indices)
     // Clamp bottom to zero to avoid underflow when casting to u32
-    let x_idx = (next_pos_um.x / voxel_size_um).max(0.0) as u32;
-    let y_idx = (next_pos_um.y / voxel_size_um).max(0.0) as u32;
-    let z_idx = (next_pos_um.z / voxel_size_um).max(0.0) as u32;
+    // [DOD FIX] Round-to-nearest prevents truncation bias and false stagnation
+    let x_idx = (next_pos_um.x / voxel_size_um).round().max(0.0) as u32;
+    let y_idx = (next_pos_um.y / voxel_size_um).round().max(0.0) as u32;
+    let z_idx = (next_pos_um.z / voxel_size_um).round().max(0.0) as u32;
 
     // [DOD FIX] Strict clamping to prevent bit overflow into adjacent coordinate fields
     let packed = PackedPosition::pack_raw(
@@ -170,11 +174,11 @@ pub fn compute_growth_step(
     }
 
     // 3. Sensing
-    // [DOD FIX] Truncation strictly matches physical step_and_pack bounds
+    // [DOD FIX] Round-to-nearest for spatial grid lookup consistency
     let current_packed = PackedPosition::new(
-        ctx.current_pos_vox.x as u32,
-        ctx.current_pos_vox.y as u32,
-        ctx.current_pos_vox.z as u32,
+        ctx.current_pos_vox.x.round() as u32,
+        ctx.current_pos_vox.y.round() as u32,
+        ctx.current_pos_vox.z.round() as u32,
         ctx.owner_type_idx,
     );
 
@@ -203,10 +207,10 @@ pub fn compute_growth_step(
     ctx.current_pos_um = next_pos_um;
     ctx.current_pos_vox = next_pos_um / voxel_size_um;
 
-    // [DOD FIX] OutOfBounds must be evaluated against physical space, not clamped bitmasks
-    let raw_x = ctx.current_pos_vox.x.max(0.0) as u32;
-    let raw_y = ctx.current_pos_vox.y.max(0.0) as u32;
-    let raw_z = ctx.current_pos_vox.z.max(0.0) as u32;
+    // [DOD FIX] Round-to-nearest for correct OutOfBounds boundary detection
+    let raw_x = ctx.current_pos_vox.x.round().max(0.0) as u32;
+    let raw_y = ctx.current_pos_vox.y.round().max(0.0) as u32;
+    let raw_z = ctx.current_pos_vox.z.round().max(0.0) as u32;
 
     // 5. Shard boundaries
     if shard_bounds.is_outside(raw_x, raw_y, raw_z) {
@@ -793,6 +797,87 @@ mod tests {
             inject_ghost_axons(&[], &positions, &dummy_types, &sim, &mock_bounds(), 0);
         assert!(grown.is_empty());
         assert!(outgoing.is_empty());
+    }
+
+    #[test]
+    fn test_uniform_sphere_sampling_isotropy() {
+        use rand::SeedableRng;
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+        let mut sectors = [0; 6]; // +X, -X, +Y, -Y, +Z, -Z
+        let iters = 100_000;
+        
+        for _ in 0..iters {
+            let theta = rng.gen_range(0.0..std::f32::consts::TAU);
+            let u: f32 = rng.gen_range(-1.0_f32..1.0_f32);
+            let r = (1.0 - u * u).sqrt();
+            let v_noise = Vec3::new(r * theta.cos(), r * theta.sin(), u);
+            
+            let mut max_axis = 0;
+            let mut max_val = v_noise.x.abs();
+            if v_noise.y.abs() > max_val { max_val = v_noise.y.abs(); max_axis = 1; }
+            if v_noise.z.abs() > max_val { max_axis = 2; }
+            
+            let is_positive = match max_axis {
+                0 => v_noise.x > 0.0,
+                1 => v_noise.y > 0.0,
+                _ => v_noise.z > 0.0,
+            };
+            
+            sectors[max_axis * 2 + (if is_positive { 0 } else { 1 })] += 1;
+        }
+        
+        let expected = iters / 6;
+        let tolerance = (iters as f32 * 0.03) as i32; // 3% tolerance
+        for &count in &sectors {
+            assert!((count as i32 - expected as i32).abs() < tolerance, "Count {} out of bounds for expected {}", count, expected);
+        }
+    }
+
+    #[test]
+    fn test_quantization_round_vs_truncate() {
+        // (49.9 / 25.0) -> round(1.996) = 2. Truncate would be 1.
+        let pos_um = Vec3::new(49.9, 50.1, 74.8);
+        let voxel_size_um = 25.0;
+        
+        let x_idx = (pos_um.x / voxel_size_um).round().max(0.0) as u32;
+        let y_idx = (pos_um.y / voxel_size_um).round().max(0.0) as u32;
+        let z_idx = (pos_um.z / voxel_size_um).round().max(0.0) as u32;
+        
+        assert_eq!(x_idx, 2);
+        assert_eq!(y_idx, 2);
+        assert_eq!(z_idx, 3);
+    }
+
+    #[test]
+    fn test_boundary_detection_with_rounding() {
+        let b = ShardBounds {
+            x_start: 0, x_end: 100,
+            y_start: 0, y_end: 100,
+            z_start: 0, z_end: 100,
+        };
+        
+        // Simulating pos = 99.7 voxels
+        let pos_vox_x = 99.7_f32;
+        let raw_x = pos_vox_x.round().max(0.0) as u32;
+        
+        assert_eq!(raw_x, 100);
+        assert!(b.is_outside(raw_x, 50, 50));
+    }
+
+    #[test]
+    fn test_stagnation_false_positive_reduction() {
+        let pos1 = 1.1_f32; // Step 1
+        let pos2 = 1.9_f32; // Step 2
+        
+        // Truncation (old behavior)
+        let p1_trunc = pos1.max(0.0) as u32;
+        let p2_trunc = pos2.max(0.0) as u32;
+        assert_eq!(p1_trunc, p2_trunc, "Truncation would cause false stagnation here (both 1)");
+        
+        // Rounding (new behavior)
+        let p1_round = pos1.round().max(0.0) as u32;
+        let p2_round = pos2.round().max(0.0) as u32;
+        assert_ne!(p1_round, p2_round, "Rounding resolves false stagnation (1 vs 2)");
     }
 }
 

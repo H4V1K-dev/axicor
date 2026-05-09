@@ -488,6 +488,11 @@ fn execute_night_phase(
             );
         },
         ShardEngine::Cpu(ref mut _cpu) => unsafe {
+            axicor_compute::ffi::launch_sort_and_prune(
+                &_cpu.vram.ptrs,
+                padded_n as u32,
+                prune_threshold,
+            );
             std::ptr::copy_nonoverlapping(
                 _cpu.vram.ptrs.soma_flags,
                 workspace.flags_slice_mut(padded_n).as_mut_ptr(),

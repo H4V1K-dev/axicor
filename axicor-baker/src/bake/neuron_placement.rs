@@ -111,7 +111,6 @@ pub fn generate_placement_from_config(
 mod tests {
     use super::*;
     use axicor_core::config::anatomy::{AnatomyConfig, LayerConfig};
-    use axicor_core::config::instance::{Coordinate, Dimensions};
     use axicor_core::config::InstanceConfig;
     use std::collections::{HashMap, HashSet};
 
