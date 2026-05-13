@@ -25,19 +25,14 @@ pub type CudaStream = *mut c_void;
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct ShardVramPtrs {
-    // --- Soma State (Length = padded_n) ---
-    pub soma_voltage: *mut i32,     // GLIF potential
-    pub soma_flags: *mut u8,        // [7:4] Type | [0] is_spiking
-    pub threshold_offset: *mut i32, // Homeostasis (accumulated penalty)
-    pub timers: *mut u8,            // Refractory counter
-    pub soma_to_axon: *mut u32,     // Index of the first axon (in axon_heads)
-
-    // --- Columnar Dendrites (Length = padded_n * MAX_DENDRITES) ---
-    pub dendrite_targets: *mut u32, // Packed: DenseID + SegmentOffset
-    pub dendrite_weights: *mut i32, // Synaptic weight up to 2.1 billion
-    pub dendrite_timers: *mut u8,   // Synaptic refractoriness
-
-    // --- Axon Heads (Length = total_axons: Local + Ghost + Virtual) ---
+    pub soma_voltage: *mut i32,
+    pub soma_flags: *mut u8,
+    pub threshold_offset: *mut i32,
+    pub timers: *mut u8,
+    pub soma_to_axon: *mut u32,
+    pub dendrite_targets: *mut u32,
+    pub dendrite_weights: *mut i32, // СТРОГО i32 (Mass Domain)
+    pub dendrite_timers: *mut u8,
     pub axon_heads: *mut axicor_core::layout::BurstHeads8,
 }
 

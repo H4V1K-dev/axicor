@@ -29,7 +29,8 @@ pub fn pack_directory_to_axic(project_dir: &Path, out_file: &Path) -> anyhow::Re
         // This is vital for Zero-Copy mmap of a specific file from the archive!
         let padding = (4096 - (current_pos % 4096)) % 4096;
         if padding > 0 {
-            file.write_all(&vec![0u8; padding as usize])?;
+            static ZEROS: [u8; 4096] = [0; 4096];
+            file.write_all(&ZEROS[..padding as usize])?;
         }
 
         let aligned_offset = file.stream_position()?;

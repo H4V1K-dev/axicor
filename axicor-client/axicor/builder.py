@@ -349,15 +349,15 @@ class BrainBuilder:
                 layer_budget = int(math.floor(layer_vol * layer.density))
                 raw_neurons += layer_budget
 
-            # Warp Alignment (32 threads)
-            padded_n = math.ceil(raw_neurons / 32) * 32
+            # Warp Alignment (64 threads / AMD Wavefront + L2 Cache Line)
+            padded_n = math.ceil(raw_neurons / 64) * 64
 
             virtual_axons = sum(pin["width"] * pin["height"] for matrix in zone.inputs for pin in matrix["pin"])
             incoming_pixels = sum(c.get("width", 0) * c.get("height", 0) for c in self.connections if c["to"] == zone.name)
             ghost_capacity = int(incoming_pixels * 2.0)
 
             raw_axons = padded_n + virtual_axons + ghost_capacity
-            total_axons = math.ceil(raw_axons / 32) * 32
+            total_axons = math.ceil(raw_axons / 64) * 64
 
             # [DOD FIX] The 1166-Byte Invariant (i32 weights)
             vram_bytes = (padded_n * 1166) + (total_axons * 32)

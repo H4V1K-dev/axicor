@@ -14,9 +14,9 @@ def benchmark_encoder(name, encoder, iters=10_000):
     
     # 2. Data preallocation
     if isinstance(encoder, PwmEncoder):
-        data = np.random.rand(encoder.N).astype(np.float16)
+        data = np.random.rand(encoder.N).astype(np.float32)
     else:
-        data = np.random.rand(encoder.V).astype(np.float16)
+        data = np.random.rand(encoder.V).astype(np.float32)
     
     # Warmup
     encoder.encode_into(data, tx_view, HEADER_SIZE)

@@ -17,8 +17,8 @@ class PwmEncoder:
         self.total_bytes = self.bytes_per_tick * self.B
         
         # Temporal axis and phase shift (Golden Ratio Dither)
-        t = np.linspace(0, 1, self.B, endpoint=False, dtype=np.float16)[:, None]
-        phase = (np.arange(self.N, dtype=np.float16) * 0.618033) % 1.0
+        t = np.linspace(0, 1, self.B, endpoint=False, dtype=np.float32)[:, None]
+        phase = (np.arange(self.N, dtype=np.float32) * 0.618033) % 1.0
         self.pwm_wave = (t + phase) % 1.0
         
         # Preallocated buffer to avoid heap allocations in the Hot Loop
@@ -73,8 +73,8 @@ class PopulationEncoder:
         self.radius = self.sigma * math.sqrt(-2.0 * math.log(0.5))
         
         # [DOD FIX] Preallocation of buffers for in-place calculations (Zero-Garbage)
-        self.centers = np.linspace(0.0, 1.0, self.M, dtype=np.float16)
-        self._expanded_buffer = np.zeros(self.N, dtype=np.float16)
+        self.centers = np.linspace(0.0, 1.0, self.M, dtype=np.float32)
+        self._expanded_buffer = np.zeros(self.N, dtype=np.float32)
         self._expanded_view = self._expanded_buffer.reshape(self.V, self.M)
         
         self._bool_buffer = np.zeros(self.padded_N, dtype=np.bool_)

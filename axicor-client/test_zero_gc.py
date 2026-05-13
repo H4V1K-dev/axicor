@@ -33,7 +33,7 @@ def test_encoder_zero_gc():
     neurons_per_var = 16
     encoder = PopulationEncoder(variables_count, neurons_per_var, batch_size)
     
-    states = np.random.rand(variables_count).astype(np.float16)
+    states = np.random.rand(variables_count).astype(np.float32)
     tx_arena = bytearray(encoder.total_bytes)
     tx_view = memoryview(tx_arena)
     
@@ -59,7 +59,7 @@ def test_pwm_encoder_zero_gc():
     num_sensors = 32
     encoder = PwmEncoder(num_sensors, batch_size)
     
-    sensors = np.random.rand(num_sensors).astype(np.float16)
+    sensors = np.random.rand(num_sensors).astype(np.float32)
     tx_arena = bytearray(encoder.total_bytes)
     tx_view = memoryview(tx_arena)
     

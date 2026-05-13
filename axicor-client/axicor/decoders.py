@@ -12,11 +12,11 @@ class PwmDecoder:
         
         # Payload size: B ticks * N motors (1 byte = 1 spike flag)
         self.payload_size = self.N * self.B
-        self._inv_b = np.float16(1.0 / self.B)
+        self._inv_b = np.float32(1.0 / self.B)
         
         # Preallocation for HFT cycle (Zero-Garbage)
-        self._sum_buffer = np.zeros(self.N, dtype=np.float16)
-        self._out_buffer = np.zeros(self.N, dtype=np.float16)
+        self._sum_buffer = np.zeros(self.N, dtype=np.float32)
+        self._out_buffer = np.zeros(self.N, dtype=np.float32)
         
         # Pre-calculated reshape view (B, N) -> Project standard: [Batch, Channel]
         self._raw_bytes = np.zeros(self.payload_size, dtype=np.uint8)
@@ -38,7 +38,7 @@ class PwmDecoder:
         self._raw_bytes[:] = view
         
         # 3. Vectorized sum across ticks axis (axis=0). Written directly into preallocated buffer!
-        np.sum(self._spikes_view, axis=0, dtype=np.float16, out=self._sum_buffer)
+        np.sum(self._spikes_view, axis=0, dtype=np.float32, out=self._sum_buffer)
         
         # 4. Normalize to [0.0, 1.0] range (In-place)
         np.multiply(self._sum_buffer, self._inv_b, out=self._out_buffer)
@@ -59,12 +59,12 @@ class PopulationDecoder:
         self.payload_size = self.N * self.B
         
         # Vector of receptive field centers [0.0 ... 1.0]
-        self.centers = np.linspace(0.0, 1.0, self.M, dtype=np.float16)
+        self.centers = np.linspace(0.0, 1.0, self.M, dtype=np.float32)
         
         # Zero-Allocation Buffers
-        self._sum_buffer = np.zeros((self.V, self.M), dtype=np.float16)
-        self._mass_buffer = np.zeros(self.V, dtype=np.float16)
-        self._out_buffer = np.zeros(self.V, dtype=np.float16)
+        self._sum_buffer = np.zeros((self.V, self.M), dtype=np.float32)
+        self._mass_buffer = np.zeros(self.V, dtype=np.float32)
+        self._out_buffer = np.zeros(self.V, dtype=np.float32)
         self._silence_mask = np.zeros(self.V, dtype=bool)
 
         # [DOD FIX] Data layout is [Batch, Var, Neuron] for efficient time integration
@@ -87,7 +87,7 @@ class PopulationDecoder:
             return self._out_buffer
         
         # 3. Sum spikes across ticks (Time Integration, axis=0)
-        np.sum(self._spikes_view, axis=0, dtype=np.float16, out=self._sum_buffer) # Суммируем по тикам (ось 0)
+        np.sum(self._spikes_view, axis=0, dtype=np.float32, out=self._sum_buffer) # Суммируем по тикам (ось 0)
         
         # 4. Find total spike mass for each variable
         np.sum(self._sum_buffer, axis=1, out=self._mass_buffer)

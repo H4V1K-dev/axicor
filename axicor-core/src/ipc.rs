@@ -1,11 +1,11 @@
-/// Night Phase IPC  Shared Memory layout between axicor-runtime and
+/// Night Phase IPC — Shared Memory layout between axicor-runtime and
 /// axicor-baker-daemon.
 ///
 /// SHM name: `/axicor_shard_{zone_hash:08X}`
 /// Layout:
-///   [0..64)   ShmHeader  (fixed, repr C, 64 bytes)
-///   [64..)    weights: i16  128  padded_n  (little-endian)
-///             targets: u32  128  padded_n  (little-endian)
+///   [0..128)  ShmHeader  (fixed, repr C, 128 bytes)
+///   [128..)   weights: i32 * 128 * padded_n  (little-endian)
+///             targets: u32 * 128 * padded_n  (little-endian)
 ///
 /// State machine (single-writer invariant):
 ///   IDLE        runtime writes               NIGHT_START

@@ -293,6 +293,7 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, int1
     if (raw_id == 0) break; // [DOD FIX] Zero-Index Trap Protection!
 
     uint32_t target_id = raw_id - 1;
+    if (target_id >= total_axons) break; // [DOD FIX] Hardware VRAM Guard!
     uint32_t seg_idx = target_packed >> 24;
     BurstHeads8 b = vram.axon_heads[target_id];
     uint32_t len = p.signal_propagation_length;

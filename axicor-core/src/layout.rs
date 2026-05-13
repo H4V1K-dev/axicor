@@ -1,5 +1,5 @@
 use crate::constants::MAX_DENDRITE_SLOTS;
-use crate::types::{Voltage, Weight};
+use crate::types::Voltage;
 use bytemuck::{Pod, Zeroable};
 
 pub const MAX_DENDRITES: usize = MAX_DENDRITE_SLOTS;
@@ -85,9 +85,9 @@ impl BurstHeads8 {
 const _: () = assert!(std::mem::size_of::<BurstHeads8>() == 32);
 const _: () = assert!(std::mem::align_of::<BurstHeads8>() == 32);
 
-/// Alignment algorithm for N to 64 bytes (L2 Cache Line & AMD Wavefront).
-pub fn align_to_warp(n: usize) -> usize {
-    (n + 63) & !63
+/// Warp Alignment: размер обязан быть кратен 64 (AMD Wavefront + L2 Cache Line)
+pub const fn align_to_warp(count: usize) -> usize {
+    (count + 63) & !63
 }
 
 /// State file header (.state)
@@ -225,7 +225,7 @@ pub struct ShardStateSoA {
 
     // --- Columnar Dendrites (Size = MAX_DENDRITES * padded_n) ---
     pub dendrite_targets: Vec<u32>, // Dense ID + Segment Offset
-    pub dendrite_weights: Vec<Weight>,
+    pub dendrite_weights: Vec<i32>,
     pub dendrite_timers: Vec<u8>,
 
     // --- Axon Heads (Size = total_axons) ---

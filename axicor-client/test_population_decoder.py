@@ -26,7 +26,7 @@ def test_population_decoder():
     encoder = PopulationEncoder(V, M, B)
     
     # 1. Normal decoding test
-    input_states = np.array([0.2, 0.8], dtype=np.float16)
+    input_states = np.array([0.2, 0.8], dtype=np.float32)
     payload = encoder.encode(input_states)
     
     # Create a fake UDP packet with a 20-byte header
