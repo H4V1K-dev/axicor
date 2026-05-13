@@ -22,7 +22,7 @@ classifiers = [
 dependencies = [
     "numpy==1.26.4",
     "toml==0.10.2",
-    "opencv-python-headless==4.13.0.92",
+    "opencv-python-headless==4.9.0.80",
     "websockets==16.0",
 ]
 

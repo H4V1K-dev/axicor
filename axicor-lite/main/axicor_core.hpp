@@ -69,7 +69,8 @@ struct alignas(16) SpikeBatchHeaderV2 {
     uint32_t src_zone_hash;
     uint32_t dst_zone_hash;
     uint32_t epoch;
-    uint32_t is_last;
+    uint16_t chunk_idx;     // Младшие 2 байта
+    uint16_t total_chunks;  // Старшие 2 байта
 };
 
 // [DOD] Network packet (Strictly 8 bytes)

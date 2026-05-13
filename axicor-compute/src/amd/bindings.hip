@@ -732,11 +732,11 @@ int32_t cu_dma_h2d_io(uint32_t *d_input_bitmask,
                       hipStream_t stream) {
   // Async H2D transfers on the given Stream
   if (input_words > 0 && d_input_bitmask && h_input_bitmask) {
-    hipMemcpyAsync(d_input_bitmask, h_input_bitmask,
+    (void)hipMemcpyAsync(d_input_bitmask, h_input_bitmask,
                     input_words * sizeof(uint32_t), hipMemcpyHostToDevice, stream);
   }
   if (schedule_capacity > 0 && d_incoming_spikes && h_incoming_spikes) {
-    hipMemcpyAsync(d_incoming_spikes, h_incoming_spikes,
+    (void)hipMemcpyAsync(d_incoming_spikes, h_incoming_spikes,
                     schedule_capacity * sizeof(uint32_t),
                     hipMemcpyHostToDevice, stream);
   }
@@ -748,7 +748,7 @@ int32_t cu_dma_d2h_io(uint8_t *h_output_history,
                       uint32_t output_capacity,
                       hipStream_t stream) {
   if (output_capacity > 0 && d_output_history && h_output_history) {
-    hipMemcpyAsync(h_output_history, d_output_history,
+    (void)hipMemcpyAsync(h_output_history, d_output_history,
                     output_capacity * sizeof(uint8_t), hipMemcpyDeviceToHost,
                     stream);
   }
@@ -756,20 +756,7 @@ int32_t cu_dma_d2h_io(uint8_t *h_output_history,
 }
 
 void gpu_reset_telemetry_count(uint32_t* count_d, hipStream_t stream) {
-    hipMemsetAsync(count_d, 0, sizeof(uint32_t), stream);
-}
-
-void launch_extract_telemetry(
-    const uint8_t* flags_d,
-    uint32_t* out_ids_d,
-    uint32_t* out_count_d,
-    uint32_t padded_n,
-    hipStream_t stream
-) {
-    int threads = 256;
-    int blocks = (padded_n + threads - 1) / threads;
-    hipLaunchKernelGGL(cu_extract_telemetry_kernel, dim3(blocks), dim3(threads), 0, stream,
-                       flags_d, out_ids_d, out_count_d, padded_n);
+    (void)hipMemsetAsync(count_d, 0, sizeof(uint32_t), stream);
 }
 
 } // Final closing brace for extern "C"

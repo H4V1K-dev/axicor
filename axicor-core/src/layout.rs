@@ -270,28 +270,30 @@ impl ShardStateSoA {
 // 1.3 Dendrite Target Packing (Preventing the Zero-Index Trap)
 // ---------------------------------------------------------------------------
 
-use crate::constants::{TARGET_AXON_MASK, TARGET_SEG_SHIFT};
+use crate::constants::TARGET_SEG_SHIFT;
 
 /// Packs Axon_ID and segment offset.
 /// Applies +1 to Axon_ID so target == 0 always means "empty slot".
 #[inline(always)]
-pub const fn pack_dendrite_target(axon_id: u32, segment_offset: u32) -> u32 {
-    // Axon_ID: 24 bits, Segment_Offset: 8 bits
-    if axon_id >= TARGET_AXON_MASK {
-        panic!("CRITICAL: Axon ID exceeds 24 bits");
+pub fn pack_dendrite_target(axon_id: u32, segment_offset: u32) -> u32 {
+    // u32::MAX — это маркер пустого пикселя/слота на этапе компиляции
+    if axon_id == u32::MAX { 
+        return 0; // Аппаратный триггер Early Exit для GPU
     }
-    if segment_offset >= 256 {
-        panic!("CRITICAL: Segment offset exceeds 8 bits");
-    }
-
-    // Shift axon_id by +1
-    (segment_offset << TARGET_SEG_SHIFT) | ((axon_id + 1) & TARGET_AXON_MASK)
+    // Смещение + 1. Защищает 0-й аксон от превращения в 0x00000000
+    let safe_id = (axon_id + 1) & 0x00FFFFFF;
+    let offset = (segment_offset & 0xFF) << 24;
+    offset | safe_id
 }
 
 /// Extracts Axon_ID (accounting for -1 reverse shift).
 #[inline(always)]
-pub const fn unpack_axon_id(target_packed: u32) -> u32 {
-    (target_packed & TARGET_AXON_MASK).saturating_sub(1)
+pub fn unpack_axon_id(target_packed: u32) -> u32 {
+    let raw = target_packed & 0x00FFFFFF;
+    if raw == 0 {
+        return u32::MAX;
+    }
+    raw - 1
 }
 
 /// Extracts segment offset [0..255].

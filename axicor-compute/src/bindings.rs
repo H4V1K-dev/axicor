@@ -65,37 +65,67 @@ pub unsafe fn cpu_allocate_shard(
     out_vram: *mut ShardVramPtrs,
 ) -> i32 {
     let n = padded_n as usize;
-    let total_state_size = n * 1166; // The 1166-Byte Invariant (Dense Layout)
 
-    // Base .state pointer is strictly 64-byte aligned
+    let sz_voltage = n * 4;
+    let sz_flags = n * 1;
+    let sz_thresh = n * 4;
+    let sz_timers = n * 1;
+    let sz_s2a = n * 4;
+    let sz_targets = n * 128 * 4;
+    let sz_weights = n * 128 * 4; // Строго 4 байта (i32)
+    let sz_dtimers = n * 128 * 1;
+
+    // [DOD FIX] + (64 * 8) компенсирует кэш-линии для всех 8 SoA массивов
+    let total_state_size = sz_voltage + sz_flags + sz_thresh + sz_timers 
+        + sz_s2a + sz_targets + sz_weights + sz_dtimers + (64 * 8);
+
+    // Базовый указатель выравнивается по 64 байтам
     let base_ptr = alloc_aligned_with_prefix(total_state_size, 64);
     if base_ptr.is_null() {
         return -1;
     }
 
-    (*out_vram).soma_voltage = base_ptr.add(0) as *mut i32;
-    (*out_vram).soma_flags = base_ptr.add(4 * n);
-    (*out_vram).threshold_offset = base_ptr.add(5 * n) as *mut i32;
-    (*out_vram).timers = base_ptr.add(9 * n);
-    (*out_vram).soma_to_axon = base_ptr.add(10 * n) as *mut u32;
-    (*out_vram).dendrite_targets = base_ptr.add(14 * n) as *mut u32;
-    (*out_vram).dendrite_weights = base_ptr.add(526 * n) as *mut i32;
-    (*out_vram).dendrite_timers = base_ptr.add(1038 * n);
+    // [DOD FIX] Strict C-ABI 64-Byte Padding (L2 Cache Line)
+    let mut off = 0;
+    
+    (*out_vram).soma_voltage = base_ptr.add(off) as *mut i32;
+    off = (off + sz_voltage + 63) & !63;
 
-    std::ptr::write_bytes((*out_vram).soma_to_axon as *mut u8, 0xFF, n * 4);    let total_axons_size = total_axons as usize * std::mem::size_of::<BurstHeads8>();
+    (*out_vram).soma_flags = base_ptr.add(off);
+    off = (off + sz_flags + 63) & !63;
 
-    // Axons are strictly 32-byte aligned for Burst Architecture
+    (*out_vram).threshold_offset = base_ptr.add(off) as *mut i32;
+    off = (off + sz_thresh + 63) & !63;
+
+    (*out_vram).timers = base_ptr.add(off);
+    off = (off + sz_timers + 63) & !63;
+
+    (*out_vram).soma_to_axon = base_ptr.add(off) as *mut u32;
+    off = (off + sz_s2a + 63) & !63;
+
+    (*out_vram).dendrite_targets = base_ptr.add(off) as *mut u32;
+    off = (off + sz_targets + 63) & !63;
+
+    (*out_vram).dendrite_weights = base_ptr.add(off) as *mut i32;
+    off = (off + sz_weights + 63) & !63;
+
+    (*out_vram).dendrite_timers = base_ptr.add(off);
+
+    // Выделение памяти под головы аксонов
+    let total_axons_size = (total_axons as usize) * std::mem::size_of::<BurstHeads8>();
     let axons_ptr = alloc_aligned_with_prefix(total_axons_size, 32);
     if axons_ptr.is_null() {
         free_aligned_with_prefix(base_ptr, 64);
         return -1;
     }
-
-    let axon_slice =
-        std::slice::from_raw_parts_mut(axons_ptr as *mut BurstHeads8, total_axons as usize);
-    axon_slice.fill(BurstHeads8::empty(AXON_SENTINEL));
-
+    
     (*out_vram).axon_heads = axons_ptr as *mut BurstHeads8;
+    
+    // Инициализируем аксоны сентинелами
+    let axon_slice = std::slice::from_raw_parts_mut((*out_vram).axon_heads, total_axons as usize);
+    for h in axon_slice {
+        *h = BurstHeads8::empty(AXON_SENTINEL);
+    }
 
     0
 }

@@ -201,7 +201,7 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
     if (raw_id == 0) break; // Corrupted segment index with empty ID
 
     uint32_t target_id = raw_id - 1;
-    if (target_id >= total_axons) break; // [DOD FIX] Hardware VRAM Guard!
+    if (target_id >= total_axons) continue; // [DOD FIX] Hardware VRAM Guard!
     uint32_t seg_idx = target_packed >> 24;
 
     BurstHeads8 h = vram.axon_heads[target_id];
@@ -248,13 +248,15 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   current_voltage = is_glif_spiking * reset_v + (1 - is_glif_spiking) * current_voltage;
   thresh_offset += is_glif_spiking * p.homeostasis_penalty;
   uint8_t new_timer = is_glif_spiking * p.refractory_period + (1 - is_glif_spiking) * vram.timers[tid];
-  // 7.      (Burst Shift)
+  // 7. Сдвиг голов аксона при спайке (Burst Shift)
   if (final_spike) {
     uint32_t my_axon = vram.soma_to_axon[tid];
-    if (my_axon != 0xFFFFFFFF) {
+    // [DOD FIX] Strict VRAM Guard перед обращением к axon_heads
+    if (my_axon != 0xFFFFFFFF && my_axon < total_axons) {
       BurstHeads8 h = vram.axon_heads[my_axon];
-      push_burst_head(&h, v_seg);
-      vram.axon_heads[my_axon] = h;
+      h.h7 = h.h6; h.h6 = h.h5; h.h5 = h.h4; h.h4 = h.h3;
+      h.h3 = h.h2; h.h2 = h.h1; h.h1 = h.h0; h.h0 = (uint32_t)(0 - v_seg);
+      vram.axon_heads[my_axon] = h; // 32-byte coalesced write
     }
   }
 
@@ -298,7 +300,7 @@ __global__ void cu_apply_gsop_kernel(ShardVramPtrs vram, uint32_t padded_n, uint
     if (raw_id == 0) break; // [DOD FIX] Zero-Index Trap Protection!
 
     uint32_t target_id = raw_id - 1;
-    if (target_id >= total_axons) break; // [DOD FIX] Hardware VRAM Guard!
+    if (target_id >= total_axons) continue; // [DOD FIX] Hardware VRAM Guard!
     uint32_t seg_idx = target_packed >> 24;
     BurstHeads8 b = vram.axon_heads[target_id];
     uint32_t len = p.signal_propagation_length;
@@ -448,9 +450,10 @@ __global__ void cu_ghost_sync_kernel(
     uint32_t src_axon = src_indices[tid];
     uint32_t dst_ghost = dst_indices[tid];
 
-    if (src_axon == 0x80000000) return; // Аппаратный Early Exit для Sentinel
+    // [DOD FIX] Аппаратная защита: 0x80000000 (Sentinel) и 0xFFFFFFFF (Нет аксона)
+    if (src_axon == 0x80000000 || src_axon == 0xFFFFFFFF) return;
 
-    // [DOD FIX] Strict VRAM Guard. Never trust the host.
+    // [DOD FIX] Strict VRAM Guard. Host-код не вызывает доверия.
     if (dst_ghost >= dst_total_axons) return;
 
     BurstHeads8 s_h = src_heads[src_axon];
@@ -621,6 +624,20 @@ void launch_debug_record_v(
     int threads = 256;
     int blocks = (count + threads - 1) / threads;
     cu_debug_record_v_kernel<<<blocks, threads, 0, stream>>>(soma_voltage, target_tids, out_trace, current_tick, count, max_ticks);
+}
+
+void launch_extract_telemetry(
+    const uint8_t* flags_d,
+    uint32_t* out_ids_d,
+    uint32_t* out_count_d,
+    uint32_t padded_n,
+    cudaStream_t stream
+) {
+    int threads = 256;
+    int blocks = (padded_n + threads - 1) / threads;
+    cu_extract_telemetry_kernel<<<blocks, threads, 0, stream>>>(
+        flags_d, out_ids_d, out_count_d, padded_n
+    );
 }
 
 } // extern "C"

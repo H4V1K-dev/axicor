@@ -41,6 +41,7 @@ fn main() {
             .flag("-arch=sm_61")
             .flag("-O3")
             .flag("-w")
+            .flag("-ccbin=g++-13")
             .file("src/cuda/bindings.cu")
             .file("src/cuda/physics.cu")
             .compile("axicor_cuda");
