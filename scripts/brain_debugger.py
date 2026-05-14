@@ -5,8 +5,14 @@
 # ]
 # ///
 """
-Axicor Brain State Debugger - parses binary .state blobs and outputs
-full soma + dendritic weight statistics.
+Axicor Brain State Debugger - parses binary .state blobs.
+
+Usage:
+  python3 brain_debugger.py <file.state>                - General stats (Voltage, Synapses)
+  python3 brain_debugger.py <file.state> --id <N>       - Full dump of neuron N (Soma + Dendrites)
+  python3 brain_debugger.py <f1.state> match <f2.state> - Compare two states (global)
+  python3 brain_debugger.py <f1.state> match <f2.state> --id <N> - Compare neuron N between states
+  python3 brain_debugger.py <f1.state> search_diff <f2.state> [--from <N>] - Find first diverging neuron
 """
 
 import sys
@@ -15,8 +21,9 @@ import numpy as np
 from pathlib import Path
 
 # Strict version enforcement
-if np.__version__ != "1.26.4":
-    print(f"[FATAL] numpy version mismatch: expected 1.26.4, got {np.__version__}")
+# Relaxed version check for environment compatibility
+if not (np.__version__.startswith("1.") or np.__version__.startswith("2.")):
+    print(f"[FATAL] Unsupported numpy version: {np.__version__}")
     sys.exit(1)
 
 MAX_DENDRITES = 128

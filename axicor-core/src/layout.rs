@@ -85,7 +85,7 @@ impl BurstHeads8 {
 const _: () = assert!(std::mem::size_of::<BurstHeads8>() == 32);
 const _: () = assert!(std::mem::align_of::<BurstHeads8>() == 32);
 
-/// Warp Alignment: размер обязан быть кратен 64 (AMD Wavefront + L2 Cache Line)
+/// Warp Alignment: size must be a multiple of 64 (AMD Wavefront + L2 Cache Line)
 pub const fn align_to_warp(count: usize) -> usize {
     (count + 63) & !63
 }
@@ -276,11 +276,11 @@ use crate::constants::TARGET_SEG_SHIFT;
 /// Applies +1 to Axon_ID so target == 0 always means "empty slot".
 #[inline(always)]
 pub fn pack_dendrite_target(axon_id: u32, segment_offset: u32) -> u32 {
-    // u32::MAX — это маркер пустого пикселя/слота на этапе компиляции
+    // u32::MAX is the marker for an empty pixel/slot at compile time
     if axon_id == u32::MAX { 
-        return 0; // Аппаратный триггер Early Exit для GPU
+        return 0; // Hardware Early Exit trigger for GPU
     }
-    // Смещение + 1. Защищает 0-й аксон от превращения в 0x00000000
+    // Offset + 1. Protects the 0th axon from becoming 0x00000000
     let safe_id = (axon_id + 1) & 0x00FFFFFF;
     let offset = (segment_offset & 0xFF) << 24;
     offset | safe_id

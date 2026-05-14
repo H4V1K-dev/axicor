@@ -19,6 +19,7 @@ pub struct ShardMetadata {
     pub atomic_settings: Arc<ShardAtomicSettings>,
 }
 
+pub mod storage;
 pub mod recovery;
 pub mod shard_thread;
 

@@ -245,7 +245,7 @@ pub unsafe fn cpu_update_neurons(
 
         let final_spike = is_glif_spiking | is_heartbeat;
 
-        // 7. AHP: Сброс мембраны с undershoot
+        // 7. AHP: Membrane reset with undershoot
         // [DOD FIX] Hardware alignment: ONLY GLIF spikes reset voltage and ref_timer. Heartbeat is independent.
         let reset_v = p.rest_potential - (p.ahp_amplitude as i32);
         current_voltage = is_glif_spiking * reset_v + (1 - is_glif_spiking) * current_voltage;

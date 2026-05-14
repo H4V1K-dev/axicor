@@ -31,7 +31,7 @@ pub struct ShardVramPtrs {
     pub timers: *mut u8,
     pub soma_to_axon: *mut u32,
     pub dendrite_targets: *mut u32,
-    pub dendrite_weights: *mut i32, // СТРОГО i32 (Mass Domain)
+    pub dendrite_weights: *mut i32, // STRICTLY i32 (Mass Domain)
     pub dendrite_timers: *mut u8,
     pub axon_heads: *mut axicor_core::layout::BurstHeads8,
 }

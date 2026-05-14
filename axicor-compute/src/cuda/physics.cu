@@ -243,15 +243,15 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   //   (  Heartbeat)
   int32_t final_spike = is_glif_spiking | is_heartbeat;
 
-  // AHP: Сброс мембраны с undershoot
+  // AHP: Membrane reset with undershoot
   int32_t reset_v = p.rest_potential - (int32_t)p.ahp_amplitude;
   current_voltage = is_glif_spiking * reset_v + (1 - is_glif_spiking) * current_voltage;
   thresh_offset += is_glif_spiking * p.homeostasis_penalty;
   uint8_t new_timer = is_glif_spiking * p.refractory_period + (1 - is_glif_spiking) * vram.timers[tid];
-  // 7. Сдвиг голов аксона при спайке (Burst Shift)
+  // 7. Axon heads shift on spike (Burst Shift)
   if (final_spike) {
     uint32_t my_axon = vram.soma_to_axon[tid];
-    // [DOD FIX] Strict VRAM Guard перед обращением к axon_heads
+    // [DOD FIX] Strict VRAM Guard before axon_heads access
     if (my_axon != 0xFFFFFFFF && my_axon < total_axons) {
       BurstHeads8 h = vram.axon_heads[my_axon];
       h.h7 = h.h6; h.h6 = h.h5; h.h5 = h.h4; h.h4 = h.h3;
@@ -450,10 +450,10 @@ __global__ void cu_ghost_sync_kernel(
     uint32_t src_axon = src_indices[tid];
     uint32_t dst_ghost = dst_indices[tid];
 
-    // [DOD FIX] Аппаратная защита: 0x80000000 (Sentinel) и 0xFFFFFFFF (Нет аксона)
+    // [DOD FIX] Hardware protection: 0x80000000 (Sentinel) and 0xFFFFFFFF (No axon)
     if (src_axon == 0x80000000 || src_axon == 0xFFFFFFFF) return;
 
-    // [DOD FIX] Strict VRAM Guard. Host-код не вызывает доверия.
+    // [DOD FIX] Strict VRAM Guard. Never trust host code.
     if (dst_ghost >= dst_total_axons) return;
 
     BurstHeads8 s_h = src_heads[src_axon];

@@ -72,14 +72,14 @@ pub unsafe fn cpu_allocate_shard(
     let sz_timers = n * 1;
     let sz_s2a = n * 4;
     let sz_targets = n * 128 * 4;
-    let sz_weights = n * 128 * 4; // Строго 4 байта (i32)
+    let sz_weights = n * 128 * 4; // Strictly 4 bytes (i32)
     let sz_dtimers = n * 128 * 1;
 
-    // [DOD FIX] + (64 * 8) компенсирует кэш-линии для всех 8 SoA массивов
+    // [DOD FIX] + (64 * 8) compensates for cache lines for all 8 SoA arrays
     let total_state_size = sz_voltage + sz_flags + sz_thresh + sz_timers 
         + sz_s2a + sz_targets + sz_weights + sz_dtimers + (64 * 8);
 
-    // Базовый указатель выравнивается по 64 байтам
+    // Base pointer is aligned to 64 bytes
     let base_ptr = alloc_aligned_with_prefix(total_state_size, 64);
     if base_ptr.is_null() {
         return -1;
@@ -111,7 +111,7 @@ pub unsafe fn cpu_allocate_shard(
 
     (*out_vram).dendrite_timers = base_ptr.add(off);
 
-    // Выделение памяти под головы аксонов
+    // Allocate memory for axon heads
     let total_axons_size = (total_axons as usize) * std::mem::size_of::<BurstHeads8>();
     let axons_ptr = alloc_aligned_with_prefix(total_axons_size, 32);
     if axons_ptr.is_null() {
@@ -121,7 +121,7 @@ pub unsafe fn cpu_allocate_shard(
     
     (*out_vram).axon_heads = axons_ptr as *mut BurstHeads8;
     
-    // Инициализируем аксоны сентинелами
+    // Initialize axons with sentinels
     let axon_slice = std::slice::from_raw_parts_mut((*out_vram).axon_heads, total_axons as usize);
     for h in axon_slice {
         *h = BurstHeads8::empty(AXON_SENTINEL);

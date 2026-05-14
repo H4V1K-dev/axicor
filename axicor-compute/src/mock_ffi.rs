@@ -401,15 +401,20 @@ pub extern "C" fn launch_ghost_sync(
     dst_total_axons: u32,
     sync_batch_ticks: u32,
     v_seg: u32,
-    _stream: *mut c_void,
+    _stream: *mut std::ffi::c_void,
 ) -> i32 {
     let batch_shift = sync_batch_ticks * v_seg;
     for tid in 0..count as usize {
         let src_axon = unsafe { *src_indices.add(tid) };
         let dst_ghost = unsafe { *dst_indices.add(tid) };
-        if src_axon == 0x80000000 || dst_ghost >= dst_total_axons { continue; }
+        
+        if src_axon == 0x80000000 || src_axon == 0xFFFFFFFF || dst_ghost >= dst_total_axons { 
+            continue; 
+        }
 
         let src = unsafe { *src_heads.add(src_axon as usize) };
+        println!("DEBUG: tid={}, src_axon={}, src.h0={}", tid, src_axon, src.h0);
+
         let mut dst = axicor_core::layout::BurstHeads8::empty(0x80000000);
         dst.h0 = if src.h0 == 0x80000000 { 0x80000000 } else { src.h0.wrapping_sub(batch_shift) };
         dst.h1 = if src.h1 == 0x80000000 { 0x80000000 } else { src.h1.wrapping_sub(batch_shift) };

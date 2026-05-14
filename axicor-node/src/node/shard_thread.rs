@@ -370,60 +370,7 @@ fn download_outputs(
     }
 }
 
-// PHASE 3: Periodic disk flush (I/O)
-#[inline(always)]
-fn save_hot_checkpoint(
-    shard: &ShardEngine,
-    _hash: u32,
-    baked_dir: &std::path::Path,
-    state_buf: &mut [u8],
-    axons_buf: &mut [u8],
-) {
-    match shard {
-        ShardEngine::Gpu(gpu) => unsafe {
-            axicor_compute::ffi::gpu_memcpy_device_to_host(
-                state_buf.as_mut_ptr() as *mut _,
-                gpu.vram.ptrs.soma_voltage as *const _,
-                state_buf.len(),
-            );
-            axicor_compute::ffi::gpu_memcpy_device_to_host(
-                axons_buf.as_mut_ptr() as *mut _,
-                gpu.vram.ptrs.axon_heads as *const _,
-                axons_buf.len(),
-            );
-            axicor_compute::ffi::gpu_device_synchronize();
-        },
-        ShardEngine::Cpu(cpu) => unsafe {
-            std::ptr::copy_nonoverlapping(
-                cpu.vram.ptrs.soma_voltage as *const u8,
-                state_buf.as_mut_ptr(),
-                state_buf.len(),
-            );
-            std::ptr::copy_nonoverlapping(
-                cpu.vram.ptrs.axon_heads as *const u8,
-                axons_buf.as_mut_ptr(),
-                axons_buf.len(),
-            );
-        },
-    }
 
-    let chk_state = baked_dir.join("shard.state");
-    let tmp_state = baked_dir.join("shard.state.tmp");
-    let chk_axons = baked_dir.join("shard.axons");
-    let tmp_axons = baked_dir.join("shard.axons.tmp");
-
-    // [DOD FIX] Async atomic disk write (Zero-Block Hot Loop)
-    let state_data = state_buf.to_vec();
-    let axons_data = axons_buf.to_vec();
-    std::thread::spawn(move || {
-        if std::fs::write(&tmp_state, state_data).is_ok()
-            && std::fs::write(&tmp_axons, axons_data).is_ok()
-        {
-            let _ = std::fs::rename(&tmp_state, &chk_state);
-            let _ = std::fs::rename(&tmp_axons, &chk_axons);
-        }
-    });
-}
 
 // PHASE 4: Graph maintenance (Night Phase)
 #[allow(clippy::too_many_arguments)]
@@ -560,7 +507,7 @@ fn execute_night_phase(
                         axicor_compute::ffi::gpu_memcpy_host_to_device(
                             gpu.vram.ptrs.dendrite_weights as *mut _,
                             workspace.weights_slice_mut(padded_n).as_ptr() as *const _,
-                            dendrites_count * std::mem::size_of::<i32>(), // Закон Mass Domain (i32)
+                            dendrites_count * std::mem::size_of::<i32>(), // Mass Domain Law (i32)
                         );
                         axicor_compute::ffi::gpu_memcpy_host_to_device(
                             gpu.vram.ptrs.soma_voltage as *mut _,
@@ -986,13 +933,61 @@ pub fn spawn_shard_thread(
                         let cp_interval_ticks = ctx.atomic_settings.save_checkpoints_interval_ticks.load(Ordering::Relaxed);
                         let cp_interval = (cp_interval_ticks as u32 / batch_size).max(1);
                         if batch_counter > 0 && batch_counter.is_multiple_of(cp_interval as u64) {
-                            save_hot_checkpoint(
-                                &desc.engine, 
-                                hash, 
-                                &desc.baked_dir, 
-                                &mut workspace.checkpoint_state_buffer,
-                                &mut workspace.checkpoint_axons_buffer
+                            match &desc.engine {
+                                axicor_compute::ShardEngine::Gpu(gpu) => unsafe {
+                                    axicor_compute::ffi::gpu_memcpy_device_to_host(
+                                        workspace.checkpoint_state_buffer.as_mut_ptr() as *mut _,
+                                        gpu.vram.ptrs.soma_voltage as *const _,
+                                        workspace.checkpoint_state_buffer.len(),
+                                    );
+                                    axicor_compute::ffi::gpu_memcpy_device_to_host(
+                                        workspace.checkpoint_axons_buffer.as_mut_ptr() as *mut _,
+                                        gpu.vram.ptrs.axon_heads as *const _,
+                                        workspace.checkpoint_axons_buffer.len(),
+                                    );
+                                    axicor_compute::ffi::gpu_device_synchronize();
+                                },
+                                axicor_compute::ShardEngine::Cpu(cpu) => unsafe {
+                                    std::ptr::copy_nonoverlapping(
+                                        cpu.vram.ptrs.soma_voltage as *const u8,
+                                        workspace.checkpoint_state_buffer.as_mut_ptr(),
+                                        workspace.checkpoint_state_buffer.len(),
+                                    );
+                                    std::ptr::copy_nonoverlapping(
+                                        cpu.vram.ptrs.axon_heads as *const u8,
+                                        workspace.checkpoint_axons_buffer.as_mut_ptr(),
+                                        workspace.checkpoint_axons_buffer.len(),
+                                    );
+                                },
+                            }
+
+                            // Take filled vectors (Ownership Move), and put empty vectors into Workspace
+                            // with already allocated capacity, to avoid reallocations as they fill up.
+                            let state_size = workspace.checkpoint_state_buffer.capacity();
+                            let axons_size = workspace.checkpoint_axons_buffer.capacity();
+
+                            let mut new_state = Vec::with_capacity(state_size);
+                            unsafe { new_state.set_len(state_size); }
+                            let mut new_axons = Vec::with_capacity(axons_size);
+                            unsafe { new_axons.set_len(axons_size); }
+
+                            let state_data = std::mem::replace(
+                                &mut workspace.checkpoint_state_buffer, 
+                                new_state
                             );
+                            let axons_data = std::mem::replace(
+                                &mut workspace.checkpoint_axons_buffer, 
+                                new_axons
+                            );
+
+                            let payload = crate::node::storage::CheckpointPayload {
+                                zone_hash: hash,
+                                baked_dir: desc.baked_dir.clone(),
+                                state_data,
+                                axons_data,
+                            };
+
+                            crate::node::storage::dispatch_checkpoint(payload, &ctx.rt_handle);
                         }
 
                         // PHASE 4: Graph maintenance (Night Phase)
@@ -1007,6 +1002,7 @@ pub fn spawn_shard_thread(
                                 &ctx.rt_handle, &mut workspace,
                                 current_prune_threshold, current_max_sprouts, &ctx.routing_table
                             );
+                            crate::node::storage::flush_mmap_geometry(workspace.ephys_mmap.as_mut());
                             let elapsed_ns = night_start.elapsed().as_nanos();
                             info!(" [Shard {:08X}] Night Phase completed in {} ns", hash, elapsed_ns);
                         }
@@ -1026,4 +1022,40 @@ pub fn spawn_shard_thread(
                 }
             }
         }).expect("Failed to spawn compute thread")
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn test_zero_copy_buffer_swap_invariant() {
+        let required_capacity = 1024 * 1024; // 1 MB
+        
+        // Simulate a workspace buffer that has already completed one cycle
+        let mut active_buffer: Vec<u8> = Vec::with_capacity(required_capacity);
+        unsafe { active_buffer.set_len(required_capacity); }
+        active_buffer.fill(0xAA); // Garbage from previous dump
+        
+        let initial_capacity = active_buffer.capacity();
+        assert!(initial_capacity >= required_capacity);
+
+        // --- HFT cycle logic ---
+        let current_cap = active_buffer.capacity();
+        let mut new_empty_buffer = Vec::with_capacity(current_cap);
+        
+        // [DOD] Bypass Memset. unsafe is legal here, because DMA will overwrite 
+        // these bytes in hardware. Reading them before DMA is strictly prohibited.
+        unsafe { new_empty_buffer.set_len(current_cap); }
+        
+        let extracted_payload = std::mem::replace(&mut active_buffer, new_empty_buffer);
+        // --- End of logic ---
+
+        // 1. Check that extracted payload contains old data and was not copied O(N)
+        assert_eq!(extracted_payload.len(), required_capacity);
+        assert_eq!(extracted_payload[0], 0xAA);
+        
+        // 2. Check Ownership Invariant: new buffer is ready for the next DMA
+        assert_eq!(active_buffer.len(), current_cap, "Fatal: Next DMA will crash due to 0 length!");
+        assert_eq!(active_buffer.capacity(), current_cap, "Fatal: Capacity drifted, allocation triggered!");
+    }
 }
