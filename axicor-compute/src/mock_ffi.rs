@@ -365,8 +365,10 @@ pub extern "C" fn launch_record_readout(
 // Auxiliary Kernel Launches  No-Ops
 // -----------------------------------------------------------------------------
 
+/// # Safety
+/// Caller must ensure `ptrs` points to valid, 64-byte aligned SoA memory.
 #[no_mangle]
-pub extern "C" fn launch_sort_and_prune(
+pub unsafe extern "C" fn launch_sort_and_prune(
     ptrs: *const ShardVramPtrs,
     padded_n: u32,
     prune_threshold: i16,
@@ -391,8 +393,10 @@ pub extern "C" fn launch_extract_outgoing_spikes(
     0
 }
 
+/// # Safety
+/// Caller must ensure all pointer arguments are valid and aligned.
 #[no_mangle]
-pub extern "C" fn launch_ghost_sync(
+pub unsafe extern "C" fn launch_ghost_sync(
     src_heads: *const axicor_core::layout::BurstHeads8,
     dst_heads: *mut axicor_core::layout::BurstHeads8,
     src_indices: *const u32,
@@ -413,7 +417,6 @@ pub extern "C" fn launch_ghost_sync(
         }
 
         let src = unsafe { *src_heads.add(src_axon as usize) };
-        println!("DEBUG: tid={}, src_axon={}, src.h0={}", tid, src_axon, src.h0);
 
         let mut dst = axicor_core::layout::BurstHeads8::empty(0x80000000);
         dst.h0 = if src.h0 == 0x80000000 { 0x80000000 } else { src.h0.wrapping_sub(batch_shift) };

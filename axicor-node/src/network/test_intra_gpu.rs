@@ -28,6 +28,8 @@ mod tests {
     fn manual_sync(channel: &IntraGpuChannel, src_heads: *const BurstHeads8, dst_heads: *mut BurstHeads8) {
         unsafe {
             channel.sync_ghosts(src_heads, dst_heads, 100, 256, std::ptr::null_mut());
+            // [DOD FIX] Hardware Barrier. CPU must wait for async GPU kernel to complete.
+            axicor_compute::ffi::gpu_device_synchronize();
         }
     }
 

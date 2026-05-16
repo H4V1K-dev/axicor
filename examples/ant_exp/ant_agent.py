@@ -18,7 +18,7 @@ from axicor.brain import fnv1a_32
 EPISODES = 20_000_000
 BATCH_SIZE = 20
 DOPAMINE_REWARD = -2
-DOPAMINE_PUNISHMENT = 255       # Death Signal
+DOPAMINE_PUNISHMENT = -255      # Death Signal
 TARGET_SCORE = 50_000           # 50k score
 TARGET_TIME = 10_000            # 10k steps
 

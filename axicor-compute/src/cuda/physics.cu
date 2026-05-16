@@ -192,18 +192,22 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
   for (int i = 0; i < MAX_DENDRITES; i++) {
     uint32_t col_idx = i * padded_n + tid;
     uint32_t target_packed = vram.dendrite_targets[col_idx];
+    if (target_packed == 0) break; // Hardware Early Exit
 
-    if (target_packed == 0)
-      break;
+    // [DOD FIX] Synaptic Refractory Gate (Возвращаем вырезанную физику)
+    uint8_t d_timer = vram.dendrite_timers[col_idx];
+    if (d_timer > 0) {
+        vram.dendrite_timers[col_idx] = d_timer - 1;
+        continue; // ~90% тиков дендрит спит, пропускаем тяжелую математику
+    }
 
-    // [DOD FIX] Zero-Index Trap Protection. Extract ID first, then check.
     uint32_t raw_id = target_packed & 0x00FFFFFF;
-    if (raw_id == 0) break; // Corrupted segment index with empty ID
+    if (raw_id == 0) continue; // [DOD FIX] Игнорируем мусор, но не слепнем (continue вместо break)
 
     uint32_t target_id = raw_id - 1;
-    if (target_id >= total_axons) continue; // [DOD FIX] Hardware VRAM Guard!
-    uint32_t seg_idx = target_packed >> 24;
+    if (target_id >= total_axons) continue; // Hardware VRAM Guard
 
+    uint32_t seg_idx = target_packed >> 24;
     BurstHeads8 h = vram.axon_heads[target_id];
     uint32_t prop = p.signal_propagation_length;
 
@@ -214,10 +218,10 @@ __global__ void cu_update_neurons_kernel(ShardVramPtrs vram,
                ((h.h6 - seg_idx) < prop) | ((h.h7 - seg_idx) < prop);
 
     if (hit) {
-      // [DOD FIX] Downscale mass to electrical charge (1 : 65536)
-      // Arithmetic shift preserves Dale's Law (sign)
       int32_t charge = (int32_t)vram.dendrite_weights[col_idx] >> 16;
       i_in += charge;
+      // [DOD FIX] Block synapse from multi-reading the same tail
+      vram.dendrite_timers[col_idx] = p.synapse_refractory_period;
     }
   }
 

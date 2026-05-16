@@ -18,9 +18,9 @@ class PwmDecoder:
         self._sum_buffer = np.zeros(self.N, dtype=np.float32)
         self._out_buffer = np.zeros(self.N, dtype=np.float32)
         
-        # Pre-calculated reshape view (B, N) -> Project standard: [Batch, Channel]
+        # Pre-calculated reshape view (N, B) -> Project standard: [Channel, Batch]
         self._raw_bytes = np.zeros(self.payload_size, dtype=np.uint8)
-        self._spikes_view = self._raw_bytes.reshape((self.B, self.N)) # Правильный C-ABI Layout
+        self._spikes_view = self._raw_bytes.reshape((self.N, self.B)) # [DOD FIX] Server sends [Pixel][Tick]
 
     def decode_from(self, rx_view: memoryview, offset: int = 0) -> np.ndarray:
         """
@@ -37,8 +37,8 @@ class PwmDecoder:
         view = np.ndarray(self.payload_size, dtype=np.uint8, buffer=rx_view, offset=offset)
         self._raw_bytes[:] = view
         
-        # 3. Vectorized sum across ticks axis (axis=0). Written directly into preallocated buffer!
-        np.sum(self._spikes_view, axis=0, dtype=np.float32, out=self._sum_buffer)
+        # 3. Vectorized sum across ticks axis (axis=1). Written directly into preallocated buffer!
+        np.sum(self._spikes_view, axis=1, dtype=np.float32, out=self._sum_buffer)
         
         # 4. Normalize to [0.0, 1.0] range (In-place)
         np.multiply(self._sum_buffer, self._inv_b, out=self._out_buffer)
@@ -67,9 +67,9 @@ class PopulationDecoder:
         self._out_buffer = np.zeros(self.V, dtype=np.float32)
         self._silence_mask = np.zeros(self.V, dtype=bool)
 
-        # [DOD FIX] Data layout is [Batch, Var, Neuron] for efficient time integration
+        # [DOD FIX] Data layout is [Var, Neuron, Batch]
         self._raw_bytes = np.zeros(self.payload_size, dtype=np.uint8)
-        self._spikes_view = self._raw_bytes.reshape((self.B, self.V, self.M))
+        self._spikes_view = self._raw_bytes.reshape((self.V, self.M, self.B))
 
     def decode_from(self, rx_view: memoryview, offset: int = 0) -> np.ndarray:
         # Amnesia Defense: Return neutral state (0.5)
@@ -86,8 +86,8 @@ class PopulationDecoder:
             self._out_buffer.fill(0.5)
             return self._out_buffer
         
-        # 3. Sum spikes across ticks (Time Integration, axis=0)
-        np.sum(self._spikes_view, axis=0, dtype=np.float32, out=self._sum_buffer) # Суммируем по тикам (ось 0)
+        # 3. Sum spikes across ticks (Time Integration, axis=2)
+        np.sum(self._spikes_view, axis=2, dtype=np.float32, out=self._sum_buffer) # [DOD FIX] Sum by Batch dimension
         
         # 4. Find total spike mass for each variable
         np.sum(self._sum_buffer, axis=1, out=self._mass_buffer)

@@ -67,49 +67,53 @@ pub unsafe fn cpu_allocate_shard(
     let n = padded_n as usize;
 
     let sz_voltage = n * 4;
-    let sz_flags = n * 1;
-    let sz_thresh = n * 4;
-    let sz_timers = n * 1;
-    let sz_s2a = n * 4;
-    let sz_targets = n * 128 * 4;
-    let sz_weights = n * 128 * 4; // Strictly 4 bytes (i32)
-    let sz_dtimers = n * 128 * 1;
+    let base_ptr: *mut u8;
+    #[allow(clippy::identity_op)]
+    {
+        let sz_flags = n * 1;
+        let sz_thresh = n * 4;
+        let sz_timers = n * 1;
+        let sz_s2a = n * 4;
+        let sz_targets = n * 128 * 4;
+        let sz_weights = n * 128 * 4; // Strictly 4 bytes (i32)
+        let sz_dtimers = n * 128 * 1;
+        
+        // [DOD FIX] + (64 * 8) compensates for cache lines for all 8 SoA arrays
+        let total_state_size = sz_voltage + sz_flags + sz_thresh + sz_timers 
+            + sz_s2a + sz_targets + sz_weights + sz_dtimers + (64 * 8);
 
-    // [DOD FIX] + (64 * 8) compensates for cache lines for all 8 SoA arrays
-    let total_state_size = sz_voltage + sz_flags + sz_thresh + sz_timers 
-        + sz_s2a + sz_targets + sz_weights + sz_dtimers + (64 * 8);
+        // Base pointer is aligned to 64 bytes
+        base_ptr = alloc_aligned_with_prefix(total_state_size, 64);
+        if base_ptr.is_null() {
+            return -1;
+        }
 
-    // Base pointer is aligned to 64 bytes
-    let base_ptr = alloc_aligned_with_prefix(total_state_size, 64);
-    if base_ptr.is_null() {
-        return -1;
+        // [DOD FIX] Strict C-ABI 64-Byte Padding (L2 Cache Line)
+        let mut off = 0;
+        
+        (*out_vram).soma_voltage = base_ptr.add(off) as *mut i32;
+        off = (off + sz_voltage + 63) & !63;
+
+        (*out_vram).soma_flags = base_ptr.add(off);
+        off = (off + sz_flags + 63) & !63;
+
+        (*out_vram).threshold_offset = base_ptr.add(off) as *mut i32;
+        off = (off + sz_thresh + 63) & !63;
+
+        (*out_vram).timers = base_ptr.add(off);
+        off = (off + sz_timers + 63) & !63;
+
+        (*out_vram).soma_to_axon = base_ptr.add(off) as *mut u32;
+        off = (off + sz_s2a + 63) & !63;
+
+        (*out_vram).dendrite_targets = base_ptr.add(off) as *mut u32;
+        off = (off + sz_targets + 63) & !63;
+
+        (*out_vram).dendrite_weights = base_ptr.add(off) as *mut i32;
+        off = (off + sz_weights + 63) & !63;
+
+        (*out_vram).dendrite_timers = base_ptr.add(off);
     }
-
-    // [DOD FIX] Strict C-ABI 64-Byte Padding (L2 Cache Line)
-    let mut off = 0;
-    
-    (*out_vram).soma_voltage = base_ptr.add(off) as *mut i32;
-    off = (off + sz_voltage + 63) & !63;
-
-    (*out_vram).soma_flags = base_ptr.add(off);
-    off = (off + sz_flags + 63) & !63;
-
-    (*out_vram).threshold_offset = base_ptr.add(off) as *mut i32;
-    off = (off + sz_thresh + 63) & !63;
-
-    (*out_vram).timers = base_ptr.add(off);
-    off = (off + sz_timers + 63) & !63;
-
-    (*out_vram).soma_to_axon = base_ptr.add(off) as *mut u32;
-    off = (off + sz_s2a + 63) & !63;
-
-    (*out_vram).dendrite_targets = base_ptr.add(off) as *mut u32;
-    off = (off + sz_targets + 63) & !63;
-
-    (*out_vram).dendrite_weights = base_ptr.add(off) as *mut i32;
-    off = (off + sz_weights + 63) & !63;
-
-    (*out_vram).dendrite_timers = base_ptr.add(off);
 
     // Allocate memory for axon heads
     let total_axons_size = (total_axons as usize) * std::mem::size_of::<BurstHeads8>();

@@ -821,6 +821,7 @@ fn init_io_buffers(
     }
 }
 
+#[allow(clippy::uninit_vec)]
 pub fn spawn_shard_thread(
     mut desc: ShardDescriptor,
     ctx: NodeContext,

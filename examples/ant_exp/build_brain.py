@@ -80,7 +80,7 @@ def build_ant_connectome():
                 .add_population(motor_inh, fraction=0.3)
                 
         # [DOD FIX] Strict targeting for motor output
-        ganglion.add_output(f"motor_out_{leg}", width=8, height=4, target_type="Cortex/L4/spiny/VISp4/1")
+        ganglion.add_output(f"motor_out_{leg}", width=8, height=4, target_type="All")
         ganglion.add_output(f"proprio_{leg}", width=8, height=8)
         legs[leg] = ganglion
 

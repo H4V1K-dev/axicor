@@ -36,12 +36,12 @@ fn main() {
             panic!("FATAL: nvcc compiler not found, and 'mock-gpu' feature is NOT enabled. Either install CUDA Toolkit or build with '--features mock-gpu'.");
         }
 
+        std::env::set_var("CXX", "g++-13");
         cc::Build::new()
             .cuda(true)
             .flag("-arch=sm_61")
             .flag("-O3")
             .flag("-w")
-            .flag("-ccbin=g++-13")
             .file("src/cuda/bindings.cu")
             .file("src/cuda/physics.cu")
             .compile("axicor_cuda");

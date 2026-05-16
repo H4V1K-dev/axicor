@@ -431,9 +431,11 @@ pub fn cpu_extract_telemetry(soma_flags: &[u8], out_ids: &mut [u32]) -> u32 {
 // =============================================================================
 // 2.7 cpu_sort_and_prune (CPU Fallback for Compaction)
 // =============================================================================
+/// # Safety
+/// Pointers must be valid and correctly sized according to `padded_n`.
 pub unsafe fn cpu_sort_and_prune(ptrs: &crate::ffi::ShardVramPtrs, padded_n: u32, prune_threshold: i16) {
     // [DOD FIX] Strict Mass Domain Shift. Threshold is applied to abs(weight).
-    let threshold_mass = (prune_threshold.abs() as u32) << 16;
+    let threshold_mass = (prune_threshold.unsigned_abs() as u32) << 16;
 
     #[derive(Clone, Copy)]
     struct DendriteSlot {
@@ -451,6 +453,7 @@ pub unsafe fn cpu_sort_and_prune(ptrs: &crate::ffi::ShardVramPtrs, padded_n: u32
         let mut slots = [DendriteSlot { target: 0, weight: 0, timer: 0 }; 128];
 
         // 1. Load & Prune
+        #[allow(clippy::needless_range_loop)]
         for slot in 0..128 {
             let col_idx = slot * (padded_n as usize) + tid;
             let target = *ptrs.dendrite_targets.add(col_idx);
@@ -481,6 +484,7 @@ pub unsafe fn cpu_sort_and_prune(ptrs: &crate::ffi::ShardVramPtrs, padded_n: u32
         });
 
         // 3. Columnar Write Back
+        #[allow(clippy::needless_range_loop)]
         for slot in 0..128 {
             let col_idx = slot * (padded_n as usize) + tid;
             *ptrs.dendrite_targets.add(col_idx) = slots[slot].target;
