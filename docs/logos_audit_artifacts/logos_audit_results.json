@@ -1,0 +1,1381 @@
+{
+  "metadata": {
+    "auditor": "Logos Architecture Intelligence",
+    "auditor_url": "https://github.com/Prestapro/logos",
+    "target": "H4V1K-dev/axicor",
+    "profiles_analyzed": 1808,
+    "methodology": "Read-only structural analysis: duplicates, outliers, contract integrity, biophysical sanity, claim verification"
+  },
+  "layer_1_duplicates": {
+    "total_profiles": 1808,
+    "unique_parameter_sets": 1795,
+    "duplicate_groups": 9,
+    "cross_region_duplicates": 8,
+    "cross_region_details": [
+      {
+        "paths": [
+          "GNM-Library/Cerebellum/Rat/gabaergic/1.toml",
+          "GNM-Library/Cerebellum/Mouse/gabaergic/476.toml"
+        ],
+        "regions": [
+          "Cerebellum/Mouse/gabaergic",
+          "Cerebellum/Rat/gabaergic"
+        ]
+      },
+      {
+        "paths": [
+          "GNM-Library/Cerebellum/Mouse/purkinje/141.toml",
+          "GNM-Library/Cerebellum/Zebrafish/purkinje/141.toml"
+        ],
+        "regions": [
+          "Cerebellum/Mouse/purkinje",
+          "Cerebellum/Zebrafish/purkinje"
+        ]
+      },
+      {
+        "paths": [
+          "GNM-Library/Thalamus/Rat/relay/46.toml",
+          "GNM-Library/Thalamus/Mouse/relay/141.toml"
+        ],
+        "regions": [
+          "Thalamus/Mouse/relay",
+          "Thalamus/Rat/relay"
+        ]
+      },
+      {
+        "paths": [
+          "GNM-Library/Thalamus/Mouse/gabaergic/9.toml",
+          "GNM-Library/Thalamus/Mouse/interneuron/9.toml",
+          "GNM-Library/Striatum/Mouse/gabaergic/775.toml",
+          "GNM-Library/Striatum/Mouse/interneuron/141.toml"
+        ],
+        "regions": [
+          "Striatum/Mouse/gabaergic",
+          "Striatum/Mouse/interneuron",
+          "Thalamus/Mouse/gabaergic",
+          "Thalamus/Mouse/interneuron"
+        ]
+      },
+      {
+        "paths": [
+          "GNM-Library/Hippocampus/Rat/granule/46.toml",
+          "GNM-Library/Hippocampus/Mouse/granule/476.toml"
+        ],
+        "regions": [
+          "Hippocampus/Mouse/granule",
+          "Hippocampus/Rat/granule"
+        ]
+      },
+      {
+        "paths": [
+          "GNM-Library/Hippocampus/Rat/pyramidal/141.toml",
+          "GNM-Library/Hippocampus/Mouse/pyramidal/775.toml"
+        ],
+        "regions": [
+          "Hippocampus/Mouse/pyramidal",
+          "Hippocampus/Rat/pyramidal"
+        ]
+      },
+      {
+        "paths": [
+          "GNM-Library/Hippocampus/Rat/interneuron/6.toml",
+          "GNM-Library/Hippocampus/Mouse/gabaergic/9.toml",
+          "GNM-Library/Hippocampus/Mouse/interneuron/9.toml"
+        ],
+        "regions": [
+          "Hippocampus/Mouse/gabaergic",
+          "Hippocampus/Mouse/interneuron",
+          "Hippocampus/Rat/interneuron"
+        ]
+      },
+      {
+        "paths": [
+          "GNM-Library/Striatum/Rat/medium_spiny/1.toml",
+          "GNM-Library/Striatum/Mouse/medium_spiny/2472.toml"
+        ],
+        "regions": [
+          "Striatum/Mouse/medium_spiny",
+          "Striatum/Rat/medium_spiny"
+        ]
+      }
+    ]
+  },
+  "layer_2_outliers": {
+    "z_threshold": 4.0,
+    "total_outliers": 138,
+    "outliers": [
+      {
+        "field": "leak_rate",
+        "value": 1768.0,
+        "mean": 193.37,
+        "stdev": 110.27,
+        "z_score": 14.28,
+        "file": "GNM-Library/Cortex/L5/sparsely spiny/VISpm5/2.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 81.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 10.42,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/78.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 78.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 9.9,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/80.toml"
+      },
+      {
+        "field": "dendrite_radius_um",
+        "value": 1369.0,
+        "mean": 250.69,
+        "stdev": 126.43,
+        "z_score": 8.85,
+        "file": "GNM-Library/Cortex/L6/spiny/MTG/13.toml"
+      },
+      {
+        "field": "dendrite_radius_um",
+        "value": 1280.5,
+        "mean": 250.69,
+        "stdev": 126.43,
+        "z_score": 8.15,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/3.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 68.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 8.15,
+        "file": "GNM-Library/Cortex/L6/spiny/MTG/13.toml"
+      },
+      {
+        "field": "dendrite_radius_um",
+        "value": 1279.2,
+        "mean": 250.69,
+        "stdev": 126.43,
+        "z_score": 8.14,
+        "file": "GNM-Library/Cortex/L3/spiny/TemL/6.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 64.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 7.45,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/3.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 63.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 7.28,
+        "file": "GNM-Library/Cortex/L3/spiny/TemL/6.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 63.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 7.28,
+        "file": "GNM-Library/Cortex/L5/spiny/MFG/1.toml"
+      },
+      {
+        "field": "dendrite_radius_um",
+        "value": 1093.3,
+        "mean": 250.69,
+        "stdev": 126.43,
+        "z_score": 6.66,
+        "file": "GNM-Library/Cortex/L6/spiny/MTG/11.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 59.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 6.58,
+        "file": "GNM-Library/Cortex/L6/spiny/MTG/9.toml"
+      },
+      {
+        "field": "dendrite_radius_um",
+        "value": 1079.6,
+        "mean": 250.69,
+        "stdev": 126.43,
+        "z_score": 6.56,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/84.toml"
+      },
+      {
+        "field": "dendrite_radius_um",
+        "value": 1073.1,
+        "mean": 250.69,
+        "stdev": 126.43,
+        "z_score": 6.5,
+        "file": "GNM-Library/Cortex/L6/spiny/MFG/2.toml"
+      },
+      {
+        "field": "dendrite_radius_um",
+        "value": 1054.7,
+        "mean": 250.69,
+        "stdev": 126.43,
+        "z_score": 6.36,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/12.toml"
+      },
+      {
+        "field": "leak_rate",
+        "value": 886.0,
+        "mean": 193.37,
+        "stdev": 110.27,
+        "z_score": 6.28,
+        "file": "GNM-Library/Cortex/L6a/aspiny/VISp6a/12.toml"
+      },
+      {
+        "field": "dendrite_radius_um",
+        "value": 1042.5,
+        "mean": 250.69,
+        "stdev": 126.43,
+        "z_score": 6.26,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/9.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 57.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 6.23,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/28.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 54.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 5.95,
+        "file": "GNM-Library/Cortex/L23/aspiny/VISp23/6.toml"
+      },
+      {
+        "field": "dendrite_radius_um",
+        "value": 1001.1,
+        "mean": 250.69,
+        "stdev": 126.43,
+        "z_score": 5.94,
+        "file": "GNM-Library/Cortex/L3/spiny/TemL/9.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 55.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 5.88,
+        "file": "GNM-Library/Cortex/L4/spiny/MTG/46.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 53.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 5.83,
+        "file": "GNM-Library/Cortex/L3/aspiny/IFG/1.toml"
+      },
+      {
+        "field": "leak_rate",
+        "value": 836.0,
+        "mean": 193.37,
+        "stdev": 110.27,
+        "z_score": 5.83,
+        "file": "GNM-Library/Cortex/L6b/spiny/VISpl6b/16.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 54.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 5.71,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/121.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 54.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 5.71,
+        "file": "GNM-Library/Cortex/L6/spiny/MTG/11.toml"
+      },
+      {
+        "field": "leak_rate",
+        "value": 816.0,
+        "mean": 193.37,
+        "stdev": 110.27,
+        "z_score": 5.65,
+        "file": "GNM-Library/Cortex/L4/spiny/VISp4/79.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 51.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 5.57,
+        "file": "GNM-Library/Cortex/L3/aspiny/TemL/1.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 53.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 5.53,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/84.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 53.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 5.53,
+        "file": "GNM-Library/Cortex/L6/spiny/MFG/2.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 52.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 5.36,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/139.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 52.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 5.36,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/12.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 52.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 5.36,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/9.toml"
+      },
+      {
+        "field": "dendrite_radius_um",
+        "value": 923.4,
+        "mean": 250.69,
+        "stdev": 126.43,
+        "z_score": 5.32,
+        "file": "GNM-Library/Cortex/L3/spiny/FroL/1.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 49.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 5.32,
+        "file": "GNM-Library/Cortex/L3/spiny/TemL/6.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 49.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 5.32,
+        "file": "GNM-Library/Cortex/L4/spiny/VISp4/165.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 49.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 5.32,
+        "file": "GNM-Library/Cortex/L4/aspiny/VISp4/93.toml"
+      },
+      {
+        "field": "dendrite_radius_um",
+        "value": 920.3,
+        "mean": 250.69,
+        "stdev": 126.43,
+        "z_score": 5.3,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/58.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 51.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 5.18,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/107.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 51.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 5.18,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/173.toml"
+      },
+      {
+        "field": "dendrite_radius_um",
+        "value": 891.3,
+        "mean": 250.69,
+        "stdev": 126.43,
+        "z_score": 5.07,
+        "file": "GNM-Library/Cortex/L4/spiny/MTG/42.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 47.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 5.07,
+        "file": "GNM-Library/Cortex/L5/aspiny/VISp5/119.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 47.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 5.07,
+        "file": "GNM-Library/Cortex/L6a/aspiny/VISp6a/42.toml"
+      },
+      {
+        "field": "leak_rate",
+        "value": 750.0,
+        "mean": 193.37,
+        "stdev": 110.27,
+        "z_score": 5.05,
+        "file": "GNM-Library/Cortex/L4/aspiny/MTG/3.toml"
+      },
+      {
+        "field": "leak_rate",
+        "value": 748.0,
+        "mean": 193.37,
+        "stdev": 110.27,
+        "z_score": 5.03,
+        "file": "GNM-Library/Cortex/L5/aspiny/VISp5/83.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 50.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L3/spiny/TemL/9.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L3/spiny/TemL/4.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L3/spiny/TemL/6.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L3/spiny/FroL/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/184.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/44.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/22.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/14.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/17.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L3/aspiny/TemL/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L3/aspiny/MTG/2.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L3/aspiny/IFG/2.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L3/aspiny/IFG/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L4/spiny/MTG/45.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L4/spiny/MTG/42.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L4/aspiny/VISp4/84.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L4/aspiny/MTG/9.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L4/aspiny/MTG/6.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L4/aspiny/MTG/7.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L4/sparsely spiny/VISpm4.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L4/sparsely spiny/VISp4/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L4/sparsely spiny/MTG/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/3.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L5/aspiny/ITG/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L5/aspiny/MTG/14.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L5/aspiny/MTG/10.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L5/aspiny/MTG/11.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L5/sparsely spiny/VISp5/2.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L5/sparsely spiny/VISp5/8.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L5/sparsely spiny/MTG/3.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L5/sparsely spiny/VISpm5/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L2/spiny/TemL/2.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L2/spiny/TemL/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L2/spiny/FroL/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L2/sparsely spiny/MTG.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L2/sparsely spiny/FroL.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L6a/aspiny/VISp6a/14.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L6a/aspiny/VISp6a/16.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L6a/aspiny/VISp6a/17.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L6a/aspiny/VISli6a/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L6a/sparsely spiny/VISp6a/4.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L6a/sparsely spiny/VISp6a/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L23/spiny/VISp23/13.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L23/spiny/VISp23/7.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L23/aspiny/VISp23/184.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L23/aspiny/VISp23/19.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L23/aspiny/VISp23/180.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L23/sparsely spiny/VISp23/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L1/aspiny/MTG/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L1/aspiny/VISpm1/3.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L1/aspiny/VISpm1/11.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L1/aspiny/VISp1/3.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L1/sparsely spiny/MTG/10.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L1/sparsely spiny/MTG/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L1/sparsely spiny/MTG/11.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L6/aspiny/MTG/3.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L6b/aspiny/VISp6b/7.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 500.0,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 5.01,
+        "file": "GNM-Library/Cortex/L6b/aspiny/VISp6b/1.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 490.5,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 4.9,
+        "file": "GNM-Library/Cortex/L23/spiny/VISp23/16.toml"
+      },
+      {
+        "field": "dendrite_radius_um",
+        "value": 865.6,
+        "mean": 250.69,
+        "stdev": 126.43,
+        "z_score": 4.86,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/35.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 483.8,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 4.82,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/16.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 45.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 4.81,
+        "file": "GNM-Library/Cortex/L23/aspiny/VISp23/138.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 44.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 4.69,
+        "file": "GNM-Library/Cortex/L5/aspiny/VISp5/170.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 44.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 4.69,
+        "file": "GNM-Library/Cortex/L5/aspiny/VISp5/70.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 48.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 4.66,
+        "file": "GNM-Library/Cortex/L4/spiny/MTG/37.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 464.4,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 4.6,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/12.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 43.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 4.56,
+        "file": "GNM-Library/Cortex/L3/aspiny/IFG/2.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 43.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 4.56,
+        "file": "GNM-Library/Cortex/L4/aspiny/MTG/7.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 47.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 4.49,
+        "file": "GNM-Library/Cortex/L3/spiny/FroL/11.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 47.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 4.49,
+        "file": "GNM-Library/Cortex/L4/spiny/MTG/35.toml"
+      },
+      {
+        "field": "leak_rate",
+        "value": 686.0,
+        "mean": 193.37,
+        "stdev": 110.27,
+        "z_score": 4.47,
+        "file": "GNM-Library/Cortex/L6/spiny/MTG/7.toml"
+      },
+      {
+        "field": "leak_rate",
+        "value": 685.0,
+        "mean": 193.37,
+        "stdev": 110.27,
+        "z_score": 4.46,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/11.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 449.5,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 4.42,
+        "file": "GNM-Library/Cortex/L2/spiny/MTG/3.toml"
+      },
+      {
+        "field": "steering_radius_um",
+        "value": 445.5,
+        "mean": 68.98,
+        "stdev": 86.03,
+        "z_score": 4.38,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/50.toml"
+      },
+      {
+        "field": "homeostasis_penalty",
+        "value": 19517.0,
+        "mean": 3206.2,
+        "stdev": 3740.49,
+        "z_score": 4.36,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/9.toml"
+      },
+      {
+        "field": "dendrite_radius_um",
+        "value": 800.9,
+        "mean": 250.69,
+        "stdev": 126.43,
+        "z_score": 4.35,
+        "file": "GNM-Library/Cortex/L4/spiny/MTG/11.toml"
+      },
+      {
+        "field": "homeostasis_penalty",
+        "value": 19425.0,
+        "mean": 3206.2,
+        "stdev": 3740.49,
+        "z_score": 4.34,
+        "file": "GNM-Library/Cortex/L4/aspiny/MTG/3.toml"
+      },
+      {
+        "field": "homeostasis_penalty",
+        "value": 19332.0,
+        "mean": 3206.2,
+        "stdev": 3740.49,
+        "z_score": 4.31,
+        "file": "GNM-Library/Cortex/L3/spiny/TemL/1.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 46.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 4.31,
+        "file": "GNM-Library/Cortex/L3/spiny/FroL/1.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 46.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 4.31,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/58.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 41.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 4.3,
+        "file": "GNM-Library/Cortex/L3/aspiny/MFG/1.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 41.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 4.3,
+        "file": "GNM-Library/Cortex/L5/aspiny/VISp5/93.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 41.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 4.3,
+        "file": "GNM-Library/Cortex/L6b/aspiny/VISp6b/4.toml"
+      },
+      {
+        "field": "homeostasis_penalty",
+        "value": 19243.0,
+        "mean": 3206.2,
+        "stdev": 3740.49,
+        "z_score": 4.29,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/137.toml"
+      },
+      {
+        "field": "homeostasis_penalty",
+        "value": 19163.0,
+        "mean": 3206.2,
+        "stdev": 3740.49,
+        "z_score": 4.27,
+        "file": "GNM-Library/Cortex/L3/spiny/MTG/131.toml"
+      },
+      {
+        "field": "homeostasis_penalty",
+        "value": 19053.0,
+        "mean": 3206.2,
+        "stdev": 3740.49,
+        "z_score": 4.24,
+        "file": "GNM-Library/Cortex/L3/spiny/ITG/9.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 40.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 4.18,
+        "file": "GNM-Library/Cortex/L3/spiny/SFG/1.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 40.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 4.18,
+        "file": "GNM-Library/Cortex/L3/aspiny/PLP/3.toml"
+      },
+      {
+        "field": "homeostasis_penalty",
+        "value": 18702.0,
+        "mean": 3206.2,
+        "stdev": 3740.49,
+        "z_score": 4.14,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/1.toml"
+      },
+      {
+        "field": "signal_propagation_length",
+        "value": 45.0,
+        "mean": 21.31,
+        "stdev": 5.73,
+        "z_score": 4.14,
+        "file": "GNM-Library/Cortex/L6a/spiny/VISp6a/103.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 39.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 4.05,
+        "file": "GNM-Library/Cortex/L3/spiny/MFG/6.toml"
+      },
+      {
+        "field": "homeostasis_decay",
+        "value": 39.0,
+        "mean": 7.05,
+        "stdev": 7.89,
+        "z_score": 4.05,
+        "file": "GNM-Library/Cortex/L5/aspiny/VISp5/151.toml"
+      },
+      {
+        "field": "homeostasis_penalty",
+        "value": 18279.0,
+        "mean": 3206.2,
+        "stdev": 3740.49,
+        "z_score": 4.03,
+        "file": "GNM-Library/Cortex/L5/spiny/MTG/18.toml"
+      },
+      {
+        "field": "leak_rate",
+        "value": 636.0,
+        "mean": 193.37,
+        "stdev": 110.27,
+        "z_score": 4.01,
+        "file": "GNM-Library/Cortex/L3/spiny/ITG/7.toml"
+      }
+    ]
+  },
+  "layer_3_sprouting_contract": {
+    "profiles_checked": 1808,
+    "violations": 1806,
+    "violation_rate": "99.9%",
+    "sample_violations": [
+      {
+        "file": "GNM-Library/Cortex/L3/spiny/TemL/4.toml",
+        "sum": 1.09,
+        "weights": {
+          "sprouting_weight_distance": 0.3,
+          "sprouting_weight_power": 0.5,
+          "sprouting_weight_explore": 0.19,
+          "sprouting_weight_type": 0.1
+        }
+      },
+      {
+        "file": "GNM-Library/Cortex/L3/spiny/TemL/9.toml",
+        "sum": 1.147,
+        "weights": {
+          "sprouting_weight_distance": 0.3,
+          "sprouting_weight_power": 0.5,
+          "sprouting_weight_explore": 0.247,
+          "sprouting_weight_type": 0.1
+        }
+      },
+      {
+        "file": "GNM-Library/Cortex/L3/spiny/TemL/6.toml",
+        "sum": 1.227,
+        "weights": {
+          "sprouting_weight_distance": 0.3,
+          "sprouting_weight_power": 0.5,
+          "sprouting_weight_explore": 0.327,
+          "sprouting_weight_type": 0.1
+        }
+      },
+      {
+        "file": "GNM-Library/Cortex/L3/spiny/TemL/7.toml",
+        "sum": 1.2,
+        "weights": {
+          "sprouting_weight_distance": 0.5,
+          "sprouting_weight_power": 0.4,
+          "sprouting_weight_explore": 0.1,
+          "sprouting_weight_type": 0.2
+        }
+      },
+      {
+        "file": "GNM-Library/Cortex/L3/spiny/TemL/10.toml",
+        "sum": 1.2,
+        "weights": {
+          "sprouting_weight_distance": 0.5,
+          "sprouting_weight_power": 0.4,
+          "sprouting_weight_explore": 0.1,
+          "sprouting_weight_type": 0.2
+        }
+      },
+      {
+        "file": "GNM-Library/Cortex/L3/spiny/TemL/1.toml",
+        "sum": 1.2,
+        "weights": {
+          "sprouting_weight_distance": 0.5,
+          "sprouting_weight_power": 0.4,
+          "sprouting_weight_explore": 0.1,
+          "sprouting_weight_type": 0.2
+        }
+      },
+      {
+        "file": "GNM-Library/Cortex/L3/spiny/AnG/2.toml",
+        "sum": 1.2,
+        "weights": {
+          "sprouting_weight_distance": 0.5,
+          "sprouting_weight_power": 0.4,
+          "sprouting_weight_explore": 0.1,
+          "sprouting_weight_type": 0.2
+        }
+      },
+      {
+        "file": "GNM-Library/Cortex/L3/spiny/AnG/8.toml",
+        "sum": 1.2,
+        "weights": {
+          "sprouting_weight_distance": 0.5,
+          "sprouting_weight_power": 0.4,
+          "sprouting_weight_explore": 0.1,
+          "sprouting_weight_type": 0.2
+        }
+      },
+      {
+        "file": "GNM-Library/Cortex/L3/spiny/AnG/9.toml",
+        "sum": 1.2,
+        "weights": {
+          "sprouting_weight_distance": 0.5,
+          "sprouting_weight_power": 0.4,
+          "sprouting_weight_explore": 0.1,
+          "sprouting_weight_type": 0.2
+        }
+      },
+      {
+        "file": "GNM-Library/Cortex/L3/spiny/AnG/6.toml",
+        "sum": 1.2,
+        "weights": {
+          "sprouting_weight_distance": 0.5,
+          "sprouting_weight_power": 0.4,
+          "sprouting_weight_explore": 0.1,
+          "sprouting_weight_type": 0.2
+        }
+      }
+    ]
+  },
+  "layer_4_biophysical_sanity": {
+    "rest_potential_zero": {
+      "count": 21,
+      "files": [
+        "GNM-Library/Cortex/L3/aspiny/IFG/1.toml",
+        "GNM-Library/Cortex/L4/spiny/VISp4/80.toml",
+        "GNM-Library/Cortex/L4/spiny/VISp4/54.toml",
+        "GNM-Library/Cortex/L4/spiny/VISp4/41.toml",
+        "GNM-Library/Cortex/L4/spiny/VISp4/191.toml",
+        "GNM-Library/Cortex/L4/spiny/VISp4/201.toml",
+        "GNM-Library/Cortex/L4/spiny/VISp4/124.toml",
+        "GNM-Library/Cortex/L4/spiny/VISl4/10.toml",
+        "GNM-Library/Cortex/L5/spiny/VISp5/170.toml",
+        "GNM-Library/Cortex/L5/spiny/VISp5/143.toml",
+        "GNM-Library/Cortex/L5/spiny/VISp5/169.toml",
+        "GNM-Library/Cortex/L5/aspiny/VISp5/98.toml",
+        "GNM-Library/Cortex/L5/aspiny/VISp5/105.toml",
+        "GNM-Library/Cortex/L6a/spiny/VISp6a/72.toml",
+        "GNM-Library/Cortex/L6a/spiny/VISp6a/1.toml",
+        "GNM-Library/Cortex/L23/spiny/VISp23/13.toml",
+        "GNM-Library/Cortex/L23/spiny/VISp23/51.toml",
+        "GNM-Library/Cortex/L23/aspiny/VISp23/106.toml",
+        "GNM-Library/Cortex/L23/aspiny/VISp23/221.toml",
+        "GNM-Library/Striatum/Rat/medium_spiny/1.toml",
+        "GNM-Library/Striatum/Mouse/medium_spiny/2472.toml"
+      ]
+    },
+    "negative_values": "none_found"
+  },
+  "layer_5_claim_verification": {
+    "claim_zero_floats": {
+      "readme_claim": "100% branchless integer arithmetic. Zero floats.",
+      "float_references_by_crate": {
+        "axicor-core": 57,
+        "axicor-compute": 0,
+        "axicor-baker": 116,
+        "axicor-node": 0
+      },
+      "total_float_refs": 173,
+      "verdict": "ACCURATE for GPU kernel (axicor-compute=0), MISLEADING for full system"
+    },
+    "claim_branchless": {
+      "readme_claim": "100% branchless integer arithmetic",
+      "branch_instructions_by_crate": {
+        "axicor-core": 77,
+        "axicor-compute": 84,
+        "axicor-baker": 197,
+        "axicor-node": 257
+      },
+      "verdict": "CPU fallback contains branch instructions"
+    },
+    "test_coverage": {
+      "test_annotations": 173
+    },
+    "unsafe_blocks": {
+      "total": 238
+    },
+    "unwrap_calls": {
+      "total": 90
+    }
+  }
+}
