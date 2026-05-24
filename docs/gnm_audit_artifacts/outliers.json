@@ -1,0 +1,6372 @@
+[
+  {
+    "path": "Cortex/L3/spiny/MTG/130.toml",
+    "name": "L3_spiny_MTG_130",
+    "class": "Cortex/L3/spiny/MTG",
+    "class_size": 128,
+    "delta_keys": 25,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_MTG_1",
+        "actual": "L3_spiny_MTG_130"
+      },
+      "threshold": {
+        "template": 31968,
+        "actual": 37000
+      },
+      "rest_potential": {
+        "template": 10925,
+        "actual": 17000
+      },
+      "leak_rate": {
+        "template": 272,
+        "actual": 540
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 10
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 1301
+      },
+      "homeostasis_penalty": {
+        "template": 10000,
+        "actual": 1000
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 30
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 39.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 20.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.95
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 610.1
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.7
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.3
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.293
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.3
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.2
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.6
+      },
+      "steering_weight_jitter": {
+        "template": 0.1,
+        "actual": 0.2
+      },
+      "gsop_potentiation": {
+        "template": 18,
+        "actual": 12
+      },
+      "gsop_depression": {
+        "template": 21,
+        "actual": 14
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          67,
+          59,
+          49,
+          37,
+          11
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 51
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 66
+      }
+    }
+  },
+  {
+    "path": "Cortex/L4/spiny/MTG/11.toml",
+    "name": "L4_spiny_MTG_11",
+    "class": "Cortex/L4/spiny/MTG",
+    "class_size": 29,
+    "delta_keys": 25,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L4_spiny_MTG_1",
+        "actual": "L4_spiny_MTG_11"
+      },
+      "threshold": {
+        "template": 29593,
+        "actual": 32218
+      },
+      "rest_potential": {
+        "template": 12996,
+        "actual": 10473
+      },
+      "leak_rate": {
+        "template": 283,
+        "actual": 432
+      },
+      "refractory_period": {
+        "template": 16,
+        "actual": 7
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 327
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 10000
+      },
+      "homeostasis_decay": {
+        "template": 3,
+        "actual": 7
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 40
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 39.5
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 20.0
+      },
+      "dendrite_radius_um": {
+        "template": 250.0,
+        "actual": 800.9
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.7
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.3
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.257
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.3
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.2
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.6
+      },
+      "steering_weight_jitter": {
+        "template": 0.1,
+        "actual": 0.2
+      },
+      "gsop_potentiation": {
+        "template": 12,
+        "actual": 18
+      },
+      "gsop_depression": {
+        "template": 14,
+        "actual": 21
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          123,
+          119,
+          114,
+          108,
+          103,
+          98,
+          92,
+          86,
+          79,
+          72,
+          65,
+          56,
+          47,
+          35,
+          11
+        ],
+        "actual": [
+          128,
+          122,
+          116,
+          110,
+          104,
+          98,
+          91,
+          85,
+          78,
+          71,
+          63,
+          55,
+          46,
+          37,
+          26,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 96,
+        "actual": 32
+      },
+      "slot_decay_wm": {
+        "template": 190,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 103,
+        "actual": 47
+      }
+    }
+  },
+  {
+    "path": "Cortex/L2/spiny/MTG/3.toml",
+    "name": "L2_spiny_MTG_3",
+    "class": "Cortex/L2/spiny/MTG",
+    "class_size": 13,
+    "delta_keys": 24,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L2_spiny_MTG_1",
+        "actual": "L2_spiny_MTG_3"
+      },
+      "threshold": {
+        "template": 26062,
+        "actual": 35531
+      },
+      "rest_potential": {
+        "template": 12988,
+        "actual": 7289
+      },
+      "leak_rate": {
+        "template": 210,
+        "actual": 197
+      },
+      "refractory_period": {
+        "template": 17,
+        "actual": 16
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 1079,
+        "actual": 100000
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 10000
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 10
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 449.5
+      },
+      "growth_vertical_bias": {
+        "template": 0.36,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 416.0
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.193
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "gsop_potentiation": {
+        "template": 12,
+        "actual": 18
+      },
+      "gsop_depression": {
+        "template": 14,
+        "actual": 21
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          67,
+          59,
+          49,
+          37,
+          11
+        ],
+        "actual": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 76
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 232
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 86
+      }
+    }
+  },
+  {
+    "path": "Cortex/L23/spiny/VISp23/4.toml",
+    "name": "L23_spiny_VISp23_4",
+    "class": "Cortex/L23/spiny/VISp23",
+    "class_size": 49,
+    "delta_keys": 24,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L23_spiny_VISp23_10",
+        "actual": "L23_spiny_VISp23_4"
+      },
+      "threshold": {
+        "template": 39062,
+        "actual": 40000
+      },
+      "rest_potential": {
+        "template": 0,
+        "actual": 2675
+      },
+      "leak_rate": {
+        "template": 132,
+        "actual": 135
+      },
+      "refractory_period": {
+        "template": 17,
+        "actual": 13
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 464,
+        "actual": 100000
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 10000
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 10
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 15
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 39.7
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 20.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.54,
+        "actual": 0.95
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 300.9
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.7
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.3
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.177
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.3
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.2
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.6
+      },
+      "steering_weight_jitter": {
+        "template": 0.1,
+        "actual": 0.2
+      },
+      "gsop_potentiation": {
+        "template": 12,
+        "actual": 18
+      },
+      "gsop_depression": {
+        "template": 14,
+        "actual": 21
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          67,
+          59,
+          49,
+          37,
+          11
+        ],
+        "actual": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ]
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 97
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/MTG/11.toml",
+    "name": "L3_spiny_MTG_11",
+    "class": "Cortex/L3/spiny/MTG",
+    "class_size": 128,
+    "delta_keys": 24,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_MTG_1",
+        "actual": "L3_spiny_MTG_11"
+      },
+      "threshold": {
+        "template": 31968,
+        "actual": 32249
+      },
+      "rest_potential": {
+        "template": 10925,
+        "actual": 1494
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 18
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 86
+      },
+      "homeostasis_penalty": {
+        "template": 10000,
+        "actual": 6450
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 28
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 27
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 389.3
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 548.4
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.217
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "gsop_potentiation": {
+        "template": 18,
+        "actual": 16
+      },
+      "gsop_depression": {
+        "template": 21,
+        "actual": 19
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          117,
+          107,
+          97,
+          87,
+          78,
+          69,
+          60,
+          51,
+          43,
+          36,
+          28,
+          22,
+          16,
+          11,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 59
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 73
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/MTG/22.toml",
+    "name": "L3_spiny_MTG_22",
+    "class": "Cortex/L3/spiny/MTG",
+    "class_size": 128,
+    "delta_keys": 24,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_MTG_1",
+        "actual": "L3_spiny_MTG_22"
+      },
+      "threshold": {
+        "template": 31968,
+        "actual": 34218
+      },
+      "rest_potential": {
+        "template": 10925,
+        "actual": 10506
+      },
+      "leak_rate": {
+        "template": 272,
+        "actual": 486
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 16
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 1271
+      },
+      "homeostasis_penalty": {
+        "template": 10000,
+        "actual": 1254
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 26
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 500.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 521.0
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.203
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "gsop_potentiation": {
+        "template": 18,
+        "actual": 12
+      },
+      "gsop_depression": {
+        "template": 21,
+        "actual": 14
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          67,
+          59,
+          49,
+          37,
+          11
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 62
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 75
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/MTG/33.toml",
+    "name": "L3_spiny_MTG_33",
+    "class": "Cortex/L3/spiny/MTG",
+    "class_size": 128,
+    "delta_keys": 24,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_MTG_1",
+        "actual": "L3_spiny_MTG_33"
+      },
+      "threshold": {
+        "template": 31968,
+        "actual": 35000
+      },
+      "rest_potential": {
+        "template": 10925,
+        "actual": 9452
+      },
+      "leak_rate": {
+        "template": 272,
+        "actual": 500
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 10
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 2459
+      },
+      "homeostasis_penalty": {
+        "template": 10000,
+        "actual": 3583
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 25
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 376.4
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 504.2
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.22
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "gsop_potentiation": {
+        "template": 18,
+        "actual": 13
+      },
+      "gsop_depression": {
+        "template": 21,
+        "actual": 15
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          66,
+          58,
+          48,
+          36,
+          10
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 64
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 77
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/MTG/44.toml",
+    "name": "L3_spiny_MTG_44",
+    "class": "Cortex/L3/spiny/MTG",
+    "class_size": 128,
+    "delta_keys": 24,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_MTG_1",
+        "actual": "L3_spiny_MTG_44"
+      },
+      "threshold": {
+        "template": 31968,
+        "actual": 32656
+      },
+      "rest_potential": {
+        "template": 10925,
+        "actual": 14558
+      },
+      "leak_rate": {
+        "template": 272,
+        "actual": 305
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 11
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 1615
+      },
+      "homeostasis_penalty": {
+        "template": 10000,
+        "actual": 5981
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 26
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 500.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 528.1
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.153
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "gsop_potentiation": {
+        "template": 18,
+        "actual": 15
+      },
+      "gsop_depression": {
+        "template": 21,
+        "actual": 18
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          123,
+          119,
+          114,
+          109,
+          104,
+          98,
+          93,
+          87,
+          80,
+          73,
+          66,
+          57,
+          48,
+          35,
+          9
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 61
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 75
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/MTG/58.toml",
+    "name": "L3_spiny_MTG_58",
+    "class": "Cortex/L3/spiny/MTG",
+    "class_size": 128,
+    "delta_keys": 24,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_MTG_1",
+        "actual": "L3_spiny_MTG_58"
+      },
+      "threshold": {
+        "template": 31968,
+        "actual": 29687
+      },
+      "rest_potential": {
+        "template": 10925,
+        "actual": 18544
+      },
+      "leak_rate": {
+        "template": 272,
+        "actual": 315
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 10
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 1307
+      },
+      "homeostasis_penalty": {
+        "template": 10000,
+        "actual": 1000
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 46
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 359.7
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 920.3
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.163
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "gsop_potentiation": {
+        "template": 18,
+        "actual": 12
+      },
+      "gsop_depression": {
+        "template": 21,
+        "actual": 14
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          67,
+          59,
+          49,
+          37,
+          11
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 32
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 35
+      }
+    }
+  },
+  {
+    "path": "Cortex/L5/spiny/MTG/12.toml",
+    "name": "L5_spiny_MTG_12",
+    "class": "Cortex/L5/spiny/MTG",
+    "class_size": 57,
+    "delta_keys": 24,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L5_spiny_MTG_1",
+        "actual": "L5_spiny_MTG_12"
+      },
+      "threshold": {
+        "template": 31843,
+        "actual": 32499
+      },
+      "rest_potential": {
+        "template": 15348,
+        "actual": 17749
+      },
+      "leak_rate": {
+        "template": 285,
+        "actual": 500
+      },
+      "refractory_period": {
+        "template": 15,
+        "actual": 16
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 1395
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 2812
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 52
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 464.4
+      },
+      "growth_vertical_bias": {
+        "template": 0.95,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 420.0,
+        "actual": 1054.7
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.14
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "gsop_potentiation": {
+        "template": 12,
+        "actual": 13
+      },
+      "gsop_depression": {
+        "template": 14,
+        "actual": 15
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          67,
+          59,
+          49,
+          37,
+          11
+        ],
+        "actual": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          66,
+          58,
+          48,
+          36,
+          10
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 75,
+        "actual": 32
+      },
+      "slot_decay_wm": {
+        "template": 233,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 86,
+        "actual": 22
+      }
+    }
+  },
+  {
+    "path": "Cortex/L5/spiny/MTG/9.toml",
+    "name": "L5_spiny_MTG_9",
+    "class": "Cortex/L5/spiny/MTG",
+    "class_size": 57,
+    "delta_keys": 24,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L5_spiny_MTG_1",
+        "actual": "L5_spiny_MTG_9"
+      },
+      "threshold": {
+        "template": 31843,
+        "actual": 28812
+      },
+      "rest_potential": {
+        "template": 15348,
+        "actual": 14274
+      },
+      "leak_rate": {
+        "template": 285,
+        "actual": 268
+      },
+      "refractory_period": {
+        "template": 15,
+        "actual": 13
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 3686
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 19517
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 52
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 247.2
+      },
+      "growth_vertical_bias": {
+        "template": 0.95,
+        "actual": 0.55
+      },
+      "dendrite_radius_um": {
+        "template": 420.0,
+        "actual": 1042.5
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.12
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "gsop_potentiation": {
+        "template": 12,
+        "actual": 25
+      },
+      "gsop_depression": {
+        "template": 14,
+        "actual": 30
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          67,
+          59,
+          49,
+          37,
+          11
+        ],
+        "actual": [
+          128,
+          123,
+          119,
+          114,
+          109,
+          103,
+          98,
+          92,
+          86,
+          79,
+          72,
+          64,
+          56,
+          45,
+          33,
+          6
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 75,
+        "actual": 32
+      },
+      "slot_decay_wm": {
+        "template": 233,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 86,
+        "actual": 23
+      }
+    }
+  },
+  {
+    "path": "Cortex/L6b/spiny/VISp6b/3.toml",
+    "name": "L6b_spiny_VISp6b_3",
+    "class": "Cortex/L6b/spiny/VISp6b",
+    "class_size": 26,
+    "delta_keys": 24,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L6b_spiny_VISp6b_1",
+        "actual": "L6b_spiny_VISp6b_3"
+      },
+      "threshold": {
+        "template": 27031,
+        "actual": 34968
+      },
+      "rest_potential": {
+        "template": 14167,
+        "actual": 4137
+      },
+      "refractory_period": {
+        "template": 11,
+        "actual": 5
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 742,
+        "actual": 665
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 2456
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 3
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 22
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 39.8
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 20.0
+      },
+      "dendrite_radius_um": {
+        "template": 250.0,
+        "actual": 444.6
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.7
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.3
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.13
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.3
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.2
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.6
+      },
+      "steering_weight_jitter": {
+        "template": 0.1,
+        "actual": 0.2
+      },
+      "gsop_potentiation": {
+        "template": 12,
+        "actual": 13
+      },
+      "gsop_depression": {
+        "template": 14,
+        "actual": 15
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          123,
+          119,
+          114,
+          108,
+          103,
+          98,
+          92,
+          86,
+          79,
+          72,
+          65,
+          56,
+          47,
+          35,
+          11
+        ],
+        "actual": [
+          128,
+          123,
+          118,
+          113,
+          108,
+          103,
+          97,
+          91,
+          85,
+          79,
+          72,
+          64,
+          56,
+          46,
+          34,
+          10
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 96,
+        "actual": 72
+      },
+      "slot_decay_wm": {
+        "template": 190,
+        "actual": 239
+      },
+      "ltm_slot_count": {
+        "template": 103,
+        "actual": 83
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/MTG/29.toml",
+    "name": "L3_spiny_MTG_29",
+    "class": "Cortex/L3/spiny/MTG",
+    "class_size": 128,
+    "delta_keys": 23,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_MTG_1",
+        "actual": "L3_spiny_MTG_29"
+      },
+      "threshold": {
+        "template": 31968,
+        "actual": 30812
+      },
+      "rest_potential": {
+        "template": 10925,
+        "actual": 8341
+      },
+      "leak_rate": {
+        "template": 272,
+        "actual": 339
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 14
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 111
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 22
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 18
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 39.2
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 20.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.95
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 363.4
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.7
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.3
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.267
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.3
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.2
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.6
+      },
+      "steering_weight_jitter": {
+        "template": 0.1,
+        "actual": 0.2
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          119,
+          110,
+          101,
+          92,
+          83,
+          74,
+          66,
+          58,
+          49,
+          42,
+          34,
+          27,
+          20,
+          13,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 82
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 218
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 91
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/MTG/54.toml",
+    "name": "L3_spiny_MTG_54",
+    "class": "Cortex/L3/spiny/MTG",
+    "class_size": 128,
+    "delta_keys": 23,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_MTG_1",
+        "actual": "L3_spiny_MTG_54"
+      },
+      "threshold": {
+        "template": 31968,
+        "actual": 30656
+      },
+      "rest_potential": {
+        "template": 10925,
+        "actual": 8621
+      },
+      "leak_rate": {
+        "template": 272,
+        "actual": 201
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 16
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 2585
+      },
+      "homeostasis_penalty": {
+        "template": 10000,
+        "actual": 2569
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 334.9
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 400.8
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.177
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "gsop_potentiation": {
+        "template": 18,
+        "actual": 13
+      },
+      "gsop_depression": {
+        "template": 21,
+        "actual": 15
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          66,
+          58,
+          48,
+          36,
+          10
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 77
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 228
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 87
+      }
+    }
+  },
+  {
+    "path": "Cortex/L6/spiny/MTG/11.toml",
+    "name": "L6_spiny_MTG_11",
+    "class": "Cortex/L6/spiny/MTG",
+    "class_size": 9,
+    "delta_keys": 23,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L6_spiny_MTG_10",
+        "actual": "L6_spiny_MTG_11"
+      },
+      "threshold": {
+        "template": 37124,
+        "actual": 35468
+      },
+      "rest_potential": {
+        "template": 8640,
+        "actual": 11539
+      },
+      "leak_rate": {
+        "template": 276,
+        "actual": 381
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 69,
+        "actual": 154
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 10000
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 16
+      },
+      "signal_propagation_length": {
+        "template": 23,
+        "actual": 54
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 24.9
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 181.5
+      },
+      "dendrite_radius_um": {
+        "template": 420.0,
+        "actual": 1093.3
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.207
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "gsop_potentiation": {
+        "template": 12,
+        "actual": 18
+      },
+      "gsop_depression": {
+        "template": 14,
+        "actual": 21
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          67,
+          59,
+          49,
+          37,
+          11
+        ],
+        "actual": [
+          128,
+          120,
+          112,
+          104,
+          97,
+          89,
+          81,
+          73,
+          65,
+          57,
+          49,
+          41,
+          33,
+          25,
+          16,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 75,
+        "actual": 32
+      },
+      "slot_decay_wm": {
+        "template": 233,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 86,
+        "actual": 18
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/MTG/16.toml",
+    "name": "L3_spiny_MTG_16",
+    "class": "Cortex/L3/spiny/MTG",
+    "class_size": 128,
+    "delta_keys": 22,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_MTG_1",
+        "actual": "L3_spiny_MTG_16"
+      },
+      "threshold": {
+        "template": 31968,
+        "actual": 35437
+      },
+      "rest_potential": {
+        "template": 10925,
+        "actual": 7508
+      },
+      "leak_rate": {
+        "template": 272,
+        "actual": 356
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 19
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 107
+      },
+      "homeostasis_penalty": {
+        "template": 10000,
+        "actual": 9189
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 23
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 483.8
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 389.4
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.193
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          119,
+          109,
+          100,
+          91,
+          82,
+          73,
+          65,
+          56,
+          48,
+          40,
+          33,
+          26,
+          19,
+          13,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 79
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 225
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 89
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/MTG/17.toml",
+    "name": "L3_spiny_MTG_17",
+    "class": "Cortex/L3/spiny/MTG",
+    "class_size": 128,
+    "delta_keys": 22,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_MTG_1",
+        "actual": "L3_spiny_MTG_17"
+      },
+      "threshold": {
+        "template": 31968,
+        "actual": 30218
+      },
+      "rest_potential": {
+        "template": 10925,
+        "actual": 11208
+      },
+      "leak_rate": {
+        "template": 272,
+        "actual": 286
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 13
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 125
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 20
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 28
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 500.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 568.8
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.24
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          119,
+          111,
+          102,
+          93,
+          85,
+          76,
+          68,
+          60,
+          52,
+          44,
+          36,
+          28,
+          21,
+          14,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 56
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 71
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/MTG/184.toml",
+    "name": "L3_spiny_MTG_184",
+    "class": "Cortex/L3/spiny/MTG",
+    "class_size": 128,
+    "delta_keys": 22,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_MTG_1",
+        "actual": "L3_spiny_MTG_184"
+      },
+      "threshold": {
+        "template": 31968,
+        "actual": 37031
+      },
+      "rest_potential": {
+        "template": 10925,
+        "actual": 11440
+      },
+      "leak_rate": {
+        "template": 272,
+        "actual": 319
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 14
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 76
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 32
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 37
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 500.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 748.1
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.253
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          117,
+          105,
+          95,
+          84,
+          74,
+          65,
+          56,
+          47,
+          39,
+          32,
+          25,
+          19,
+          14,
+          10,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 34
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 53
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/MTG/35.toml",
+    "name": "L3_spiny_MTG_35",
+    "class": "Cortex/L3/spiny/MTG",
+    "class_size": 128,
+    "delta_keys": 22,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_MTG_1",
+        "actual": "L3_spiny_MTG_35"
+      },
+      "threshold": {
+        "template": 31968,
+        "actual": 38562
+      },
+      "rest_potential": {
+        "template": 10925,
+        "actual": 13498
+      },
+      "leak_rate": {
+        "template": 272,
+        "actual": 257
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 19
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 74
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 33
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 43
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 324.2
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 865.6
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.27
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          116,
+          105,
+          94,
+          84,
+          74,
+          64,
+          55,
+          47,
+          39,
+          31,
+          25,
+          19,
+          14,
+          10,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 32
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 41
+      }
+    }
+  },
+  {
+    "path": "Cortex/L5/spiny/MTG/3.toml",
+    "name": "L5_spiny_MTG_3",
+    "class": "Cortex/L5/spiny/MTG",
+    "class_size": 57,
+    "delta_keys": 22,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L5_spiny_MTG_1",
+        "actual": "L5_spiny_MTG_3"
+      },
+      "threshold": {
+        "template": 31843,
+        "actual": 29750
+      },
+      "rest_potential": {
+        "template": 15348,
+        "actual": 8466
+      },
+      "leak_rate": {
+        "template": 285,
+        "actual": 347
+      },
+      "refractory_period": {
+        "template": 15,
+        "actual": 13
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 833
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 3
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 64
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 500.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.95,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 420.0,
+        "actual": 1280.5
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.137
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          67,
+          59,
+          49,
+          37,
+          11
+        ],
+        "actual": [
+          128,
+          123,
+          119,
+          114,
+          108,
+          103,
+          98,
+          92,
+          86,
+          79,
+          72,
+          65,
+          56,
+          47,
+          35,
+          11
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 75,
+        "actual": 32
+      },
+      "slot_decay_wm": {
+        "template": 233,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 86,
+        "actual": 16
+      }
+    }
+  },
+  {
+    "path": "Cortex/L6a/spiny/VISp6a/51.toml",
+    "name": "L6a_spiny_VISp6a_51",
+    "class": "Cortex/L6a/spiny/VISp6a",
+    "class_size": 87,
+    "delta_keys": 22,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L6a_spiny_VISp6a_1",
+        "actual": "L6a_spiny_VISp6a_51"
+      },
+      "threshold": {
+        "template": 32593,
+        "actual": 31218
+      },
+      "rest_potential": {
+        "template": 0,
+        "actual": 7528
+      },
+      "leak_rate": {
+        "template": 149,
+        "actual": 138
+      },
+      "refractory_period": {
+        "template": 19,
+        "actual": 18
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 652
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 3
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 31
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 39.7
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 20.0
+      },
+      "dendrite_radius_um": {
+        "template": 250.0,
+        "actual": 637.8
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.7
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.3
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.133
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.3
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.2
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.6
+      },
+      "steering_weight_jitter": {
+        "template": 0.1,
+        "actual": 0.2
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          67,
+          59,
+          49,
+          37,
+          11
+        ],
+        "actual": [
+          128,
+          123,
+          119,
+          114,
+          108,
+          103,
+          98,
+          92,
+          86,
+          79,
+          72,
+          65,
+          56,
+          47,
+          35,
+          11
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 96,
+        "actual": 48
+      },
+      "slot_decay_wm": {
+        "template": 190,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 103,
+        "actual": 64
+      }
+    }
+  },
+  {
+    "path": "Cortex/L23/spiny/VISp23/7.toml",
+    "name": "L23_spiny_VISp23_7",
+    "class": "Cortex/L23/spiny/VISp23",
+    "class_size": 49,
+    "delta_keys": 21,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L23_spiny_VISp23_10",
+        "actual": "L23_spiny_VISp23_7"
+      },
+      "threshold": {
+        "template": 39062,
+        "actual": 33656
+      },
+      "rest_potential": {
+        "template": 0,
+        "actual": 1229
+      },
+      "leak_rate": {
+        "template": 132,
+        "actual": 241
+      },
+      "refractory_period": {
+        "template": 17,
+        "actual": 13
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 464,
+        "actual": 1135
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 1657
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 15
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 500.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.54,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 316.4
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.193
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 88
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 207
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 96
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/MTG/14.toml",
+    "name": "L3_spiny_MTG_14",
+    "class": "Cortex/L3/spiny/MTG",
+    "class_size": 128,
+    "delta_keys": 21,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_MTG_1",
+        "actual": "L3_spiny_MTG_14"
+      },
+      "threshold": {
+        "template": 31968,
+        "actual": 34812
+      },
+      "rest_potential": {
+        "template": 10925,
+        "actual": 8668
+      },
+      "leak_rate": {
+        "template": 272,
+        "actual": 281
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 16
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 1085
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 28
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 500.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 565.3
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.163
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          123,
+          119,
+          114,
+          109,
+          104,
+          98,
+          92,
+          86,
+          80,
+          73,
+          65,
+          57,
+          47,
+          34,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 57
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 71
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/MTG/50.toml",
+    "name": "L3_spiny_MTG_50",
+    "class": "Cortex/L3/spiny/MTG",
+    "class_size": 128,
+    "delta_keys": 21,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_MTG_1",
+        "actual": "L3_spiny_MTG_50"
+      },
+      "threshold": {
+        "template": 31968,
+        "actual": 33781
+      },
+      "rest_potential": {
+        "template": 10925,
+        "actual": 6797
+      },
+      "leak_rate": {
+        "template": 272,
+        "actual": 276
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 8
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 8699
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 22
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 445.5
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 456.5
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.257
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          123,
+          119,
+          114,
+          109,
+          104,
+          98,
+          92,
+          86,
+          80,
+          73,
+          65,
+          57,
+          47,
+          34,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 70
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 242
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 82
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/TemL/6.toml",
+    "name": "L3_spiny_TemL_6",
+    "class": "Cortex/L3/spiny/TemL",
+    "class_size": 6,
+    "delta_keys": 21,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_TemL_1",
+        "actual": "L3_spiny_TemL_6"
+      },
+      "threshold": {
+        "template": 35437,
+        "actual": 33531
+      },
+      "rest_potential": {
+        "template": 10859,
+        "actual": 12307
+      },
+      "leak_rate": {
+        "template": 162,
+        "actual": 204
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 50
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 49
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 63
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 500.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 1279.2
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.327
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          113,
+          99,
+          85,
+          73,
+          62,
+          52,
+          43,
+          35,
+          28,
+          22,
+          17,
+          13,
+          10,
+          9,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 32
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 16
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/TemL/9.toml",
+    "name": "L3_spiny_TemL_9",
+    "class": "Cortex/L3/spiny/TemL",
+    "class_size": 6,
+    "delta_keys": 21,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_TemL_1",
+        "actual": "L3_spiny_TemL_9"
+      },
+      "threshold": {
+        "template": 35437,
+        "actual": 35750
+      },
+      "rest_potential": {
+        "template": 10859,
+        "actual": 9833
+      },
+      "leak_rate": {
+        "template": 162,
+        "actual": 201
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 99
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 25
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 50
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 23.4
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 199.3
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 1001.1
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.247
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          118,
+          108,
+          99,
+          89,
+          80,
+          71,
+          63,
+          54,
+          46,
+          38,
+          31,
+          24,
+          18,
+          12,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 32
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 27
+      }
+    }
+  },
+  {
+    "path": "Cortex/L4/spiny/MTG/38.toml",
+    "name": "L4_spiny_MTG_38",
+    "class": "Cortex/L4/spiny/MTG",
+    "class_size": 29,
+    "delta_keys": 21,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L4_spiny_MTG_1",
+        "actual": "L4_spiny_MTG_38"
+      },
+      "threshold": {
+        "template": 29593,
+        "actual": 28718
+      },
+      "rest_potential": {
+        "template": 12996,
+        "actual": 11122
+      },
+      "leak_rate": {
+        "template": 283,
+        "actual": 324
+      },
+      "refractory_period": {
+        "template": 16,
+        "actual": 18
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 676
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 1401
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 19
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 39.4
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 20.0
+      },
+      "dendrite_radius_um": {
+        "template": 250.0,
+        "actual": 323.6
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.7
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.3
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.103
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.3
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.2
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.6
+      },
+      "steering_weight_jitter": {
+        "template": 0.1,
+        "actual": 0.2
+      },
+      "slot_decay_ltm": {
+        "template": 96,
+        "actual": 87
+      },
+      "slot_decay_wm": {
+        "template": 190,
+        "actual": 208
+      },
+      "ltm_slot_count": {
+        "template": 103,
+        "actual": 95
+      }
+    }
+  },
+  {
+    "path": "Cortex/L4/spiny/MTG/42.toml",
+    "name": "L4_spiny_MTG_42",
+    "class": "Cortex/L4/spiny/MTG",
+    "class_size": 29,
+    "delta_keys": 21,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L4_spiny_MTG_1",
+        "actual": "L4_spiny_MTG_42"
+      },
+      "threshold": {
+        "template": 29593,
+        "actual": 28000
+      },
+      "rest_potential": {
+        "template": 12996,
+        "actual": 18021
+      },
+      "leak_rate": {
+        "template": 283,
+        "actual": 336
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 587
+      },
+      "homeostasis_decay": {
+        "template": 3,
+        "actual": 4
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 44
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 500.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.95,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 250.0,
+        "actual": 891.3
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.097
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          123,
+          119,
+          114,
+          108,
+          103,
+          98,
+          92,
+          86,
+          79,
+          72,
+          65,
+          56,
+          47,
+          35,
+          11
+        ],
+        "actual": [
+          128,
+          123,
+          118,
+          113,
+          108,
+          102,
+          96,
+          90,
+          84,
+          77,
+          70,
+          63,
+          54,
+          45,
+          33,
+          11
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 96,
+        "actual": 32
+      },
+      "slot_decay_wm": {
+        "template": 190,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 103,
+        "actual": 38
+      }
+    }
+  },
+  {
+    "path": "Cortex/L6b/spiny/VISp6b/2.toml",
+    "name": "L6b_spiny_VISp6b_2",
+    "class": "Cortex/L6b/spiny/VISp6b",
+    "class_size": 26,
+    "delta_keys": 21,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L6b_spiny_VISp6b_1",
+        "actual": "L6b_spiny_VISp6b_2"
+      },
+      "threshold": {
+        "template": 27031,
+        "actual": 28093
+      },
+      "rest_potential": {
+        "template": 14167,
+        "actual": 15542
+      },
+      "leak_rate": {
+        "template": 153,
+        "actual": 267
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 742,
+        "actual": 610
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 4
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 21
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 39.9
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 20.0
+      },
+      "dendrite_radius_um": {
+        "template": 250.0,
+        "actual": 432.4
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.7
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.3
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.08
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.3
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.2
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.6
+      },
+      "steering_weight_jitter": {
+        "template": 0.1,
+        "actual": 0.2
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          123,
+          119,
+          114,
+          108,
+          103,
+          98,
+          92,
+          86,
+          79,
+          72,
+          65,
+          56,
+          47,
+          35,
+          11
+        ],
+        "actual": [
+          128,
+          123,
+          118,
+          113,
+          108,
+          102,
+          96,
+          90,
+          84,
+          77,
+          70,
+          63,
+          54,
+          45,
+          33,
+          11
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 96,
+        "actual": 73
+      },
+      "slot_decay_wm": {
+        "template": 190,
+        "actual": 236
+      },
+      "ltm_slot_count": {
+        "template": 103,
+        "actual": 84
+      }
+    }
+  },
+  {
+    "path": "Cortex/L6b/spiny/VISp6b/32.toml",
+    "name": "L6b_spiny_VISp6b_32",
+    "class": "Cortex/L6b/spiny/VISp6b",
+    "class_size": 26,
+    "delta_keys": 21,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L6b_spiny_VISp6b_1",
+        "actual": "L6b_spiny_VISp6b_32"
+      },
+      "threshold": {
+        "template": 27031,
+        "actual": 37093
+      },
+      "rest_potential": {
+        "template": 14167,
+        "actual": 15112
+      },
+      "refractory_period": {
+        "template": 11,
+        "actual": 13
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 742,
+        "actual": 610
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 4
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 17
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 39.7
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 20.0
+      },
+      "dendrite_radius_um": {
+        "template": 250.0,
+        "actual": 356.0
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.7
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.3
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.107
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.3
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.2
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.6
+      },
+      "steering_weight_jitter": {
+        "template": 0.1,
+        "actual": 0.2
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          123,
+          119,
+          114,
+          108,
+          103,
+          98,
+          92,
+          86,
+          79,
+          72,
+          65,
+          56,
+          47,
+          35,
+          11
+        ],
+        "actual": [
+          128,
+          123,
+          118,
+          113,
+          108,
+          102,
+          96,
+          90,
+          84,
+          77,
+          70,
+          63,
+          54,
+          45,
+          33,
+          11
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 96,
+        "actual": 83
+      },
+      "slot_decay_wm": {
+        "template": 190,
+        "actual": 217
+      },
+      "ltm_slot_count": {
+        "template": 103,
+        "actual": 92
+      }
+    }
+  },
+  {
+    "path": "Cortex/L23/spiny/VISp23/16.toml",
+    "name": "L23_spiny_VISp23_16",
+    "class": "Cortex/L23/spiny/VISp23",
+    "class_size": 49,
+    "delta_keys": 20,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L23_spiny_VISp23_10",
+        "actual": "L23_spiny_VISp23_16"
+      },
+      "threshold": {
+        "template": 39062,
+        "actual": 34843
+      },
+      "rest_potential": {
+        "template": 0,
+        "actual": 3818
+      },
+      "leak_rate": {
+        "template": 132,
+        "actual": 206
+      },
+      "refractory_period": {
+        "template": 17,
+        "actual": 10
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 464,
+        "actual": 1380
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 14
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 490.5
+      },
+      "growth_vertical_bias": {
+        "template": 0.54,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 284.2
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.2
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 92
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 199
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 99
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/TemL/4.toml",
+    "name": "L3_spiny_TemL_4",
+    "class": "Cortex/L3/spiny/TemL",
+    "class_size": 6,
+    "delta_keys": 20,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_spiny_TemL_1",
+        "actual": "L3_spiny_TemL_4"
+      },
+      "threshold": {
+        "template": 35437,
+        "actual": 32187
+      },
+      "rest_potential": {
+        "template": 10859,
+        "actual": 6027
+      },
+      "leak_rate": {
+        "template": 162,
+        "actual": 229
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 15
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 10
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 22
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 500.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 454.5
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.19
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 71
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 241
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 82
+      }
+    }
+  },
+  {
+    "path": "Cortex/L4/spiny/MTG/45.toml",
+    "name": "L4_spiny_MTG_45",
+    "class": "Cortex/L4/spiny/MTG",
+    "class_size": 29,
+    "delta_keys": 20,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L4_spiny_MTG_1",
+        "actual": "L4_spiny_MTG_45"
+      },
+      "threshold": {
+        "template": 29593,
+        "actual": 26718
+      },
+      "rest_potential": {
+        "template": 12996,
+        "actual": 15396
+      },
+      "leak_rate": {
+        "template": 283,
+        "actual": 232
+      },
+      "refractory_period": {
+        "template": 16,
+        "actual": 15
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 784
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 30
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 500.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.95,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 250.0,
+        "actual": 610.9
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.11
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "slot_decay_ltm": {
+        "template": 96,
+        "actual": 51
+      },
+      "slot_decay_wm": {
+        "template": 190,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 103,
+        "actual": 66
+      }
+    }
+  },
+  {
+    "path": "Cortex/L5/spiny/MTG/84.toml",
+    "name": "L5_spiny_MTG_84",
+    "class": "Cortex/L5/spiny/MTG",
+    "class_size": 57,
+    "delta_keys": 20,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L5_spiny_MTG_1",
+        "actual": "L5_spiny_MTG_84"
+      },
+      "threshold": {
+        "template": 31843,
+        "actual": 28562
+      },
+      "rest_potential": {
+        "template": 15348,
+        "actual": 12231
+      },
+      "refractory_period": {
+        "template": 15,
+        "actual": 16
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 879
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 1291
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 53
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 21.3
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 224.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.95,
+        "actual": 0.61
+      },
+      "dendrite_radius_um": {
+        "template": 420.0,
+        "actual": 1079.6
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.173
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "slot_decay_ltm": {
+        "template": 75,
+        "actual": 32
+      },
+      "slot_decay_wm": {
+        "template": 233,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 86,
+        "actual": 20
+      }
+    }
+  },
+  {
+    "path": "Cortex/L6/spiny/MTG/14.toml",
+    "name": "L6_spiny_MTG_14",
+    "class": "Cortex/L6/spiny/MTG",
+    "class_size": 9,
+    "delta_keys": 20,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L6_spiny_MTG_10",
+        "actual": "L6_spiny_MTG_14"
+      },
+      "threshold": {
+        "template": 37124,
+        "actual": 38885
+      },
+      "rest_potential": {
+        "template": 8640,
+        "actual": 18885
+      },
+      "leak_rate": {
+        "template": 276,
+        "actual": 130
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 21
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 69,
+        "actual": 500
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 4
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 28.4
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 139.5
+      },
+      "dendrite_radius_um": {
+        "template": 420.0,
+        "actual": 478.8
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.173
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          67,
+          59,
+          49,
+          37,
+          11
+        ],
+        "actual": [
+          128,
+          123,
+          118,
+          113,
+          108,
+          102,
+          96,
+          90,
+          84,
+          77,
+          70,
+          63,
+          54,
+          45,
+          33,
+          11
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 75,
+        "actual": 68
+      },
+      "slot_decay_wm": {
+        "template": 233,
+        "actual": 247
+      },
+      "ltm_slot_count": {
+        "template": 86,
+        "actual": 80
+      }
+    }
+  },
+  {
+    "path": "Cortex/L6a/spiny/VISp6a/31.toml",
+    "name": "L6a_spiny_VISp6a_31",
+    "class": "Cortex/L6a/spiny/VISp6a",
+    "class_size": 87,
+    "delta_keys": 20,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L6a_spiny_VISp6a_1",
+        "actual": "L6a_spiny_VISp6a_31"
+      },
+      "threshold": {
+        "template": 32593,
+        "actual": 33531
+      },
+      "rest_potential": {
+        "template": 0,
+        "actual": 6451
+      },
+      "leak_rate": {
+        "template": 149,
+        "actual": 188
+      },
+      "refractory_period": {
+        "template": 19,
+        "actual": 12
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 948
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 19
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 39.6
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 20.0
+      },
+      "dendrite_radius_um": {
+        "template": 250.0,
+        "actual": 395.0
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.7
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.3
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.147
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.3
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.2
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.6
+      },
+      "steering_weight_jitter": {
+        "template": 0.1,
+        "actual": 0.2
+      },
+      "slot_decay_ltm": {
+        "template": 96,
+        "actual": 78
+      },
+      "slot_decay_wm": {
+        "template": 190,
+        "actual": 226
+      },
+      "ltm_slot_count": {
+        "template": 103,
+        "actual": 88
+      }
+    }
+  },
+  {
+    "path": "Cortex/L5/spiny/MTG/66.toml",
+    "name": "L5_spiny_MTG_66",
+    "class": "Cortex/L5/spiny/MTG",
+    "class_size": 57,
+    "delta_keys": 19,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L5_spiny_MTG_1",
+        "actual": "L5_spiny_MTG_66"
+      },
+      "threshold": {
+        "template": 31843,
+        "actual": 31812
+      },
+      "rest_potential": {
+        "template": 15348,
+        "actual": 8406
+      },
+      "leak_rate": {
+        "template": 285,
+        "actual": 324
+      },
+      "refractory_period": {
+        "template": 15,
+        "actual": 12
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 172
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 10000
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 14
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 29
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 34.8
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 61.8
+      },
+      "dendrite_radius_um": {
+        "template": 420.0,
+        "actual": 588.1
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.233
+      },
+      "gsop_potentiation": {
+        "template": 12,
+        "actual": 18
+      },
+      "gsop_depression": {
+        "template": 14,
+        "actual": 21
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          67,
+          59,
+          49,
+          37,
+          11
+        ],
+        "actual": [
+          128,
+          121,
+          113,
+          106,
+          98,
+          91,
+          83,
+          75,
+          68,
+          60,
+          52,
+          44,
+          35,
+          27,
+          18,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 75,
+        "actual": 54
+      },
+      "slot_decay_wm": {
+        "template": 233,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 86,
+        "actual": 69
+      }
+    }
+  },
+  {
+    "path": "Cortex/L6/spiny/MTG/13.toml",
+    "name": "L6_spiny_MTG_13",
+    "class": "Cortex/L6/spiny/MTG",
+    "class_size": 9,
+    "delta_keys": 19,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L6_spiny_MTG_10",
+        "actual": "L6_spiny_MTG_13"
+      },
+      "threshold": {
+        "template": 37124,
+        "actual": 28343
+      },
+      "rest_potential": {
+        "template": 8640,
+        "actual": 21418
+      },
+      "leak_rate": {
+        "template": 276,
+        "actual": 335
+      },
+      "refractory_period": {
+        "template": 12,
+        "actual": 10
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 69,
+        "actual": 1690
+      },
+      "signal_propagation_length": {
+        "template": 23,
+        "actual": 68
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 24.9
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 181.8
+      },
+      "dendrite_radius_um": {
+        "template": 420.0,
+        "actual": 1369.0
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.157
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "slot_decay_ltm": {
+        "template": 75,
+        "actual": 32
+      },
+      "slot_decay_wm": {
+        "template": 233,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 86,
+        "actual": 16
+      }
+    }
+  },
+  {
+    "path": "Cortex/L6b/spiny/VISp6b/1.toml",
+    "name": "L6b_spiny_VISp6b_1",
+    "class": "Cortex/L6b/spiny/VISp6b",
+    "class_size": 26,
+    "delta_keys": 19,
+    "total_keys": 31,
+    "diffs": {
+      "leak_rate": {
+        "template": 153,
+        "actual": 366
+      },
+      "refractory_period": {
+        "template": 11,
+        "actual": 15
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 742,
+        "actual": 619
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 4
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 16
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 39.5
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 20.0
+      },
+      "dendrite_radius_um": {
+        "template": 250.0,
+        "actual": 226.6
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.7
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.3
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.097
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.3
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.2
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.6
+      },
+      "steering_weight_jitter": {
+        "template": 0.1,
+        "actual": 0.2
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          123,
+          119,
+          114,
+          108,
+          103,
+          98,
+          92,
+          86,
+          79,
+          72,
+          65,
+          56,
+          47,
+          35,
+          11
+        ],
+        "actual": [
+          128,
+          123,
+          118,
+          113,
+          108,
+          102,
+          96,
+          90,
+          84,
+          77,
+          70,
+          63,
+          54,
+          45,
+          33,
+          11
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 96,
+        "actual": 99
+      },
+      "slot_decay_wm": {
+        "template": 190,
+        "actual": 184
+      },
+      "ltm_slot_count": {
+        "template": 103,
+        "actual": 105
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/spiny/FroL/1.toml",
+    "name": "L3_spiny_FroL_1",
+    "class": "Cortex/L3/spiny/FroL",
+    "class_size": 18,
+    "delta_keys": 18,
+    "total_keys": 31,
+    "diffs": {
+      "refractory_period": {
+        "template": 15,
+        "actual": 17
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 72
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 34
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 46
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 500.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.83,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 923.4
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.337
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          124,
+          119,
+          114,
+          109,
+          104,
+          99,
+          93,
+          87,
+          81,
+          74,
+          67,
+          59,
+          49,
+          37,
+          11
+        ],
+        "actual": [
+          128,
+          116,
+          105,
+          93,
+          83,
+          73,
+          63,
+          54,
+          46,
+          38,
+          31,
+          24,
+          18,
+          14,
+          10,
+          8
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 32
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 35
+      }
+    }
+  },
+  {
+    "path": "Cortex/L6a/spiny/VISp6a/1.toml",
+    "name": "L6a_spiny_VISp6a_1",
+    "class": "Cortex/L6a/spiny/VISp6a",
+    "class_size": 87,
+    "delta_keys": 17,
+    "total_keys": 31,
+    "diffs": {
+      "leak_rate": {
+        "template": 149,
+        "actual": 142
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 100000,
+        "actual": 2384
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 1189
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 36
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 39.4
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 20.0
+      },
+      "dendrite_radius_um": {
+        "template": 250.0,
+        "actual": 725.6
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.7
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.3
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.153
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.3
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.2
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.6
+      },
+      "steering_weight_jitter": {
+        "template": 0.1,
+        "actual": 0.2
+      },
+      "slot_decay_ltm": {
+        "template": 96,
+        "actual": 37
+      },
+      "slot_decay_wm": {
+        "template": 190,
+        "actual": 250
+      },
+      "ltm_slot_count": {
+        "template": 103,
+        "actual": 55
+      }
+    }
+  },
+  {
+    "path": "Drosophila/Drosophila_Inh_GABA.toml",
+    "name": "Drosophila_Inh_GABA",
+    "class": "Drosophila",
+    "class_size": 7,
+    "delta_keys": 17,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "Drosophila_Exc_ACh",
+        "actual": "Drosophila_Inh_GABA"
+      },
+      "is_inhibitory": {
+        "template": false,
+        "actual": true
+      },
+      "threshold": {
+        "template": 32000,
+        "actual": 37000
+      },
+      "rest_potential": {
+        "template": 12000,
+        "actual": 17000
+      },
+      "steering_fov_deg": {
+        "template": 40.0,
+        "actual": 150.0
+      },
+      "steering_radius_um": {
+        "template": 70.0,
+        "actual": 35.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.7,
+        "actual": 0.1
+      },
+      "dendrite_radius_um": {
+        "template": 250.0,
+        "actual": 150.0
+      },
+      "type_affinity": {
+        "template": 0.8,
+        "actual": 0.2
+      },
+      "sprouting_weight_explore": {
+        "template": 0.17,
+        "actual": 0.12
+      },
+      "initial_synapse_weight": {
+        "template": 1000,
+        "actual": 1500
+      },
+      "gsop_potentiation": {
+        "template": 18,
+        "actual": 24
+      },
+      "gsop_depression": {
+        "template": 21,
+        "actual": 28
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          121,
+          115,
+          108,
+          101,
+          94,
+          87,
+          80,
+          72,
+          65,
+          57,
+          48,
+          40,
+          30,
+          20,
+          6
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 96,
+        "actual": 128
+      },
+      "slot_decay_wm": {
+        "template": 190,
+        "actual": 128
+      },
+      "ltm_slot_count": {
+        "template": 103,
+        "actual": 64
+      }
+    }
+  },
+  {
+    "path": "Drosophila/Drosophila_Inh_Glu.toml",
+    "name": "Drosophila_Inh_Glu",
+    "class": "Drosophila",
+    "class_size": 7,
+    "delta_keys": 17,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "Drosophila_Exc_ACh",
+        "actual": "Drosophila_Inh_Glu"
+      },
+      "is_inhibitory": {
+        "template": false,
+        "actual": true
+      },
+      "threshold": {
+        "template": 32000,
+        "actual": 30000
+      },
+      "leak_rate": {
+        "template": 50,
+        "actual": 33
+      },
+      "steering_fov_deg": {
+        "template": 40.0,
+        "actual": 150.0
+      },
+      "steering_radius_um": {
+        "template": 70.0,
+        "actual": 35.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.7,
+        "actual": 0.1
+      },
+      "dendrite_radius_um": {
+        "template": 250.0,
+        "actual": 150.0
+      },
+      "type_affinity": {
+        "template": 0.8,
+        "actual": 0.2
+      },
+      "sprouting_weight_explore": {
+        "template": 0.17,
+        "actual": 0.12
+      },
+      "initial_synapse_weight": {
+        "template": 1000,
+        "actual": 1500
+      },
+      "gsop_potentiation": {
+        "template": 18,
+        "actual": 24
+      },
+      "gsop_depression": {
+        "template": 21,
+        "actual": 28
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          122,
+          115,
+          108,
+          102,
+          95,
+          88,
+          81,
+          73,
+          66,
+          58,
+          50,
+          41,
+          32,
+          22,
+          8
+        ],
+        "actual": [
+          128,
+          121,
+          115,
+          108,
+          101,
+          94,
+          87,
+          80,
+          72,
+          65,
+          57,
+          48,
+          40,
+          30,
+          20,
+          6
+        ]
+      },
+      "slot_decay_ltm": {
+        "template": 96,
+        "actual": 128
+      },
+      "slot_decay_wm": {
+        "template": 190,
+        "actual": 128
+      },
+      "ltm_slot_count": {
+        "template": 103,
+        "actual": 64
+      }
+    }
+  },
+  {
+    "path": "Cortex/L23/spiny/VISp23/13.toml",
+    "name": "L23_spiny_VISp23_13",
+    "class": "Cortex/L23/spiny/VISp23",
+    "class_size": 49,
+    "delta_keys": 16,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L23_spiny_VISp23_10",
+        "actual": "L23_spiny_VISp23_13"
+      },
+      "threshold": {
+        "template": 39062,
+        "actual": 34281
+      },
+      "refractory_period": {
+        "template": 17,
+        "actual": 14
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 464,
+        "actual": 900
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 15
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 20.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 500.0
+      },
+      "growth_vertical_bias": {
+        "template": 0.54,
+        "actual": 0.3
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 298.7
+      },
+      "sprouting_weight_distance": {
+        "template": 0.5,
+        "actual": 0.3
+      },
+      "sprouting_weight_power": {
+        "template": 0.4,
+        "actual": 0.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.167
+      },
+      "sprouting_weight_type": {
+        "template": 0.2,
+        "actual": 0.1
+      },
+      "steering_weight_inertia": {
+        "template": 0.5,
+        "actual": 0.8
+      },
+      "steering_weight_sensor": {
+        "template": 0.4,
+        "actual": 0.1
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 202
+      }
+    }
+  },
+  {
+    "path": "Cortex/L4/aspiny/MTG/9.toml",
+    "name": "L4_aspiny_MTG_9",
+    "class": "Cortex/L4/aspiny/MTG",
+    "class_size": 9,
+    "delta_keys": 16,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L4_aspiny_MTG_10",
+        "actual": "L4_aspiny_MTG_9"
+      },
+      "threshold": {
+        "template": 17187,
+        "actual": 17156
+      },
+      "rest_potential": {
+        "template": 9474,
+        "actual": 10268
+      },
+      "leak_rate": {
+        "template": 161,
+        "actual": 76
+      },
+      "refractory_period": {
+        "template": 23,
+        "actual": 22
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 487,
+        "actual": 532
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 3786
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 4
+      },
+      "signal_propagation_length": {
+        "template": 24,
+        "actual": 23
+      },
+      "steering_fov_deg": {
+        "template": 147.2,
+        "actual": 130.0
+      },
+      "steering_radius_um": {
+        "template": 33.0,
+        "actual": 500.0
+      },
+      "dendrite_radius_um": {
+        "template": 150.0,
+        "actual": 472.9
+      },
+      "sprouting_weight_explore": {
+        "template": 0.3,
+        "actual": 0.11
+      },
+      "gsop_potentiation": {
+        "template": 20,
+        "actual": 21
+      },
+      "gsop_depression": {
+        "template": 24,
+        "actual": 25
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          121,
+          114,
+          108,
+          101,
+          93,
+          86,
+          79,
+          71,
+          64,
+          56,
+          47,
+          39,
+          30,
+          20,
+          7
+        ],
+        "actual": [
+          128,
+          123,
+          118,
+          112,
+          107,
+          101,
+          95,
+          89,
+          82,
+          76,
+          68,
+          60,
+          52,
+          42,
+          30,
+          7
+        ]
+      }
+    }
+  },
+  {
+    "path": "Cortex/L6a/sparsely spiny/VISp6a/4.toml",
+    "name": "L6a_sparsely spiny_VISp6a_4",
+    "class": "Cortex/L6a/sparsely spiny/VISp6a",
+    "class_size": 9,
+    "delta_keys": 16,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L6a_sparsely spiny_VISp6a_1",
+        "actual": "L6a_sparsely spiny_VISp6a_4"
+      },
+      "threshold": {
+        "template": 24093,
+        "actual": 28031
+      },
+      "rest_potential": {
+        "template": 20312,
+        "actual": 19038
+      },
+      "leak_rate": {
+        "template": 321,
+        "actual": 483
+      },
+      "refractory_period": {
+        "template": 20,
+        "actual": 22
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 344,
+        "actual": 206
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 10000
+      },
+      "homeostasis_decay": {
+        "template": 4,
+        "actual": 12
+      },
+      "signal_propagation_length": {
+        "template": 21,
+        "actual": 23
+      },
+      "steering_fov_deg": {
+        "template": 72.2,
+        "actual": 55.0
+      },
+      "steering_radius_um": {
+        "template": 33.0,
+        "actual": 500.0
+      },
+      "dendrite_radius_um": {
+        "template": 150.0,
+        "actual": 283.7
+      },
+      "sprouting_weight_explore": {
+        "template": 0.3,
+        "actual": 0.107
+      },
+      "gsop_potentiation": {
+        "template": 20,
+        "actual": 24
+      },
+      "gsop_depression": {
+        "template": 24,
+        "actual": 28
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          123,
+          118,
+          112,
+          107,
+          101,
+          95,
+          89,
+          82,
+          76,
+          68,
+          60,
+          52,
+          42,
+          30,
+          7
+        ],
+        "actual": [
+          128,
+          121,
+          114,
+          107,
+          99,
+          92,
+          85,
+          77,
+          69,
+          61,
+          53,
+          45,
+          37,
+          28,
+          18,
+          6
+        ]
+      }
+    }
+  },
+  {
+    "path": "Cortex/L6a/sparsely spiny/VISp6a/9.toml",
+    "name": "L6a_sparsely spiny_VISp6a_9",
+    "class": "Cortex/L6a/sparsely spiny/VISp6a",
+    "class_size": 9,
+    "delta_keys": 16,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L6a_sparsely spiny_VISp6a_1",
+        "actual": "L6a_sparsely spiny_VISp6a_9"
+      },
+      "threshold": {
+        "template": 24093,
+        "actual": 26843
+      },
+      "rest_potential": {
+        "template": 20312,
+        "actual": 13633
+      },
+      "leak_rate": {
+        "template": 321,
+        "actual": 417
+      },
+      "refractory_period": {
+        "template": 20,
+        "actual": 21
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 344,
+        "actual": 1236
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 4108
+      },
+      "homeostasis_decay": {
+        "template": 4,
+        "actual": 2
+      },
+      "signal_propagation_length": {
+        "template": 21,
+        "actual": 22
+      },
+      "steering_fov_deg": {
+        "template": 72.2,
+        "actual": 73.7
+      },
+      "steering_radius_um": {
+        "template": 33.0,
+        "actual": 20.0
+      },
+      "dendrite_radius_um": {
+        "template": 150.0,
+        "actual": 239.2
+      },
+      "sprouting_weight_explore": {
+        "template": 0.3,
+        "actual": 0.11
+      },
+      "gsop_potentiation": {
+        "template": 20,
+        "actual": 21
+      },
+      "gsop_depression": {
+        "template": 24,
+        "actual": 25
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          123,
+          118,
+          112,
+          107,
+          101,
+          95,
+          89,
+          82,
+          76,
+          68,
+          60,
+          52,
+          42,
+          30,
+          7
+        ],
+        "actual": [
+          128,
+          123,
+          119,
+          114,
+          109,
+          103,
+          98,
+          92,
+          86,
+          79,
+          72,
+          65,
+          56,
+          46,
+          34,
+          7
+        ]
+      }
+    }
+  },
+  {
+    "path": "Cortex/L2/spiny/MTG/2.toml",
+    "name": "L2_spiny_MTG_2",
+    "class": "Cortex/L2/spiny/MTG",
+    "class_size": 13,
+    "delta_keys": 15,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L2_spiny_MTG_1",
+        "actual": "L2_spiny_MTG_2"
+      },
+      "threshold": {
+        "template": 26062,
+        "actual": 27187
+      },
+      "rest_potential": {
+        "template": 12988,
+        "actual": 10526
+      },
+      "leak_rate": {
+        "template": 210,
+        "actual": 312
+      },
+      "refractory_period": {
+        "template": 17,
+        "actual": 15
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 1079,
+        "actual": 922
+      },
+      "signal_propagation_length": {
+        "template": 20,
+        "actual": 19
+      },
+      "steering_fov_deg": {
+        "template": 34.4,
+        "actual": 37.0
+      },
+      "steering_radius_um": {
+        "template": 66.7,
+        "actual": 36.3
+      },
+      "growth_vertical_bias": {
+        "template": 0.36,
+        "actual": 0.66
+      },
+      "dendrite_radius_um": {
+        "template": 300.0,
+        "actual": 393.5
+      },
+      "sprouting_weight_explore": {
+        "template": 0.1,
+        "actual": 0.14
+      },
+      "slot_decay_ltm": {
+        "template": 90,
+        "actual": 78
+      },
+      "slot_decay_wm": {
+        "template": 203,
+        "actual": 226
+      },
+      "ltm_slot_count": {
+        "template": 98,
+        "actual": 88
+      }
+    }
+  },
+  {
+    "path": "Cortex/L23/sparsely spiny/VISp23/19.toml",
+    "name": "L23_sparsely spiny_VISp23_19",
+    "class": "Cortex/L23/sparsely spiny/VISp23",
+    "class_size": 16,
+    "delta_keys": 15,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L23_sparsely spiny_VISp23_1",
+        "actual": "L23_sparsely spiny_VISp23_19"
+      },
+      "threshold": {
+        "template": 38781,
+        "actual": 34499
+      },
+      "rest_potential": {
+        "template": 11564,
+        "actual": 21569
+      },
+      "leak_rate": {
+        "template": 112,
+        "actual": 133
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 474,
+        "actual": 343
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 10000
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 7
+      },
+      "signal_propagation_length": {
+        "template": 19,
+        "actual": 16
+      },
+      "steering_fov_deg": {
+        "template": 72.2,
+        "actual": 55.0
+      },
+      "steering_radius_um": {
+        "template": 33.0,
+        "actual": 380.5
+      },
+      "dendrite_radius_um": {
+        "template": 150.0,
+        "actual": 238.7
+      },
+      "sprouting_weight_explore": {
+        "template": 0.3,
+        "actual": 0.11
+      },
+      "gsop_potentiation": {
+        "template": 20,
+        "actual": 24
+      },
+      "gsop_depression": {
+        "template": 24,
+        "actual": 28
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          123,
+          119,
+          114,
+          109,
+          103,
+          98,
+          92,
+          86,
+          79,
+          72,
+          65,
+          56,
+          46,
+          34,
+          7
+        ],
+        "actual": [
+          128,
+          122,
+          116,
+          110,
+          104,
+          97,
+          91,
+          84,
+          77,
+          70,
+          62,
+          54,
+          45,
+          35,
+          24,
+          6
+        ]
+      }
+    }
+  },
+  {
+    "path": "Cortex/L23/sparsely spiny/VISp23/2.toml",
+    "name": "L23_sparsely spiny_VISp23_2",
+    "class": "Cortex/L23/sparsely spiny/VISp23",
+    "class_size": 16,
+    "delta_keys": 15,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L23_sparsely spiny_VISp23_1",
+        "actual": "L23_sparsely spiny_VISp23_2"
+      },
+      "threshold": {
+        "template": 38781,
+        "actual": 37343
+      },
+      "rest_potential": {
+        "template": 11564,
+        "actual": 8941
+      },
+      "leak_rate": {
+        "template": 112,
+        "actual": 125
+      },
+      "refractory_period": {
+        "template": 15,
+        "actual": 18
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 474,
+        "actual": 100000
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 10000
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 10
+      },
+      "steering_fov_deg": {
+        "template": 72.2,
+        "actual": 55.0
+      },
+      "steering_radius_um": {
+        "template": 33.0,
+        "actual": 282.1
+      },
+      "dendrite_radius_um": {
+        "template": 150.0,
+        "actual": 386.7
+      },
+      "sprouting_weight_explore": {
+        "template": 0.3,
+        "actual": 0.133
+      },
+      "gsop_potentiation": {
+        "template": 20,
+        "actual": 24
+      },
+      "gsop_depression": {
+        "template": 24,
+        "actual": 28
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          123,
+          119,
+          114,
+          109,
+          103,
+          98,
+          92,
+          86,
+          79,
+          72,
+          65,
+          56,
+          46,
+          34,
+          7
+        ],
+        "actual": [
+          128,
+          121,
+          115,
+          108,
+          101,
+          94,
+          87,
+          80,
+          72,
+          65,
+          57,
+          48,
+          40,
+          30,
+          20,
+          6
+        ]
+      }
+    }
+  },
+  {
+    "path": "Cortex/L3/aspiny/MTG/2.toml",
+    "name": "L3_aspiny_MTG_2",
+    "class": "Cortex/L3/aspiny/MTG",
+    "class_size": 35,
+    "delta_keys": 15,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L3_aspiny_MTG_1",
+        "actual": "L3_aspiny_MTG_2"
+      },
+      "threshold": {
+        "template": 16250,
+        "actual": 18593
+      },
+      "rest_potential": {
+        "template": 8592,
+        "actual": 9543
+      },
+      "leak_rate": {
+        "template": 82,
+        "actual": 110
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 356,
+        "actual": 90
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 10000
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 27
+      },
+      "signal_propagation_length": {
+        "template": 24,
+        "actual": 23
+      },
+      "steering_fov_deg": {
+        "template": 147.2,
+        "actual": 130.0
+      },
+      "steering_radius_um": {
+        "template": 33.0,
+        "actual": 500.0
+      },
+      "dendrite_radius_um": {
+        "template": 150.0,
+        "actual": 471.3
+      },
+      "sprouting_weight_explore": {
+        "template": 0.3,
+        "actual": 0.093
+      },
+      "gsop_potentiation": {
+        "template": 20,
+        "actual": 24
+      },
+      "gsop_depression": {
+        "template": 24,
+        "actual": 28
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          123,
+          119,
+          114,
+          109,
+          103,
+          98,
+          92,
+          86,
+          79,
+          72,
+          65,
+          56,
+          46,
+          34,
+          7
+        ],
+        "actual": [
+          128,
+          117,
+          107,
+          97,
+          87,
+          78,
+          68,
+          60,
+          51,
+          43,
+          35,
+          28,
+          21,
+          15,
+          10,
+          6
+        ]
+      }
+    }
+  },
+  {
+    "path": "Cortex/L23/aspiny/VISp23/184.toml",
+    "name": "L23_aspiny_VISp23_184",
+    "class": "Cortex/L23/aspiny/VISp23",
+    "class_size": 176,
+    "delta_keys": 14,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L23_aspiny_VISp23_1",
+        "actual": "L23_aspiny_VISp23_184"
+      },
+      "rest_potential": {
+        "template": 0,
+        "actual": 6518
+      },
+      "leak_rate": {
+        "template": 105,
+        "actual": 117
+      },
+      "refractory_period": {
+        "template": 16,
+        "actual": 18
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 10000
+      },
+      "homeostasis_decay": {
+        "template": 3,
+        "actual": 10
+      },
+      "signal_propagation_length": {
+        "template": 17,
+        "actual": 19
+      },
+      "steering_fov_deg": {
+        "template": 147.2,
+        "actual": 130.0
+      },
+      "steering_radius_um": {
+        "template": 33.0,
+        "actual": 500.0
+      },
+      "dendrite_radius_um": {
+        "template": 150.0,
+        "actual": 325.0
+      },
+      "sprouting_weight_explore": {
+        "template": 0.3,
+        "actual": 0.157
+      },
+      "gsop_potentiation": {
+        "template": 20,
+        "actual": 24
+      },
+      "gsop_depression": {
+        "template": 24,
+        "actual": 28
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          123,
+          118,
+          113,
+          108,
+          102,
+          97,
+          91,
+          84,
+          77,
+          70,
+          62,
+          54,
+          44,
+          31,
+          7
+        ],
+        "actual": [
+          128,
+          121,
+          115,
+          108,
+          101,
+          94,
+          87,
+          80,
+          72,
+          65,
+          57,
+          48,
+          40,
+          30,
+          20,
+          6
+        ]
+      }
+    }
+  },
+  {
+    "path": "Cortex/L4/aspiny/MTG/7.toml",
+    "name": "L4_aspiny_MTG_7",
+    "class": "Cortex/L4/aspiny/MTG",
+    "class_size": 9,
+    "delta_keys": 14,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L4_aspiny_MTG_10",
+        "actual": "L4_aspiny_MTG_7"
+      },
+      "threshold": {
+        "template": 17187,
+        "actual": 18437
+      },
+      "rest_potential": {
+        "template": 9474,
+        "actual": 7739
+      },
+      "leak_rate": {
+        "template": 161,
+        "actual": 71
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 487,
+        "actual": 57
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 3931
+      },
+      "homeostasis_decay": {
+        "template": 2,
+        "actual": 43
+      },
+      "steering_fov_deg": {
+        "template": 147.2,
+        "actual": 130.0
+      },
+      "steering_radius_um": {
+        "template": 33.0,
+        "actual": 500.0
+      },
+      "dendrite_radius_um": {
+        "template": 150.0,
+        "actual": 431.2
+      },
+      "sprouting_weight_explore": {
+        "template": 0.3,
+        "actual": 0.093
+      },
+      "gsop_potentiation": {
+        "template": 20,
+        "actual": 21
+      },
+      "gsop_depression": {
+        "template": 24,
+        "actual": 25
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          121,
+          114,
+          108,
+          101,
+          93,
+          86,
+          79,
+          71,
+          64,
+          56,
+          47,
+          39,
+          30,
+          20,
+          7
+        ],
+        "actual": [
+          128,
+          114,
+          101,
+          88,
+          76,
+          66,
+          55,
+          46,
+          38,
+          30,
+          24,
+          18,
+          14,
+          10,
+          8,
+          7
+        ]
+      }
+    }
+  },
+  {
+    "path": "Cortex/L5/aspiny/MTG/11.toml",
+    "name": "L5_aspiny_MTG_11",
+    "class": "Cortex/L5/aspiny/MTG",
+    "class_size": 8,
+    "delta_keys": 14,
+    "total_keys": 31,
+    "diffs": {
+      "name": {
+        "template": "L5_aspiny_MTG_10",
+        "actual": "L5_aspiny_MTG_11"
+      },
+      "threshold": {
+        "template": 29343,
+        "actual": 16968
+      },
+      "rest_potential": {
+        "template": 11502,
+        "actual": 8883
+      },
+      "leak_rate": {
+        "template": 265,
+        "actual": 79
+      },
+      "spontaneous_firing_period_ticks": {
+        "template": 1152,
+        "actual": 398
+      },
+      "homeostasis_penalty": {
+        "template": 1000,
+        "actual": 10152
+      },
+      "signal_propagation_length": {
+        "template": 24,
+        "actual": 23
+      },
+      "steering_fov_deg": {
+        "template": 147.2,
+        "actual": 130.0
+      },
+      "steering_radius_um": {
+        "template": 33.0,
+        "actual": 500.0
+      },
+      "dendrite_radius_um": {
+        "template": 150.0,
+        "actual": 379.9
+      },
+      "sprouting_weight_explore": {
+        "template": 0.3,
+        "actual": 0.083
+      },
+      "gsop_potentiation": {
+        "template": 20,
+        "actual": 24
+      },
+      "gsop_depression": {
+        "template": 24,
+        "actual": 28
+      },
+      "inertia_curve": {
+        "template": [
+          128,
+          123,
+          119,
+          114,
+          109,
+          103,
+          98,
+          92,
+          86,
+          79,
+          72,
+          65,
+          56,
+          46,
+          34,
+          7
+        ],
+        "actual": [
+          128,
+          122,
+          117,
+          111,
+          105,
+          99,
+          92,
+          86,
+          79,
+          71,
+          64,
+          56,
+          47,
+          37,
+          25,
+          6
+        ]
+      }
+    }
+  }
+]

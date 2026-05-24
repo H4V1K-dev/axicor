@@ -1,0 +1,11 @@
+{
+  "total_files": 1808,
+  "total_classes": 157,
+  "roundtrip_ok": 1808,
+  "roundtrip_fails": 0,
+  "duplicate_groups": 9,
+  "duplicate_files": 22,
+  "cross_class_duplicate_groups": 8,
+  "outlier_files": 54,
+  "outlier_threshold": 14
+}
